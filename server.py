@@ -1,0 +1,1008 @@
+# -*- coding: utf-8 -*-
+"""
+FIN-SYS OS v2.0 - Servidor FastAPI Web Server (server.py)
+---------------------------------------------------------
+Este script levanta el servidor REST en localhost, exponiendo las APIs del
+Módulo 01 (Registro) y Módulo 02 (Libro Diario) y conectando el núcleo matemático.
+"""
+
+import sys
+import os
+
+# --- Cargador de Variables de Entorno Pura Python ---
+if os.path.exists(".env"):
+    with open(".env", "r", encoding="utf-8") as f:
+        for line in f:
+            line_strip = line.strip()
+            if line_strip and not line_strip.startswith("#") and "=" in line_strip:
+                key, val = line_strip.split("=", 1)
+                os.environ[key.strip()] = val.strip()
+
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any
+
+# Agregar subdirectorio fin_sys_core a la ruta de búsqueda de Python
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fin_sys_core"))
+
+from database_driver import (
+    init_db, registrar_transaccion, obtener_transacciones,
+    obtener_perfil_usuario, actualizar_perfil_usuario,
+    obtener_cuentas, crear_cuenta, reset_db,
+    obtener_coa_tree, cargar_plantilla_coa,
+    obtener_portafolios, crear_portafolio, obtener_terceros
+)
+from tax_motor import process_transaction_taxes
+from ledger_math import calculate_caja_viva, validate_pocket_budget, ExcedeLimitePocketError
+from ai_engine import parse_audio_to_transaction, transcribe_audio_only, structure_text_only
+from control_tower_driver import (
+    init_control_tower_db, obtener_entidades_arbol, crear_entidad,
+    actualizar_estado_entidad, eliminar_entidad,
+    obtener_workspace_users, registrar_workspace_user, login_workspace_user,
+    obtener_resource_ids, crear_resource_id, eliminar_resource_id,
+    obtener_aprobaciones, crear_aprobacion, resolver_aprobacion,
+    obtener_miembros_entidad, invitar_miembro, obtener_kpis_entidad
+)
+
+app = FastAPI(
+    title="FIN-SYS OS v2.0 API Server",
+    description="Backend modular e inteligente para el MVP de contabilidad retro-brutalista.",
+    version="2.0"
+)
+
+# Configurar middleware de CORS para comunicación fluida con el frontend React
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Permitir todos los orígenes en desarrollo local
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+import shutil
+os.makedirs("uploads", exist_ok=True)
+from fastapi.staticfiles import StaticFiles
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+
+# ==============================================================================
+# 📋 Esquemas de Validación de Datos (Pydantic Models)
+# ==============================================================================
+
+class PortfolioInput(BaseModel):
+    name: str
+    industry_type: str = "ESTANDAR"
+    sub_industry_type: str = ""
+
+class ThirdPartyInput(BaseModel):
+    identification_type: str = Field(..., pattern="^(NIT|CC)$")
+    identification_number: str
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    website: Optional[str] = None
+
+
+class ProfileInput(BaseModel):
+    name: str
+    email: str
+    role: str
+    avatar_style: str
+
+
+class AccountInput(BaseModel):
+    name: str
+    type: str
+    currency: str = "COP"
+    initial_balance: float = 0.0
+
+
+class CxcCxpInput(BaseModel):
+    type: str = Field(..., pattern="^(CXC|CXP)$")
+    due_date: str
+    term: str = Field("Corto", pattern="^(Corto|Mediano|Largo)$")
+
+
+class AssetInput(BaseModel):
+    name: str
+    purchase_value: float
+    custom_tag: Optional[str] = None
+    establish_as_asset: bool = False
+    is_passive_income_generator: bool = False
+    recurrence_interval_days: Optional[int] = 30
+    recurrence_amount: Optional[float] = 0.0
+
+
+class TransactionInput(BaseModel):
+    portfolio_name: str
+    type: str = Field(..., pattern="^(INGRESO|GASTO|TRANSFERENCIA)$")
+    amount: float = Field(..., gt=0.0)
+    concept: str
+    payment_method: str
+    category: str
+    third_party: ThirdPartyInput
+    transaction_date: str
+    apply_iva: bool = False
+    apply_gmf: bool = False
+    custom_taxes: Optional[List[Dict[str, Any]]] = None
+    
+    # Georreferenciación opcional
+    geo_latitude: Optional[float] = None
+    geo_longitude: Optional[float] = None
+    geo_maps_link: Optional[str] = None
+    
+    # Módulo de Cuentas
+    account_id: Optional[int] = None
+    dest_account_id: Optional[int] = None
+    trm: Optional[float] = 1.0
+    transaction_currency: Optional[str] = "COP"
+    
+    # [NEW] Campos por cobrar/pagar y activos
+    cxc_cxp: Optional[CxcCxpInput] = None
+    asset: Optional[AssetInput] = None
+    evidence_file_path: Optional[str] = None
+    is_recurring: Optional[bool] = False
+    recurrence_interval: Optional[str] = "MENSUAL"
+    recurrence_days: Optional[int] = 30
+    recurrence_max_reps: Optional[int] = None
+    recurrence_start_date: Optional[str] = None
+    recurrence_end_date: Optional[str] = None
+
+
+class StructureRequest(BaseModel):
+    transcript: str
+    portfolio_name: str = "Negocio A"
+
+
+class TransactionUpdateInput(BaseModel):
+    type: Optional[str] = None
+    amount: Optional[float] = None
+    concept: Optional[str] = None
+    transaction_date: Optional[str] = None
+    payment_method: Optional[str] = None
+    category: Optional[str] = None
+    net_value: Optional[float] = None
+    third_party_name: Optional[str] = None
+    identification_number: Optional[str] = None
+    
+    # Módulo de Cuentas
+    account_id: Optional[int] = None
+    dest_account_id: Optional[int] = None
+    trm: Optional[float] = None
+    transaction_currency: Optional[str] = None
+    is_recurring: Optional[bool] = None
+    recurrence_interval: Optional[str] = None
+    recurrence_days: Optional[int] = None
+    recurrence_max_reps: Optional[int] = None
+    recurrence_start_date: Optional[str] = None
+    recurrence_end_date: Optional[str] = None
+
+
+# ==============================================================================
+# 🔌 Endpoints de la API
+# ==============================================================================
+
+@app.on_event("startup")
+def startup_event():
+    """Ejecutado al iniciar el servidor para sincronizar las tablas de Postgres."""
+    print("🔄 Sincronizando esquema de base de datos PostgreSQL...")
+    try:
+        init_db()
+        init_control_tower_db()
+    except Exception as e:
+        print(f"⚠️ [ADVERTENCIA] No se pudo conectar a PostgreSQL en el puerto 5432: {e}")
+        print("Asegúrate de que PostgreSQL esté activo antes de realizar peticiones de base de datos.")
+
+
+@app.get("/api/portfolios")
+def get_portfolios():
+    try:
+        ports = obtener_portafolios()
+        if not ports:
+            # Fallback a iniciales por defecto si está vacío
+            ports = [
+                {"id": 1, "name": "Negocio A", "industry_type": "ESTANDAR"},
+                {"id": 2, "name": "Negocio B", "industry_type": "ESTANDAR"},
+                {"id": 3, "name": "Finanzas Personales", "industry_type": "ESTANDAR"}
+            ]
+        return ports
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/portfolios", status_code=201)
+def create_portfolio_endpoint(port_input: PortfolioInput):
+    try:
+        new_id = crear_portafolio(port_input.name, port_input.industry_type, port_input.sub_industry_type)
+        if not new_id:
+             raise HTTPException(status_code=500, detail="Error al crear el portafolio")
+        return {"status": "CREADO", "portfolio_id": new_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/portfolios/balance")
+def get_caja_viva_balance(portfolio: Optional[str] = None):
+    """
+    Obtiene los agregados acumulados de la Caja Viva en tiempo real.
+    Suma el total de ingresos, gastos, balance neto y patrimonio con alertas.
+    """
+    try:
+        txs = obtener_transacciones(portfolio)
+        accounts = obtener_cuentas()
+        totals = calculate_caja_viva(txs, accounts)
+        return {
+            "status": totals["status"],
+            "total_ingresos": totals["total_ingresos"],
+            "total_gastos": totals["total_gastos"],
+            "balance_neto": totals["balance_neto"],
+            "capital_inicial": totals.get("capital_inicial", 5000000.0),
+            "patrimonio": totals.get("patrimonio", 5000000.0),
+            
+            # Nuevos agregados separados
+            "total_ingresos_cop": totals["total_ingresos_cop"],
+            "total_gastos_cop": totals["total_gastos_cop"],
+            "balance_neto_cop": totals["balance_neto_cop"],
+            "patrimonio_cop": totals["patrimonio_cop"],
+            
+            "total_ingresos_usd": totals["total_ingresos_usd"],
+            "total_gastos_usd": totals["total_gastos_usd"],
+            "balance_neto_usd": totals["balance_neto_usd"],
+            "patrimonio_usd": totals["patrimonio_usd"],
+            
+            "alerts": totals.get("alerts", [])
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/transactions")
+def list_transactions(portfolio: Optional[str] = None):
+    """
+    Obtiene el historial de transacciones ordenado para el Libro Diario (Módulo 02).
+    Soporta filtrado dinámico por la pestaña del portafolio.
+    """
+    try:
+        txs = obtener_transacciones(portfolio)
+        return txs
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/transactions", status_code=201)
+def create_manual_transaction(tx_input: TransactionInput):
+    """
+    Registra manualmente una transacción aplicando impuestos y validación de pockets.
+    """
+    try:
+        # 1. Ejecutar las matemáticas del motor de impuestos (IVA, GMF, Tasas)
+        tax_results = process_transaction_taxes(
+            base_amount=tx_input.amount,
+            apply_iva=tx_input.apply_iva,
+            apply_gmf=tx_input.apply_gmf,
+            custom_taxes=tx_input.custom_taxes
+        )
+
+        # 2. Construir el paquete completo de datos
+        tx_data = {
+            "portfolio_name": tx_input.portfolio_name,
+            "type": tx_input.type,
+            "amount": tx_input.amount,
+            "concept": tx_input.concept,
+            "payment_method": tx_input.payment_method,
+            "category": tx_input.category,
+            "transaction_date": tx_input.transaction_date,
+            "third_party": {
+                "identification_type": tx_input.third_party.identification_type,
+                "identification_number": tx_input.third_party.identification_number,
+                "name": tx_input.third_party.name,
+                "email": tx_input.third_party.email,
+                "phone": tx_input.third_party.phone,
+                "website": tx_input.third_party.website
+            },
+            # Resultados matemáticos exactos
+            "tax_iva_percentage": 19.0 if tx_input.apply_iva else 0.0,
+            "tax_iva_amount": tax_results["iva_amount"],
+            "tax_gmf_percentage": 0.40 if tx_input.apply_gmf else 0.0,
+            "tax_gmf_amount": tax_results["gmf_amount"],
+            "custom_tax_amount": tax_results["custom_taxes_total"],
+            "net_value": tax_results["net_value"],
+            # Georreferenciación
+            "geo_latitude": tx_input.geo_latitude,
+            "geo_longitude": tx_input.geo_longitude,
+            "geo_maps_link": tx_input.geo_maps_link,
+            
+            # Módulo de Cuentas
+            "account_id": tx_input.account_id,
+            "dest_account_id": tx_input.dest_account_id,
+            "trm": tx_input.trm,
+            "transaction_currency": tx_input.transaction_currency,
+            
+            # [NEW] Campos por cobrar/pagar y activos
+            "cxc_cxp": tx_input.cxc_cxp.dict() if tx_input.cxc_cxp else None,
+            "asset": tx_input.asset.dict() if tx_input.asset else None,
+            "evidence_file_path": tx_input.evidence_file_path,
+            "is_recurring": tx_input.is_recurring,
+            "recurrence_interval": tx_input.recurrence_interval,
+            "recurrence_days": tx_input.recurrence_days,
+            "recurrence_max_reps": tx_input.recurrence_max_reps,
+            "recurrence_start_date": tx_input.recurrence_start_date,
+            "recurrence_end_date": tx_input.recurrence_end_date
+        }
+
+        # 3. Guardar en la base de datos PostgreSQL
+        transaction_id = registrar_transaccion(tx_data)
+        
+        return {
+            "status": "EXITOSO",
+            "transaction_id": transaction_id,
+            "net_value": tax_results["net_value"],
+            "concept": tx_input.concept
+        }
+    except ExcedeLimitePocketError as e:
+        # Error controlado de sobregasto de bolsillo
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/upload-evidence")
+def upload_evidence_endpoint(file: UploadFile = File(...)):
+    """
+    Sube un archivo de evidencia (comprobante) a la carpeta de uploads local.
+    """
+    try:
+        os.makedirs("uploads", exist_ok=True)
+        file_path = os.path.join("uploads", file.filename)
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        return {
+            "status": "EXITOSO",
+            "file_path": f"/uploads/{file.filename}"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/transactions/voice")
+def upload_voice_transaction(
+    audio_file: UploadFile = File(...),
+    portfolio_name: str = Form("Negocio A")
+):
+    """
+    Recibe el archivo binario de audio del micrófono en localhost,
+    lo pasa a la API de Gemini Multimodal para su transcripción y parseo RAG
+    y devuelve la propuesta de transacción en estado BORRADOR para confirmación interactiva.
+    """
+    try:
+        # 1. Guardar temporalmente el archivo recibido de audio
+        upload_dir = "./uploads"
+        os.makedirs(upload_dir, exist_ok=True)
+        file_path = os.path.join(upload_dir, audio_file.filename)
+        with open(file_path, "wb") as f:
+            f.write(audio_file.file.read())
+            
+        # 2. Llamar al motor inteligente de Gemini + RAG
+        parsed_tx = parse_audio_to_transaction(file_path, portfolio_name)
+        
+        # 3. Calcular impuestos estándar (IVA/GMF) de forma determinista basados en lo extraído
+        base_amount = parsed_tx.get("amount")
+        if base_amount is None:
+            base_amount = 0.0
+        else:
+            try:
+                base_amount = float(base_amount)
+            except (ValueError, TypeError):
+                base_amount = 0.0
+        
+        # Inferencia simple de IVA: si se extrae o deduce que aplica
+        apply_iva = parsed_tx.get("category") in ["Servicios", "Infraestructura"]
+        
+        tax_results = process_transaction_taxes(
+            base_amount=base_amount,
+            apply_iva=apply_iva,
+            apply_gmf=False
+        )
+        
+        # 4. Devolver la respuesta en estado BORRADOR (para confirmación en la UI)
+        return {
+            "status": "BORRADOR",
+            "raw_transcript": parsed_tx.get("raw_transcript", ""),
+            "parsed_data": {
+                "portfolio_name": portfolio_name,
+                "type": parsed_tx.get("type", "GASTO"),
+                "amount": base_amount,
+                "concept": parsed_tx.get("concept", ""),
+                "payment_method": parsed_tx.get("payment_method") or "Efectivo",
+                "category": parsed_tx.get("category") or "Ventas",
+                "third_party": parsed_tx.get("third_party") or {
+                    "identification_type": "NIT",
+                    "identification_number": "",
+                    "name": ""
+                },
+                "is_recurring": parsed_tx.get("is_recurring", False)
+            },
+            "calculation_results": {
+                "tax_iva_amount": tax_results["iva_amount"],
+                "tax_gmf_amount": tax_results["gmf_amount"],
+                "net_value": tax_results["net_value"]
+            },
+            "suggested_tags": parsed_tx.get("suggested_tags", []),
+            "inferred_fields": parsed_tx.get("inferred_fields", [])
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/transactions/transcribe")
+def upload_voice_transcribe_only(
+    audio_file: UploadFile = File(...)
+):
+    """
+    Recibe el archivo binario de audio del micrófono en localhost,
+    lo pasa a la API de Whisper (vía Groq) o Gemini como fallback para obtener
+    la transcripción textual únicamente.
+    """
+    try:
+        # 1. Guardar temporalmente el archivo recibido de audio
+        upload_dir = "./uploads"
+        os.makedirs(upload_dir, exist_ok=True)
+        file_path = os.path.join(upload_dir, audio_file.filename)
+        with open(file_path, "wb") as f:
+            f.write(audio_file.file.read())
+            
+        # 2. Llamar a la transcripción
+        transcript = transcribe_audio_only(file_path)
+        
+        return {
+            "transcript": transcript
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/transactions/structure")
+def structure_voice_transcript(
+    req: StructureRequest
+):
+    """
+    Toma un texto transcrito (que puede haber sido editado por el usuario),
+    lo pasa a la API de Llama 3.3/Gemini para su parseo RAG
+    y devuelve la propuesta de transacción en estado BORRADOR para confirmación interactiva.
+    """
+    try:
+        portfolio_name = req.portfolio_name
+        transcript = req.transcript
+        
+        # 1. Llamar al motor inteligente de estructuración
+        parsed_tx = structure_text_only(transcript, portfolio_name)
+        
+        # 2. Calcular impuestos estándar (IVA/GMF) de forma determinista basados en lo extraído
+        base_amount = parsed_tx.get("amount")
+        if base_amount is None:
+            base_amount = 0.0
+        else:
+            try:
+                base_amount = float(base_amount)
+            except (ValueError, TypeError):
+                base_amount = 0.0
+        
+        # Inferencia simple de IVA: si se extrae o deduce que aplica
+        apply_iva = parsed_tx.get("category") in ["Servicios", "Infraestructura"]
+        
+        tax_results = process_transaction_taxes(
+            base_amount=base_amount,
+            apply_iva=apply_iva,
+            apply_gmf=False
+        )
+        
+        # 3. Devolver la respuesta en estado BORRADOR (para confirmación en la UI)
+        return {
+            "status": "BORRADOR",
+            "raw_transcript": transcript,
+            "parsed_data": {
+                "portfolio_name": portfolio_name,
+                "type": parsed_tx.get("type", "GASTO"),
+                "amount": base_amount,
+                "concept": parsed_tx.get("concept", ""),
+                "payment_method": parsed_tx.get("payment_method") or "Efectivo",
+                "category": parsed_tx.get("category") or "Ventas",
+                "third_party": parsed_tx.get("third_party") or {
+                    "identification_type": "NIT",
+                    "identification_number": "",
+                    "name": ""
+                },
+                "is_recurring": parsed_tx.get("is_recurring", False)
+            },
+            "calculation_results": {
+                "tax_iva_amount": tax_results["iva_amount"],
+                "tax_gmf_amount": tax_results["gmf_amount"],
+                "net_value": tax_results["net_value"]
+            },
+            "suggested_tags": parsed_tx.get("suggested_tags", []),
+            "inferred_fields": parsed_tx.get("inferred_fields", [])
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/transactions/{tx_id}")
+def update_transaction_endpoint(tx_id: int, tx_update: TransactionUpdateInput):
+    """
+    Permite actualizar campos individuales de una transacción existente (Edición tipo Excel).
+    """
+    try:
+        from database_driver import actualizar_transaccion
+        update_dict = tx_update.dict(exclude_unset=True)
+        
+        # Si se modifica el amount, recalculamos net_value e impuestos por conveniencia
+        if "amount" in update_dict and "net_value" not in update_dict:
+            apply_iva = update_dict.get("category") in ["Servicios", "Infraestructura"]
+            tax_results = process_transaction_taxes(
+                base_amount=update_dict["amount"],
+                apply_iva=apply_iva,
+                apply_gmf=False
+            )
+            update_dict["net_value"] = tax_results["net_value"]
+            update_dict["tax_iva_amount"] = tax_results["iva_amount"]
+            update_dict["tax_gmf_amount"] = tax_results["gmf_amount"]
+            
+        success = actualizar_transaccion(tx_id, update_dict)
+        if not success:
+            raise HTTPException(status_code=404, detail="Transacción no encontrada.")
+        return {"status": "ACTUALIZADO", "transaction_id": tx_id}
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/transactions/seed_synthetic")
+def seed_synthetic_data(portfolio: str = "Negocio A"):
+    """
+    Genera un conjunto de datos sintéticos (Ingresos y Egresos)
+    para simular un entorno financiero real e inducir una alerta de insolvencia.
+    """
+    try:
+        from database_driver import registrar_transaccion
+        
+        synthetic_txs = [
+            {
+                "portfolio_name": portfolio,
+                "type": "INGRESO",
+                "amount": 2500000.0,
+                "concept": "VENTA MAYORISTA DE MERCANCÍA",
+                "payment_method": "Banco M",
+                "category": "Ventas",
+                "transaction_date": "2026-06-01",
+                "third_party": {
+                    "identification_type": "NIT",
+                    "identification_number": "800111222-9",
+                    "name": "DISTRIBUIDORA ANDINA SAS"
+                },
+                "tax_iva_percentage": 0.0,
+                "tax_iva_amount": 0.0,
+                "tax_gmf_percentage": 0.0,
+                "tax_gmf_amount": 0.0,
+                "custom_tax_amount": 0.0,
+                "net_value": 2500000.0
+            },
+            {
+                "portfolio_name": portfolio,
+                "type": "GASTO",
+                "amount": 1500000.0,
+                "concept": "PAGO DE ARRENDAMIENTO OFICINA CENTRAL",
+                "payment_method": "Transferencia",
+                "category": "Infraestructura",
+                "transaction_date": "2026-06-02",
+                "third_party": {
+                    "identification_type": "NIT",
+                    "identification_number": "900555666-3",
+                    "name": "INMOBILIARIA DEL ESTE"
+                },
+                "tax_iva_percentage": 19.0,
+                "tax_iva_amount": 285000.0,
+                "tax_gmf_percentage": 0.0,
+                "tax_gmf_amount": 0.0,
+                "custom_tax_amount": 0.0,
+                "net_value": 1785000.0
+            },
+            {
+                "portfolio_name": portfolio,
+                "type": "GASTO",
+                "amount": 7000000.0,
+                "concept": "COMPRA DE MAQUINARIA NASDAQ-100 IMPORTACIÓN",
+                "payment_method": "Tarjeta C",
+                "category": "Infraestructura",
+                "transaction_date": "2026-06-03",
+                "third_party": {
+                    "identification_type": "CC",
+                    "identification_number": "1007888999",
+                    "name": "GLOBAL TRADING INC"
+                },
+                "tax_iva_percentage": 0.0,
+                "tax_iva_amount": 0.0,
+                "tax_gmf_percentage": 0.0,
+                "tax_gmf_amount": 0.0,
+                "custom_tax_amount": 0.0,
+                "net_value": 7000000.0
+            }
+        ]
+        
+        ids = []
+        for tx in synthetic_txs:
+            tx_id = registrar_transaccion(tx)
+            ids.append(tx_id)
+            
+        return {
+            "status": "COMPLETO",
+            "message": "Datos sintéticos creados con éxito. Se indujo un estado de insolvencia para probar alertas.",
+            "ids": ids
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/transactions/reset")
+def reset_database_endpoint():
+    """
+    Reinicia completamente la base de datos a su estado por defecto
+    (borra transacciones y terceros, y restablece las cuentas iniciales).
+    """
+    try:
+        success = reset_db()
+        if not success:
+            raise HTTPException(status_code=500, detail="No se pudo reiniciar la base de datos.")
+        return {
+            "status": "COMPLETO",
+            "message": "Base de datos y balances de cuentas reiniciados exitosamente."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/profile")
+
+def get_profile():
+    try:
+        return obtener_perfil_usuario()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/profile")
+def update_profile(profile: ProfileInput):
+    try:
+        success = actualizar_perfil_usuario(profile.dict())
+        if not success:
+            raise HTTPException(status_code=500, detail="No se pudo actualizar el perfil.")
+        return {"status": "ACTUALIZADO"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/accounts")
+def list_accounts():
+    try:
+        return obtener_cuentas()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/accounts", status_code=201)
+def add_account(acc: AccountInput):
+    try:
+        new_id = crear_cuenta(acc.dict())
+        return {"status": "CREADO", "account_id": new_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/coa")
+def get_coa_tree(portfolio: str):
+    """Obtiene el árbol del catálogo de cuentas"""
+    try:
+        tree = obtener_coa_tree(portfolio)
+        return {"status": "OK", "data": tree}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class CoaTemplateInput(BaseModel):
+    portfolio_name: str
+    template_name: str
+
+@app.post("/api/coa/template")
+def load_coa_template(payload: CoaTemplateInput):
+    """Carga una plantilla COA para un portafolio"""
+    try:
+        success = cargar_plantilla_coa(payload.portfolio_name, payload.template_name)
+        if not success:
+            raise HTTPException(status_code=500, detail="No se pudo cargar la plantilla COA. Verifica la base de datos.")
+        return {"status": "CARGADO", "message": f"Plantilla {payload.template_name} cargada con éxito."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class CoaAccountInput(BaseModel):
+    portfolio_name: str
+    code: str
+    name: str
+    type: str
+    is_group: bool
+    parent_code: Optional[str] = None
+
+@app.post("/api/coa/account")
+def add_coa_account(payload: CoaAccountInput):
+    """Agrega una cuenta personalizada al COA"""
+    from database_driver import agregar_cuenta_coa
+    try:
+        acc_data = {
+            "code": payload.code,
+            "name": payload.name,
+            "type": payload.type,
+            "is_group": payload.is_group,
+            "parent_code": payload.parent_code
+        }
+        success = agregar_cuenta_coa(payload.portfolio_name, acc_data)
+        if not success:
+            raise HTTPException(status_code=500, detail="Error guardando cuenta.")
+        return {"status": "CREADO"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    import uvicorn
+    # Iniciar servidor local en el puerto 8000
+    uvicorn.run("server:app", host="127.0.0.1", port=8000, reload=True)
+
+
+@app.get("/api/third-parties")
+def get_third_parties():
+    try:
+        return obtener_terceros()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================================
+# 🏢 CONTROL TOWER ENDPOINTS — /api/ct/*
+# ==============================================================================
+
+# --- Pydantic Models para Control Tower ---
+class EntityInput(BaseModel):
+    name: str
+    type: str = "EMPRESA"
+    parent_id: Optional[int] = None
+    portfolio_id: Optional[int] = None
+    industry: Optional[str] = ""
+    sub_industry: Optional[str] = ""
+    status: Optional[str] = "AL DIA"
+
+class CTUserRegisterInput(BaseModel):
+    name: str
+    email: str
+    password: str
+    role_label: str = "Colaborador"
+    permissions: Optional[Dict[str, Any]] = None
+    parent_user_id: Optional[int] = None
+
+class CTLoginInput(BaseModel):
+    email: str
+    password: str
+
+class ResourceIdInput(BaseModel):
+    entity_id: int
+    label: str
+    value: str
+    category: str = "FISCAL"
+    expires_at: Optional[str] = None
+    notes: Optional[str] = None
+
+class ApprovalInput(BaseModel):
+    entity_id: int
+    transaction_id: Optional[int] = None
+    requested_by: Optional[int] = None
+    description: Optional[str] = None
+    amount: Optional[float] = None
+
+class ResolveApprovalInput(BaseModel):
+    status: str  # APROBADO | RECHAZADO
+    reviewer_id: int
+    notes: Optional[str] = ""
+
+class MemberInviteInput(BaseModel):
+    user_id: int
+    role_label: str = "Colaborador"
+    permissions: Optional[Dict[str, Any]] = None
+    expires_at: Optional[str] = None
+
+class CTQuickTransactionInput(BaseModel):
+    entity_id: int
+    portfolio_name: str
+    type: str  # INGRESO | GASTO
+    amount: float
+    concept: str
+    category: str
+    payment_method: str
+    third_party_name: str
+    third_party_id_number: str
+    third_party_id_type: str = "NIT"
+
+
+# --- Entidades ---
+@app.get("/api/ct/entities")
+def ct_get_entities():
+    try:
+        return obtener_entidades_arbol()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/ct/entities", status_code=201)
+def ct_create_entity(data: EntityInput):
+    try:
+        new_id = crear_entidad(data.dict())
+        return {"status": "CREADO", "entity_id": new_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/api/ct/entities/{entity_id}/status")
+def ct_update_entity_status(entity_id: int, status: str):
+    try:
+        actualizar_estado_entidad(entity_id, status)
+        return {"status": "ACTUALIZADO"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/ct/entities/{entity_id}")
+def ct_delete_entity(entity_id: int):
+    try:
+        eliminar_entidad(entity_id)
+        return {"status": "ELIMINADO"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/ct/entities/{entity_id}/kpis")
+def ct_get_entity_kpis(entity_id: int):
+    try:
+        return obtener_kpis_entidad(entity_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Usuarios del Workspace ---
+@app.get("/api/ct/users")
+def ct_get_users():
+    try:
+        return obtener_workspace_users()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/ct/users/register", status_code=201)
+def ct_register_user(data: CTUserRegisterInput):
+    try:
+        user = registrar_workspace_user(data.dict())
+        return {"status": "REGISTRADO", "user": user}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/ct/users/login")
+def ct_login_user(data: CTLoginInput):
+    try:
+        user = login_workspace_user(data.email, data.password)
+        if not user:
+            raise HTTPException(status_code=401, detail="Credenciales inválidas")
+        return {"status": "OK", "user": user}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Resource IDs ---
+@app.get("/api/ct/entities/{entity_id}/resources")
+def ct_get_resources(entity_id: int):
+    try:
+        return obtener_resource_ids(entity_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/ct/resources", status_code=201)
+def ct_create_resource(data: ResourceIdInput):
+    try:
+        new_id = crear_resource_id(data.dict())
+        return {"status": "CREADO", "resource_id": new_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/ct/resources/{rid}")
+def ct_delete_resource(rid: int):
+    try:
+        eliminar_resource_id(rid)
+        return {"status": "ELIMINADO"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Aprobaciones ---
+@app.get("/api/ct/approvals")
+def ct_get_approvals(entity_id: Optional[int] = None):
+    try:
+        return obtener_aprobaciones(entity_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/ct/approvals", status_code=201)
+def ct_create_approval(data: ApprovalInput):
+    try:
+        new_id = crear_aprobacion(data.dict())
+        return {"status": "CREADO", "approval_id": new_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/api/ct/approvals/{approval_id}/resolve")
+def ct_resolve_approval(approval_id: int, data: ResolveApprovalInput):
+    try:
+        resolver_aprobacion(approval_id, data.status, data.reviewer_id, data.notes)
+        return {"status": "RESUELTO"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Miembros por entidad ---
+@app.get("/api/ct/entities/{entity_id}/members")
+def ct_get_members(entity_id: int):
+    try:
+        return obtener_miembros_entidad(entity_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/ct/entities/{entity_id}/members", status_code=201)
+def ct_invite_member(entity_id: int, data: MemberInviteInput):
+    try:
+        perms = data.permissions or {"ledger": True, "reports": True}
+        new_id = invitar_miembro(entity_id, data.user_id, data.role_label, perms, data.expires_at)
+        return {"status": "INVITADO", "member_id": new_id}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Transacción Rápida desde Control Tower ---
+@app.post("/api/ct/quick-transaction", status_code=201)
+def ct_quick_transaction(data: CTQuickTransactionInput):
+    """Registra una transacción rápida desde el panel lateral del Control Tower."""
+    try:
+        from tax_motor import process_transaction_taxes
+        tax_results = process_transaction_taxes(
+            base_amount=data.amount, apply_iva=False, apply_gmf=False
+        )
+        tx_data = {
+            "portfolio_name": data.portfolio_name,
+            "type": data.type,
+            "amount": data.amount,
+            "concept": data.concept,
+            "payment_method": data.payment_method,
+            "category": data.category,
+            "transaction_date": __import__('datetime').date.today().isoformat(),
+            "third_party": {
+                "identification_type": data.third_party_id_type,
+                "identification_number": data.third_party_id_number,
+                "name": data.third_party_name,
+            },
+            "tax_iva_percentage": 0.0, "tax_iva_amount": 0.0,
+            "tax_gmf_percentage": 0.0, "tax_gmf_amount": 0.0,
+            "custom_tax_amount": 0.0,
+            "net_value": tax_results["net_value"],
+        }
+        from database_driver import registrar_transaccion
+        tx_id = registrar_transaccion(tx_data)
+        return {"status": "EXITOSO", "transaction_id": tx_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
