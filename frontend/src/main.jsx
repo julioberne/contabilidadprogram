@@ -4,8 +4,9 @@ import './index.css'
 import App from './App.jsx'
 import CoaTest from './CoaTest.jsx'
 import ControlTowerApp from './control-tower/ControlTowerApp.jsx'
+import ProjectHubApp  from './project-hub/ProjectHubApp.jsx'
 
-// Views: 'app' | 'coa' | 'tower'
+// Views: 'app' | 'coa' | 'tower' | 'hub'
 function MainRouter() {
   const [view, setView] = useState('app');
 
@@ -31,8 +32,8 @@ function MainRouter() {
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Navigation bar — only visible outside Control Tower */}
-      {view !== 'tower' && (
+      {/* Navigation bar — only visible outside Control Tower and Project Hub */}
+      {view !== 'tower' && view !== 'hub' && (
         <div style={{
           background: '#0f0f1b',
           padding: '8px 16px',
@@ -45,15 +46,21 @@ function MainRouter() {
           {navBtn('app', '📊 FIN-SYS APP', '#4facfe')}
           {navBtn('coa', '🧪 TEST COA', '#ff4b2b')}
           {navBtn('tower', '⬡ CONTROL TOWER', '#fbbf24')}
+          {navBtn('hub',   '⬡ PROJECT HUB',   '#0EA5E9')}
         </div>
       )}
-      <div style={{ flex: 1, overflow: view === 'tower' ? 'hidden' : 'auto' }}>
+      <div style={{ flex: 1, overflow: (view === 'tower' || view === 'hub') ? 'hidden' : 'auto' }}>
         {view === 'app' && <App />}
         {view === 'coa' && <CoaTest />}
         {view === 'tower' && (
           <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
             {/* Back button overlay for Control Tower */}
             <ControlTowerApp onGoBack={() => setView('app')} />
+          </div>
+        )}
+        {view === 'hub' && (
+          <div style={{ height: '100%' }}>
+            <ProjectHubApp onExit={() => setView('app')} />
           </div>
         )}
       </div>
