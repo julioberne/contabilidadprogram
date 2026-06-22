@@ -193,6 +193,16 @@ def startup_event():
     except Exception as e:
         print(f"⚠️ [ADVERTENCIA] No se pudo conectar a PostgreSQL en el puerto 5432: {e}")
         print("Asegúrate de que PostgreSQL esté activo antes de realizar peticiones de base de datos.")
+    
+    # ── Zero-COA: Registrar listener de partida doble ──
+    try:
+        from kernel.kernel_event_bus import on
+        from kernel.kernel_accounting import registrar_asiento, init_journal_entries_table
+        init_journal_entries_table()
+        on('fin.transaccion.registrada', registrar_asiento)
+        print("✅ Zero-COA: listener de partida doble registrado")
+    except Exception as e:
+        print(f"⚠️ Zero-COA init: {e}")
 
 
 @app.get("/api/portfolios")
@@ -343,7 +353,8 @@ def create_manual_transaction(tx_input: TransactionInput):
                 descripcion=tx_input.concept or "",
                 fecha=tx_input.transaction_date
             )
-        except: pass
+        except Exception:
+            pass  # Non-blocking: Zero-COA failure must not break transactions
 
         return {
             "status": "EXITOSO",
@@ -1983,6 +1994,15 @@ def _emit_journal_entry(category, tx_type, amount, account_id=None, referencia="
             ORDER BY portfolio_id NULLS LAST LIMIT 1;
         """, (category, tx_type))
         rule = cur.fetchone()
+        # Fallback: si no hay match exacto, usar regla genérica
+        if not rule:
+            cur.execute("""
+                SELECT debit_account_code, credit_account_code, rule_name
+                FROM posting_rules
+                WHERE category = '__FALLBACK__' AND transaction_type = %s AND is_active = TRUE
+                LIMIT 1;
+            """, (tx_type,))
+            rule = cur.fetchone()
         cur.close()
         release_db_connection(conn)
         if not rule:
@@ -2084,6 +2104,15 @@ def preview_posting_rule(category: str, tx_type: str, amount: float = 0, account
             ORDER BY portfolio_id NULLS LAST LIMIT 1;
         """, (category, tx_type))
         rule = cur.fetchone()
+        # Fallback genérico
+        if not rule:
+            cur.execute("""
+                SELECT debit_account_code, credit_account_code, rule_name, description
+                FROM posting_rules
+                WHERE category = '__FALLBACK__' AND transaction_type = %s AND is_active = TRUE
+                LIMIT 1;
+            """, (tx_type,))
+            rule = cur.fetchone()
         cur.close()
         release_db_connection(conn)
         if not rule:
