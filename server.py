@@ -1429,14 +1429,19 @@ def reconcile_balances():
 
 # ── GET /api/dashboard-data ──
 @app.get("/api/dashboard-data")
-def get_dashboard_data(portfolio: Optional[str] = None):
+def get_dashboard_data(portfolio: Optional[str] = None, limit: int = 50, offset: int = 0):
     try:
-        from fin_sys_core.database_driver import obtener_transacciones, obtener_cuentas
+        from fin_sys_core.database_driver import obtener_transacciones, obtener_cuentas, obtener_portafolios, obtener_perfil_usuario
         from fin_sys_core.ledger_math import calculate_caja_viva
         txs = obtener_transacciones(portfolio)
         accounts = obtener_cuentas()
         totals = calculate_caja_viva(txs, accounts)
-        return {
+        
+        # Paginación de transacciones
+        paginated_txs = txs[offset:offset + limit] if txs else []
+        
+        result = {
+            # KPIs (balance)
             "status": totals["status"],
             "total_ingresos": totals["total_ingresos"],
             "total_gastos": totals["total_gastos"],
@@ -1451,10 +1456,59 @@ def get_dashboard_data(portfolio: Optional[str] = None):
             "total_gastos_usd": totals["total_gastos_usd"],
             "balance_neto_usd": totals["balance_neto_usd"],
             "patrimonio_usd": totals["patrimonio_usd"],
-            "alerts": totals.get("alerts", [])
+            "alerts": totals.get("alerts", []),
+            # SOL-04A: datos consolidados para el frontend
+            "transactions": paginated_txs,
+            "total_tx_count": len(txs),
+            "accounts": accounts,
+            "portfolios": obtener_portafolios(),
+            "balance": totals,
         }
+        
+        # Perfil
+        try:
+            result["profile"] = obtener_perfil_usuario()
+        except:
+            result["profile"] = None
+        
+        # COA
+        try:
+            from fin_sys_core.database_driver import get_db_connection, release_db_connection
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT id, code, name, parent_id, is_group, naturaleza, nivel
+                FROM coa_accounts
+                WHERE portfolio_name = %s
+                ORDER BY code;
+            """, (portfolio or "Negocio A",))
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            cur.close()
+            release_db_connection(conn)
+            if rows:
+                result["coa"] = {"status": "OK", "data": _build_coa_tree(rows)}
+            else:
+                result["coa"] = {"status": "EMPTY", "data": []}
+        except Exception:
+            result["coa"] = None
+        
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _build_coa_tree(flat_rows):
+    """Construye árbol COA a partir de filas planas."""
+    by_id = {r["id"]: {**r, "children": []} for r in flat_rows}
+    tree = []
+    for r in flat_rows:
+        node = by_id[r["id"]]
+        if r.get("parent_id") and r["parent_id"] in by_id:
+            by_id[r["parent_id"]]["children"].append(node)
+        else:
+            tree.append(node)
+    return tree
 
 
 # ── POST /api/cache/invalidate ──
