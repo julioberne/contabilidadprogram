@@ -196,9 +196,11 @@ def startup_event():
     
     # ── Zero-COA: Registrar listener de partida doble ──
     try:
-        from kernel.kernel_event_bus import on
+        from kernel.kernel_event_bus import on, off
         from kernel.kernel_accounting import registrar_asiento, init_journal_entries_table
         init_journal_entries_table()
+        # Reset primero para evitar duplicados en hot-reload
+        off('fin.transaccion.registrada')
         on('fin.transaccion.registrada', registrar_asiento)
         print("✅ Zero-COA: listener de partida doble registrado")
     except Exception as e:
