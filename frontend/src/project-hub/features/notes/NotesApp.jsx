@@ -14,17 +14,19 @@ export default function NotesApp({ workspace, user }) {
   const [loading, setLoading]       = useState(false);
   const [creating, setCreating]     = useState(false);
 
-  const load = async () => {
-    if (!workspace || !user) return;
+  useEffect(() => {
+    if (!workspace?.id || !user?.id) return;
     setLoading(true);
-    try {
-      const r = await fetch(`${API}/notes?workspace_id=${workspace.id}&user_id=${user.id}`);
-      const data = await r.json();
-      setNotes(Array.isArray(data) ? data : []);
-    } finally { setLoading(false); }
-  };
-
-  useEffect(() => { load(); }, [workspace?.id, user?.id]);
+    fetch(`${API}/notes?workspace_id=${workspace.id}&user_id=${user.id}`)
+      .then(r => r.json())
+      .then(data => {
+        const list = Array.isArray(data) ? data : [];
+        setNotes(list);
+        if (list.length > 0 && !activeNote) setActiveNote(list[0]);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [workspace?.id, user?.id]);
 
   const createNote = async () => {
     if (!workspace || !user) return;
@@ -76,7 +78,7 @@ export default function NotesApp({ workspace, user }) {
           {['all', 'mine', 'shared'].map(f => (
             <button key={f} style={{ ...styles.filterBtn, ...(filter === f ? styles.filterActive : {}) }}
               onClick={() => setFilter(f)}>
-              {f === 'all' ? 'TODAS' : f === 'mine' ? 'MÍ AS' : 'COMPARTIDAS'}
+          {f === 'all' ? 'TODAS' : f === 'mine' ? 'MÍAS' : 'COMPARTIDAS'}
             </button>
           ))}
         </div>
@@ -143,30 +145,30 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     padding: '14px 14px', borderBottom: `2px solid ${C.border}`,
   },
-  listTitle: { color: C.accent, fontSize: '12px', fontWeight: 700, letterSpacing: '2px' },
+  listTitle: { color: C.accent, fontSize: '13px', fontWeight: 700, letterSpacing: '2px' },
   newBtn: {
     background: C.accent, border: 'none', color: '#000',
-    padding: '5px 10px', cursor: 'pointer', fontSize: '10px',
+    padding: '5px 10px', cursor: 'pointer', fontSize: '11px',
     fontWeight: 700, letterSpacing: '1px', fontFamily: '"IBM Plex Mono", monospace',
   },
   filters: { display: 'flex', borderBottom: `1px solid ${C.border}` },
   filterBtn: {
     flex: 1, background: 'transparent', border: 'none', color: C.dim,
-    padding: '7px 4px', cursor: 'pointer', fontSize: '9px', letterSpacing: '1px',
+    padding: '8px 4px', cursor: 'pointer', fontSize: '11px', letterSpacing: '1px',
     fontFamily: '"IBM Plex Mono", monospace',
   },
   filterActive: { color: C.accent, borderBottom: `2px solid ${C.accent}` },
   noteList: { flex: 1, overflowY: 'auto' },
-  msg: { color: C.dim, fontSize: '11px', textAlign: 'center', padding: '20px', fontFamily: '"IBM Plex Mono", monospace' },
+  msg: { color: C.dim, fontSize: '12px', textAlign: 'center', padding: '20px', fontFamily: '"IBM Plex Mono", monospace' },
   emptyState: {
     display: 'flex', flexDirection: 'column', alignItems: 'center',
     padding: '32px 16px', gap: '10px',
   },
   emptyIcon: { fontSize: '32px', color: C.dim },
-  emptyText: { color: C.dim, fontSize: '12px', margin: 0, fontFamily: '"IBM Plex Mono", monospace' },
+  emptyText: { color: C.dim, fontSize: '13px', margin: 0, fontFamily: '"IBM Plex Mono", monospace' },
   emptyBtn: {
     background: 'transparent', border: `1px dashed ${C.accent}`, color: C.accent,
-    padding: '6px 12px', cursor: 'pointer', fontSize: '11px',
+    padding: '7px 14px', cursor: 'pointer', fontSize: '12px',
     fontFamily: '"IBM Plex Mono", monospace',
   },
   noteItem: {
@@ -174,14 +176,20 @@ const styles = {
     borderBottom: `1px solid ${C.border}`, padding: '12px 14px',
     cursor: 'pointer', textAlign: 'left', transition: 'background .15s',
   },
-  noteActive: { background: 'rgba(14,165,233,0.08)', borderLeft: `3px solid ${C.accent}` },
+  noteActive: {
+    background: 'rgba(14,165,233,0.08)',
+    borderTop: '1px solid #1e1e1e',
+    borderRight: '1px solid #1e1e1e',
+    borderBottom: '1px solid #1e1e1e',
+    borderLeft: `3px solid ${C.accent}`,
+  },
   noteItemTop: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' },
-  noteTitle: { color: C.text, fontSize: '12px', fontWeight: 600, fontFamily: '"IBM Plex Mono", monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 },
+  noteTitle: { color: C.text, fontSize: '13px', fontWeight: 600, fontFamily: '"IBM Plex Mono", monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 },
   badge: { fontSize: '11px', flexShrink: 0, marginLeft: '6px' },
   badgePrivate: {}, badgeShared: {},
   noteItemBot: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  noteAuthor: { color: C.dim, fontSize: '10px', fontFamily: '"IBM Plex Mono", monospace' },
-  noteDate: { color: C.dim, fontSize: '10px', fontFamily: '"IBM Plex Mono", monospace' },
+  noteAuthor: { color: C.dim, fontSize: '11px', fontFamily: '"IBM Plex Mono", monospace' },
+  noteDate: { color: C.dim, fontSize: '11px', fontFamily: '"IBM Plex Mono", monospace' },
   editor: { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' },
   noNote: {
     flex: 1, display: 'flex', flexDirection: 'column',

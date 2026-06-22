@@ -1,7 +1,8 @@
 # 📋 Reglas del Proyecto — FIN-SYS OS v2.0
 
-> **Última actualización**: 09 Junio 2026
+> **Última actualización**: 18 Junio 2026
 > Este documento define las reglas de oro obligatorias para todo agente, subagente y desarrollador que trabaje en este proyecto.
+> **NOTA DE DUPLICIDAD**: Las reglas críticas de permisos por archivo y el estado de módulos también están en `AGENTS.md` (raíz). `AGENTS.md` es la fuente autoritativa que lee el agente al inicio de sesión. Este archivo provee contexto narrativo más detallado.
 
 ---
 

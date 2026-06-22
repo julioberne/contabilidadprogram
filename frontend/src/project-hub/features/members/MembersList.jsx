@@ -4,6 +4,7 @@
    ============================================================ */
 import { useState, useEffect } from 'react';
 import MemberProfile from './MemberProfile';
+import CompanyMapTab from './CompanyMapTab';
 
 const API = 'http://localhost:8000/api/hub';
 
@@ -16,6 +17,8 @@ export default function MembersList({ workspace, user }) {
   const [addRole,  setAddRole]  = useState('member');
   const [addError, setAddError] = useState('');
   const [showAdd,  setShowAdd]  = useState(false);
+  const [showMap,  setShowMap]  = useState(false);   // Mapa de Empresas (ADMIN)
+  const isAdmin = user?.role === 'owner' || user?.role === 'admin' || user?.is_superuser;
 
   useEffect(() => {
     if (!workspace) return;
@@ -66,6 +69,8 @@ export default function MembersList({ workspace, user }) {
     <MemberProfile
       member={selected}
       metrics={membersWithMetrics.find(m => m.id === selected.id)}
+      workspace={workspace}
+      currentUser={user}
       onBack={() => setSelected(null)}
     />
   );
@@ -78,11 +83,22 @@ export default function MembersList({ workspace, user }) {
           <h2 style={styles.title}>EQUIPO</h2>
           <p style={styles.subtitle}>{workspace.name} — {members.length} miembro{members.length !== 1 ? 's' : ''}</p>
         </div>
-        {(user?.role === 'owner' || user?.role === 'admin' || user?.is_superuser) && (
-          <button style={styles.addBtn} onClick={() => setShowAdd(v => !v)}>
-            + AGREGAR
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {isAdmin && (
+            <button
+              style={{ ...styles.addBtn, background: showMap ? '#0EA5E9' : 'transparent', color: showMap ? '#000' : '#0EA5E9', border: '2px solid #0EA5E9' }}
+              onClick={() => setShowMap(v => !v)}
+              title="Mapa de empresas y asignaciones"
+            >
+              {showMap ? '✕ CERRAR MAPA' : '◈ MAPA EMPRESAS'}
+            </button>
+          )}
+          {isAdmin && (
+            <button style={styles.addBtn} onClick={() => setShowAdd(v => !v)}>
+              + AGREGAR
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Formulario agregar */}
@@ -177,6 +193,17 @@ export default function MembersList({ workspace, user }) {
           )}
         </div>
       )}
+
+      {/* ── MAPA DE EMPRESAS (solo ADMIN) ─────────────────────── */}
+      {showMap && isAdmin && (
+        <div style={styles.mapSection}>
+          <CompanyMapTab
+            workspace={workspace}
+            currentUser={user}
+            members={members}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -189,18 +216,19 @@ const C = { bg: '#0a0a0a', card: '#111', border: '#1e1e1e', borderAcc: '#0EA5E9'
 
 const styles = {
   root: { display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', background: C.bg, fontFamily: '"IBM Plex Mono", monospace' },
+  mapSection: { flex: '0 0 45vh', minHeight: '320px', borderTop: '2px solid #0EA5E9', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
   empty: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' },
   emptyText: { color: C.dim, fontSize: '14px' },
   header: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '20px 24px', borderBottom: `2px solid ${C.border}`, flexShrink: 0 },
-  title: { color: C.accent, fontSize: '16px', margin: '0 0 4px', letterSpacing: '3px' },
-  subtitle: { color: C.dim, fontSize: '11px', margin: 0 },
+  title: { color: C.accent, fontSize: '17px', margin: '0 0 4px', letterSpacing: '3px' },
+  subtitle: { color: C.dim, fontSize: '12px', margin: 0 },
   addBtn: { background: C.accent, border: 'none', color: '#000', padding: '8px 16px', cursor: 'pointer', fontSize: '11px', fontWeight: 700, letterSpacing: '1px', fontFamily: '"IBM Plex Mono", monospace', boxShadow: `2px 2px 0 #0369a1` },
   addForm: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 24px', background: '#111', borderBottom: `1px solid ${C.border}`, flexWrap: 'wrap' },
-  addLabel: { color: C.dim, fontSize: '11px' },
-  input: { background: '#1a1a1a', border: `2px solid #333`, color: C.text, padding: '6px 10px', fontSize: '11px', fontFamily: '"IBM Plex Mono", monospace', outline: 'none', flex: 1, minWidth: '200px' },
-  select: { background: '#1a1a1a', border: `2px solid #333`, color: C.text, padding: '6px 10px', fontSize: '11px', fontFamily: '"IBM Plex Mono", monospace', outline: 'none', cursor: 'pointer' },
-  submitBtn: { background: C.accent, border: 'none', color: '#000', padding: '6px 14px', cursor: 'pointer', fontSize: '11px', fontWeight: 700, fontFamily: '"IBM Plex Mono", monospace' },
-  addError: { color: '#ef4444', fontSize: '11px' },
+  addLabel: { color: C.dim, fontSize: '12px' },
+  input: { background: '#1a1a1a', border: `2px solid #333`, color: C.text, padding: '7px 10px', fontSize: '12px', fontFamily: '"IBM Plex Mono", monospace', outline: 'none', flex: 1, minWidth: '200px' },
+  select: { background: '#1a1a1a', border: `2px solid #333`, color: C.text, padding: '7px 10px', fontSize: '12px', fontFamily: '"IBM Plex Mono", monospace', outline: 'none', cursor: 'pointer' },
+  submitBtn: { background: C.accent, border: 'none', color: '#000', padding: '7px 16px', cursor: 'pointer', fontSize: '12px', fontWeight: 700, fontFamily: '"IBM Plex Mono", monospace' },
+  addError: { color: '#ef4444', fontSize: '12px' },
   loading: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.dim, fontSize: '12px' },
   grid: { flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px', alignContent: 'start' },
   card: { background: C.card, border: `2px solid ${C.border}`, display: 'flex', gap: '16px', padding: '18px', cursor: 'pointer', textAlign: 'left', transition: 'border-color .15s, box-shadow .15s', fontFamily: '"IBM Plex Mono", monospace', width: '100%' },
@@ -209,15 +237,15 @@ const styles = {
   cardBody: { flex: 1, display: 'flex', flexDirection: 'column', gap: '6px', minWidth: 0 },
   cardTop: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' },
   name: { color: C.text, fontSize: '13px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  roleBadge: { border: '1px solid', color: C.dim, padding: '1px 6px', fontSize: '9px', letterSpacing: '1px', flexShrink: 0 },
-  desc: { color: C.dim, fontSize: '11px', margin: 0, lineHeight: 1.4 },
+  roleBadge: { border: '1px solid', color: C.dim, padding: '1px 6px', fontSize: '10px', letterSpacing: '1px', flexShrink: 0 },
+  desc: { color: C.dim, fontSize: '12px', margin: 0, lineHeight: 1.4 },
   progressRow: { display: 'flex', alignItems: 'center', gap: '8px' },
   progressBar: { flex: 1, height: '4px', background: '#1e1e1e', overflow: 'hidden' },
   progressFill: { height: '100%', transition: 'width .4s' },
-  pct: { color: C.dim, fontSize: '10px', flexShrink: 0 },
+  pct: { color: C.dim, fontSize: '11px', flexShrink: 0 },
   kpis: { display: 'flex', gap: '14px' },
   kpi: { display: 'flex', flexDirection: 'column', gap: '1px' },
-  kpiVal: { color: C.text, fontSize: '14px', fontWeight: 700, color: C.accent },
-  kpiLabel: { color: C.dim, fontSize: '9px', letterSpacing: '1px' },
-  noMembers: { color: C.dim, fontSize: '12px', gridColumn: '1/-1', textAlign: 'center', padding: '40px' },
+  kpiVal: { color: C.accent, fontSize: '16px', fontWeight: 700 },
+  kpiLabel: { color: C.dim, fontSize: '10px', letterSpacing: '1px' },
+  noMembers: { color: C.dim, fontSize: '13px', gridColumn: '1/-1', textAlign: 'center', padding: '40px' },
 };

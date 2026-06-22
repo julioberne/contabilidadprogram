@@ -1,68 +1,100 @@
-# Progreso del Proyecto — FIN-SYS OS v2.0
+# Progress — FIN-SYS OS v2.0
 
-> Última actualización: 10 Junio 2026
+> Resumen de avance por módulo. Última actualización: 22 Jun 2026 — 00:15 COT
 
 ---
 
-## Estado de Módulos
+## Módulos
 
-| Módulo | Descripción | Estado | Fecha Completado |
+| # | Módulo | Estado | Archivos principales |
 |---|---|---|---|
-| 01 | Registro Contable Universal | ✅ COMPLETO | Jun 2026 |
-| 02 | Libro Diario Inteligente (edición inline) | ✅ COMPLETO | Jun 2026 |
-| 03 | Cuentas Multi-Moneda COP/USD + Perfil | ✅ COMPLETO | Jun 2026 |
-| 04 | Cartera CXC/CXP | ✅ COMPLETO | Jun 2026 |
-| 05 | Activos Patrimoniales | ✅ COMPLETO | Jun 2026 |
-| 06 | Motor de Voz (Groq Whisper + Llama 3.3) | ✅ COMPLETO | Jun 2026 |
-| 07 | Control Tower Multi-Entidad B2B | ✅ COMPLETO | Jun 2026 |
-| 08 | Trading / NASDAQ-100 | 🔵 PLANIFICADO | — |
-| 09 | Bot WhatsApp / Telegram | 🔵 PLANIFICADO | — |
-| 10 | Reportes PDF / Excel | 🔵 PLANIFICADO | — |
+| 01 | Registro de Transacciones | ✅ COMPLETO | App.jsx (Módulo 01) |
+| 02 | Libro Diario + Filtros | ✅ COMPLETO | App.jsx (Módulo 02) |
+| 03 | Caja Viva (KPIs) | ✅ COMPLETO | ledger_math.py + App.jsx |
+| 04 | Motor de Voz (RAG) | ✅ COMPLETO | ai_engine.py |
+| 05 | Perfil + Cuentas Multi-moneda | ✅ COMPLETO | App.jsx + database_driver.py |
+| 06 | Evidencia + Edición Excel | ✅ COMPLETO | App.jsx |
+| 07 | Control Tower | ✅ COMPLETO | control-tower/, control_tower_driver.py |
+| 08 | Project Hub | ✅ COMPLETO | project-hub/, hub_driver.py |
+| 08c | RRHH / Empresas / Documentos / Historial | ✅ EN USO | members/tabs/, hr_driver.py |
+| **Zero-COA** | **Motor contable partida doble** | ✅ FASE 1+2 | server.py, kernel/, posting_rules |
+| 09 | Bot IA (WhatsApp/Telegram + Groq) | 🔵 PLANIFICADO | — |
+| 10 | Trading NASDAQ (PnL, velas, heatmap) | 🔵 PLANIFICADO | — |
 
 ---
 
-## KPIs del Sistema (Verificados 10 Jun 2026)
+## Sesiones de Trabajo
 
-- Transacciones en BD: **18**
-- Entidades CT: **7** (árbol 4 niveles)
-- Workspace users CT: **5**
-- Resource IDs CT: **14**
-- Aprobaciones CT: **7** (4 pendientes, 2 aprobadas, 1 rechazada)
-- Balance Holding consolidado: **$42,222,500 COP**
+### Sesión 1 (01–04 Jun 2026)
+- Módulos 01–06 completados
+- Skill `multi-currency-ledger-setup` publicado
+
+### Sesión 2 (09 Jun 2026)
+- Módulo 07: Control Tower completo
+- Seed: 7 entidades, 5 usuarios CT, KPI $42,222,500
+
+### Sesión 3 (11 Jun 2026)
+- Módulo 08: Project Hub completo (FASES 1–5)
+- Seed: 5 usuarios hub, 3 proyectos, 20 tareas, 5 notas, 8 eventos
+- Bug fixes: overlay transparente, workspace vacío, race condition notas
+- Tipografía Hub: escalada para mejor legibilidad
+
+### Sesión 5 (21 Jun 2026)
+- **Cartera CXC/CXP v2** — Sub-módulo completo en ContextPanel.jsx
+- Fix: `fetchCartera` portfolio filter → cuentas standalone ahora visibles
+- Fix: `POST /api/third-parties` → endpoint faltante (405 error)
+- Fix: Status auto `PAGADO` cuando remaining_balance = 0
+- Feature: **Sistema de alertas** (`GET /api/cartera/alerts`) — 5 tipos
+- Feature: **Frecuencia de corte** — `payment_frequency` (c/15d, c/20d, c/30d)
+- Feature: `calc_next_payment()`, Notas expandibles, Panel alertas colapsable
+- Datos sintéticos: 5 cuentas de prueba + abonos
+- Migración: `payment_frequency INTEGER DEFAULT 30`
+
+### Sesión 6 (22 Jun 2026)
+- **Zero-COA — Motor contable automático** (Fases 1 + 2)
+- Tabla `posting_rules` creada en `database_driver.py` → init_db()
+- 17 posting rules seeded (CXC, CXP, pagos, ingresos, gastos, nómina, etc.)
+- Helper `_emit_journal_entry()` que resuelve __BANK__ → código PUC real
+- emit() integrado en 3 endpoints: transactions, cartera, cartera/payment
+- 4 nuevos endpoints: journal-entries, financial-summary, posting-rules, preview
+- Toggle "👁️ Ver Asiento Contable" en ContextPanel.jsx (formulario Cartera)
+- Restauración de endpoints perdidos (Cartera, HR, Tags, Dashboard, Health)
+- Fix DDL: `UNIQUE constraint` → `CREATE UNIQUE INDEX` (PostgreSQL)
 
 ---
 
-## Hitos Técnicos
+## Estado de la Base de Datos (Verificado 22 Jun 2026)
 
-| Hito | Descripción | Estado |
-|---|---|---|
-| Git inicializado | `.git`, `.gitignore`, primer commit | ✅ Jun 2026 |
-| AGENTS.md creado | Instrucciones para el agente en raíz | ✅ Jun 2026 |
-| memory-bank/ creado | Memoria persistente (4 archivos) | ✅ Jun 2026 |
-| docs/ actualizada | 11 archivos sincronizados con código real | ✅ Jun 2026 |
-| health_check.py | 5 checks automatizados incluyendo CT | ✅ Jun 2026 |
-| App.jsx dividido | Migración a módulos JSX aislados | 🔵 Antes de Módulo 08 |
-| Producción (Dokploy) | Docker + Nginx + SSL | 🔵 Pendiente |
+| Tabla | Registros |
+|---|---|
+| `portfolios` | 4 |
+| `user_accounts` | 5 |
+| `transactions` | 6 |
+| `entities` (CT) | 13 |
+| `hub_workspaces` | 1 |
+| `hub_users` | 6 |
+| `hub_tasks` | 20 |
+| `hub_notes` | 7 |
+| `hub_events` | 8 |
+| `hr_payment_records` | 13 |
+| `hr_documents` | 6 |
+| `cxp_cxc_ledger` | **9** |
+| `cartera_payments` | **~8** |
+| `third_parties` | **7** |
+| `posting_rules` | **17** |
+| `kernel_journal_entries` | **5** |
+| **Total tablas** | **~36** |
 
 ---
 
-## Deuda Técnica
+## Métricas del Proyecto (Actualizadas 22 Jun 2026)
 
-| ID | Descripción | Prioridad | Solución Documentada |
-|---|---|---|---|
-| DT-01 | Balance Efectivo -$11.2M (TXs sin account_id) | 🟡 Media | `conexion_bd_guia.md` sección 5 |
-| DT-02 | `on_event` deprecation en server.py | 🟢 Baja | Migrar a `lifespan` FastAPI |
-| DT-03 | KPI CXC en CT con datos parciales | 🟡 Media | Vincular cxp_cxc_ledger a portafolios CT |
-| DT-04 | MD5 en workspace_users (inseguro en producción) | 🔴 Alta para producción | Bcrypt + JWT antes de deploy |
-
----
-
-## Backlog de Mejoras (Post-MVP)
-
-- [ ] Buscador global (transacciones + terceros + entidades CT)
-- [ ] CT: Paginación lazy cuando árbol supere 50 nodos
-- [ ] CT: KPIs históricos (comparativa mes actual vs anterior)
-- [ ] CT: Reportes PDF/Excel por entidad (Módulo 10)
-- [ ] CT: Facturación B2B — generar facturas de honorarios contables
-- [ ] 2FA para workspace_users del CT
-- [ ] Audit log (quién hizo qué cambio y cuándo)
+| Métrica | Valor |
+|---|---|
+| Líneas de código Python | ~12,500 |
+| Líneas de código JSX/JS/CSS | ~16,000 |
+| Endpoints FastAPI | **~94** |
+| Tablas Supabase | **~36** |
+| Tests unitarios | 5/5 ✅ |
+| Storage bucket | hr-docs (público) |
+| Bundle size estimado | ~1.7MB (sin code splitting) |

@@ -1,5 +1,5 @@
 // CTTopBar.jsx — Barra superior con selector de entidad + breadcrumb + usuario
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const ENTITY_ICONS = {
   HOLDING: '🏢',
@@ -56,8 +56,16 @@ export default function CTTopBar({
   onGoHome
 }) {
   const [showEntityMenu, setShowEntityMenu] = useState(false);
-  const [showUserMenu, setShowUserMenu] = useState(false);
-  const [search, setSearch] = useState('');
+  const [showUserMenu, setShowUserMenu]     = useState(false);
+  const [search, setSearch]                 = useState('');
+
+  // Cerrar menús al desmontar (evita overlay transparente flotante al salir del CT)
+  useEffect(() => {
+    return () => {
+      setShowEntityMenu(false);
+      setShowUserMenu(false);
+    };
+  }, []);
 
   // Flatten entities for search
   const flatEntities = [];
@@ -200,10 +208,10 @@ export default function CTTopBar({
         )}
       </div>
 
-      {/* Close menus on outside click overlay */}
+      {/* Close menus on outside click overlay — position:absolute dentro del header CT */}
       {(showEntityMenu || showUserMenu) && (
         <div
-          className="fixed inset-0 z-40"
+          style={{ position: 'fixed', inset: 0, zIndex: 39 }}
           onClick={() => { setShowEntityMenu(false); setShowUserMenu(false); }}
         />
       )}

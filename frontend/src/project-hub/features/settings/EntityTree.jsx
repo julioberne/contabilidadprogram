@@ -23,7 +23,7 @@ function TreeNode({ node, allNodes, depth = 0, onDelete, onAdd, expandedIds, tog
   return (
     <div style={{ marginLeft: depth * 20, marginBottom: '4px' }}>
       {/* Nodo */}
-      <div style={{ ...nodeStyles.row, borderLeftColor: node.color || '#0EA5E9' }}>
+      <div style={{ ...nodeStyles.row, borderLeft: `3px solid ${node.color || '#0EA5E9'}` }}>
         {/* Expandir/colapsar */}
         <button style={nodeStyles.toggle}
           onClick={() => toggleExpand(node.id)}
@@ -249,7 +249,10 @@ const nodeStyles = {
   row: {
     display: 'flex', alignItems: 'center', gap: '8px',
     padding: '7px 10px', background: '#111',
-    border: `1px solid #1e1e1e`, borderLeft: '3px solid',
+    borderTop: '1px solid #1e1e1e',
+    borderRight: '1px solid #1e1e1e',
+    borderBottom: '1px solid #1e1e1e',
+    borderLeft: '3px solid #0EA5E9',
     transition: 'background .15s', cursor: 'default',
   },
   toggle: {

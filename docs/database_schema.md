@@ -1,7 +1,7 @@
 # 🗄️ FIN-SYS OS v2.0 — Esquema de Base de Datos
 
 > **Motor**: PostgreSQL 17 en Supabase (proyecto `FIN-SYS OS v2.0`, us-east-2)
-> **Última actualización**: 09 Junio 2026
+> **Última actualización**: 18 Junio 2026
 
 ---
 
@@ -310,4 +310,93 @@ CREATE INDEX idx_members_entity         ON entity_members(entity_id);
 CREATE INDEX idx_approvals_entity       ON approvals_queue(entity_id);
 CREATE INDEX idx_approvals_status       ON approvals_queue(status);
 CREATE INDEX idx_resources_entity       ON resource_ids(entity_id);
+
+-- RRHH
+CREATE INDEX idx_hr_payment_member      ON hr_payment_records(member_id);
+CREATE INDEX idx_hr_docs_member         ON hr_documents(member_id);
+CREATE INDEX idx_hr_member_company      ON hr_members(company_id);
 ```
+
+---
+
+## MÓDULO RRHH / EMPRESAS (Tablas Nuevas — Zero-Impact)
+
+### P. `hr_companies` — Empresas / Compañías (Estructura Jerárquica)
+```sql
+CREATE TABLE hr_companies (
+    id          SERIAL PRIMARY KEY,
+    name        VARCHAR(150) NOT NULL,
+    type        VARCHAR(30)  NOT NULL DEFAULT 'EMPRESA',
+                -- 'HOLDING' | 'EMPRESA' | 'SUBSIDIARIA' | 'PROYECTO'
+    parent_id   INTEGER REFERENCES hr_companies(id) ON DELETE SET NULL,
+    nit         VARCHAR(30),
+    industry    VARCHAR(100),
+    status      VARCHAR(20) NOT NULL DEFAULT 'ACTIVA',  -- 'ACTIVA' | 'INACTIVA'
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Q. `hr_members` — Miembros / Empleados
+```sql
+CREATE TABLE hr_members (
+    id              SERIAL PRIMARY KEY,
+    company_id      INTEGER REFERENCES hr_companies(id) ON DELETE SET NULL,
+    name            VARCHAR(100) NOT NULL,
+    role            VARCHAR(100),
+    email           VARCHAR(100),
+    phone           VARCHAR(30),
+    id_type         VARCHAR(10)  DEFAULT 'CC',   -- 'CC' | 'NIT' | 'CE' | 'PAS'
+    id_number       VARCHAR(30),
+    salary_base     DECIMAL(15,2) DEFAULT 0.00,
+    hire_date       DATE,
+    status          VARCHAR(20) NOT NULL DEFAULT 'ACTIVO',  -- 'ACTIVO' | 'INACTIVO'
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### R. `hr_payment_records` — Historial de Pagos / Nómina
+```sql
+CREATE TABLE hr_payment_records (
+    id                  SERIAL PRIMARY KEY,
+    member_id           INTEGER NOT NULL REFERENCES hr_members(id) ON DELETE CASCADE,
+    payment_date        DATE    NOT NULL,
+    period_start        DATE,
+    period_end          DATE,
+    payment_type        VARCHAR(50) NOT NULL DEFAULT 'NOMINA',
+                        -- 'NOMINA' | 'BONO' | 'COMISION' | 'VACACIONES' | 'LIQUIDACION'
+    gross_amount        DECIMAL(15,2) NOT NULL DEFAULT 0.00,  -- Salario bruto
+    deductions          DECIMAL(15,2) NOT NULL DEFAULT 0.00,  -- Deducciones (salud, pensón, etc.)
+    net_amount          DECIMAL(15,2) NOT NULL DEFAULT 0.00,  -- Monto neto pagado
+    payment_method      VARCHAR(50),
+    notes               TEXT,
+    voucher_document_id INTEGER REFERENCES hr_documents(id) ON DELETE SET NULL,
+                        -- NULL = sin comprobante; FK al doc generado
+    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### S. `hr_documents` — Documentos del Empleado (Drive-style)
+```sql
+CREATE TABLE hr_documents (
+    id              SERIAL PRIMARY KEY,
+    member_id       INTEGER NOT NULL REFERENCES hr_members(id) ON DELETE CASCADE,
+    name            VARCHAR(255) NOT NULL,
+    file_url        TEXT NOT NULL,
+                    -- URL Storage bucket (PDFs/imágenes)
+                    -- O data:text/html;base64,... para comprobantes HTML generados
+    file_type       VARCHAR(50),     -- 'pdf' | 'image' | 'html' | 'other'
+    category        VARCHAR(100) DEFAULT 'General',
+                    -- 'Contrato' | 'Cédula' | 'EPS' | 'Pensón' | 'Comprobante Nómina' | ...
+    is_voucher      BOOLEAN NOT NULL DEFAULT FALSE,
+                    -- TRUE = comprobante de pago generado por el sistema
+    description     TEXT,
+    uploaded_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**Relación clave**:
+- `hr_payment_records.voucher_document_id` → `hr_documents.id`
+  (vincula un registro de pago con su comprobante de nómina generado)
+- `hr_documents.file_url` puede ser:
+  - URL pública del bucket `hr-docs` para archivos subidos por el usuario
+  - `data:text/html;base64,...` para comprobantes HTML generados por el sistema

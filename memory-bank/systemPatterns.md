@@ -77,6 +77,60 @@ const { session, entities, kpis, approvals } = useControlTower();
 // No mezclar estado del CT con estado de App.jsx
 ```
 
+### RRHH / Empresas (Módulo 08c)
+
+#### Patrón: Almacenamiento de Documentos HTML (resuelto 18 Jun 2026)
+
+| | |
+|---|---|
+| **Problema** | Supabase Storage bucket `hr-docs` bloquea `text/html` Y `application/octet-stream` — el upload devuelve 415 Unsupported Media Type |
+| **Solución** | Guardar el HTML codificado como data URL base64 directamente en la columna `hr_documents.file_url` (no usar Storage) |
+| **Lección** | Siempre verificar las restricciones MIME del bucket antes de implementar un flujo de upload |
+
+**Flujo Completo**:
+```
+Generación (HistorialTab):   HTML string
+  → btoa(unescape(encodeURIComponent(html)))
+  → 'data:text/html;base64,' + b64
+  → POST /api/hr/documents (file_url = data URL)
+  → PUT /api/hr/payments/{user}/{rec}/voucher?doc_id={id}
+
+Preview (DocumentsTab):       file_url detectado como data: URL
+  → b64 = url.split(',')[1]
+  → html = atob(b64)
+  → Renderizar sin fetch() (iframe srcDoc o dangerouslySetInnerHTML)
+
+Descarga (downloadFile):      b64 → Uint8Array
+  → new Blob([bytes], { type: 'text/html' })
+  → URL.createObjectURL(blob) → <a> temporal .click()
+```
+
+```jsx
+// Patrón: comprobante vía data URL (Supabase Storage bloquea text/html)
+// 1. Generar HTML → btoa() → data:text/html;base64,...
+// 2. Guardar string en hr_documents.file_url (no usar Storage bucket)
+// 3. Vincular comprobante: PUT /api/hr/payments/{user}/{rec}/voucher?doc_id={id}
+
+// HtmlPreview: detecta data: URL y decodifica sin fetch
+function HtmlPreview({ url }) {
+  if (url.startsWith('data:')) {
+    const b64 = url.split(',')[1];
+    const html = atob(b64);
+    // Renderizar con dangerouslySetInnerHTML o iframe srcDoc
+  }
+}
+
+// downloadFile: maneja data: URLs con Uint8Array
+function downloadFile(url, filename) {
+  if (url.startsWith('data:')) {
+    const b64 = url.split(',')[1];
+    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    const blob = new Blob([bytes], { type: 'text/html' });
+    // Crear <a> temporal con blob URL y click
+  }
+}
+```
+
 ---
 
 ## Convenciones de Nomenclatura
@@ -98,4 +152,4 @@ const { session, entities, kpis, approvals } = useControlTower();
 2. **No usar ORM** — `psycopg2` directo es suficiente y más predecible para contabilidad
 3. **No usar Redux / Zustand** — estado local es suficiente por ahora; CT usa hook propio
 4. **No floating point en contabilidad** — todos los cálculos usan `DECIMAL(15,2)` en BD y Python native float solo para visualización
-5. **No JWT en demo** — `workspace_users` usa MD5 para demo local; migrar a bcrypt+JWT antes de producción
+5. **No JWT en demo** — `workspace_users` usa MD5 (DT-04) y `hub_users` usa SHA-256 (DT-05) para demo local; migrar a bcrypt+JWT antes de producción

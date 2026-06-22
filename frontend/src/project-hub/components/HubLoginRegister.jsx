@@ -88,9 +88,9 @@ const C = { bg: '#0a0a0a', card: '#111', border: '#0EA5E9', text: '#e2e8f0', dim
 
 const styles = {
   overlay: {
-    position: 'fixed', inset: 0, background: C.bg,
+    position: 'absolute', inset: 0, background: C.bg,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontFamily: '"IBM Plex Mono", monospace', zIndex: 9999,
+    fontFamily: '"IBM Plex Mono", monospace',
   },
   card: {
     background: C.card, border: `2px solid ${C.border}`,

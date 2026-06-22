@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ThirdPartyModal from './components/ThirdPartyModal';
+import ContextPanel from './components/ContextPanel';
 
 const API_BASE_URL = "http://127.0.0.1:8000/api";
 
@@ -12,6 +13,8 @@ function App() {
   const [newPortfolioIndustry, setNewPortfolioIndustry] = useState("ESTANDAR");
   const [newPortfolioSubIndustry, setNewPortfolioSubIndustry] = useState("");
   const [transactions, setTransactions] = useState([]);
+  const [totalTxCount, setTotalTxCount] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [drafts, setDrafts] = useState([]);
   const [cajaViva, setCajaViva] = useState({
     total_ingresos: 0.0,
@@ -50,12 +53,20 @@ function App() {
   const [newAccountType, setNewAccountType] = useState("Ahorros");
   const [newAccountCurrency, setNewAccountCurrency] = useState("COP");
   const [newAccountInitialBalance, setNewAccountInitialBalance] = useState("");
+  const [editingAccountId, setEditingAccountId] = useState(null);
+  const [editAccountName, setEditAccountName] = useState("");
+  const [editAccountType, setEditAccountType] = useState("Ahorros");
+  const [editAccountBalance, setEditAccountBalance] = useState("");
+
+  // --- Subsecciones del panel izquierdo ---
+  const [activeLeftSection, setActiveLeftSection] = useState("registro");
 
   // --- Estado del Formulario de Registro (Módulo 01) ---
   const [formType, setFormType] = useState("GASTO"); // INGRESO, GASTO, TRANSFERENCIA
   const [amount, setAmount] = useState("");
   const [concept, setConcept] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [geoMapsLink, setGeoMapsLink] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("Efectivo");
   const [category, setCategory] = useState("Ventas");
   
@@ -73,6 +84,9 @@ function App() {
   const [thirdPartyPhone, setThirdPartyPhone] = useState("");
   const [thirdPartyWebsite, setThirdPartyWebsite] = useState("");
   const [isThirdPartyModalOpen, setIsThirdPartyModalOpen] = useState(false);
+  const [thirdPartySearch, setThirdPartySearch] = useState("");
+  const [thirdPartyResults, setThirdPartyResults] = useState([]);
+  const [allThirdParties, setAllThirdParties] = useState([]);
 
   // Impuestos
   const [applyIva, setApplyIva] = useState(false);
@@ -85,17 +99,19 @@ function App() {
   const [recurrenceStartDate, setRecurrenceStartDate] = useState(new Date().toISOString().split('T')[0]);
   const [recurrenceEndDate, setRecurrenceEndDate] = useState("");
 
-  // --- Collapsible sections states ---
-  const [expandedTercero, setExpandedTercero] = useState(false);
-  const [expandedTaxes, setExpandedTaxes] = useState(false);
-  const [expandedCartera, setExpandedCartera] = useState(false);
-  const [expandedActivos, setExpandedActivos] = useState(false);
+  // --- Collapsible sections states (ahora en panel derecho) ---
+  const [activeTab, setActiveTab] = useState('terceros');
+  const [showVoiceWidget, setShowVoiceWidget] = useState(false);
 
   // --- Cartera (CXC / CXP) ---
   const [cxcCxpEnabled, setCxcCxpEnabled] = useState(false);
   const [cxcCxpType, setCxcCxpType] = useState("CXC"); // CXC, CXP
   const [cxcCxpDueDate, setCxcCxpDueDate] = useState("");
   const [cxcCxpTerm, setCxcCxpTerm] = useState("Corto"); // Corto, Mediano, Largo
+  const [cxcCxpValue, setCxcCxpValue] = useState(""); // Valor parcial / abono
+
+  // --- Fila expandible Libro Diario ---
+  const [expandedTxId, setExpandedTxId] = useState(null);
 
   // --- Gestión de Activos ---
   const [assetEnabled, setAssetEnabled] = useState(false);
@@ -107,6 +123,23 @@ function App() {
   const [assetRecurrente, setAssetRecurrente] = useState(false);
   const [evidenceFilePath, setEvidenceFilePath] = useState("");
   const [isUploadingEvidence, setIsUploadingEvidence] = useState(false);
+
+  // --- Calculadora rápida ---
+  const [calcOpen, setCalcOpen] = useState(false);
+  const [calcDisplay, setCalcDisplay] = useState("0");
+  const [calcPrev, setCalcPrev] = useState(null);
+  const [calcOp, setCalcOp] = useState(null);
+  const [calcReset, setCalcReset] = useState(false);
+
+  // --- Etiquetas / Tags ---
+  const DEFAULT_TAGS = ["Urgente", "Personal", "Empresa", "Recurrente", "Proyecto", "Fiscal"];
+  const [availableTags, setAvailableTags] = useState(DEFAULT_TAGS);
+  const [selectedTags, setSelectedTags] = useState([]);
+  const [newTagInput, setNewTagInput] = useState("");
+  const [editingTagIdx, setEditingTagIdx] = useState(null);
+  const [editTagValue, setEditTagValue] = useState("");
+  // expandedTags eliminado - ahora en ContextPanel
+  const [tagSearch, setTagSearch] = useState("");
 
   // --- Administrador de Tasas Personalizadas ---
   const [customTaxesList, setCustomTaxesList] = useState([]); // array of { id, name, rate, type, checked }
@@ -171,95 +204,125 @@ function App() {
     }
   };
 
-  // --- Cargar Balances y Transacciones ---
+  // --- Auto-refresh cada 30s para mantener Balance/Patrimonio actualizados ---
+  useEffect(() => {
+    const interval = setInterval(() => { fetchData(); }, 30000);
+    return () => clearInterval(interval);
+  }, [activePortfolio]);
+
+  // --- DT-12: Cargar más transacciones (paginación) ---
+  const loadMoreTransactions = async () => {
+    setLoadingMore(true);
+    try {
+      const offset = transactions.length;
+      const portfolioParam = activePortfolio ? `&portfolio=${encodeURIComponent(activePortfolio)}` : '';
+      const res = await fetch(
+        `http://127.0.0.1:8000/api/transactions?limit=50&offset=${offset}${portfolioParam}`
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (data.items && data.items.length > 0) {
+        setTransactions(prev => [...prev, ...data.items]);
+        setTotalTxCount(data.total_count);
+      }
+    } catch (e) {
+      console.error('Error loading more transactions:', e);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  // --- Cargar Balances y Transacciones (SOL-04A: endpoint consolidado) ---
   const fetchData = async () => {
     try {
-      // 0. Obtener Portafolios
-      const resPortfolios = await fetch(`${API_BASE_URL}/portfolios`);
-      const dataPortfolios = await resPortfolios.json();
-      if (resPortfolios.ok) {
-        setPortfolios(dataPortfolios);
-      }
+      // SOL-04A: 1 solo request reemplaza 6 calls secuenciales
+      const res = await fetch(
+        `${API_BASE_URL}/dashboard-data?portfolio=${encodeURIComponent(activePortfolio)}`
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
 
-      // 1. Obtener Balances Caja Viva
-      const resBalance = await fetch(`${API_BASE_URL}/portfolios/balance?portfolio=${activePortfolio}`);
-      const dataBalance = await resBalance.json();
-      if (resBalance.ok) {
+      // Portafolios
+      if (data.portfolios) setPortfolios(data.portfolios);
+
+      // Balance (Caja Viva)
+      if (data.balance) {
         setCajaViva({
-          total_ingresos: dataBalance.total_ingresos,
-          total_gastos: dataBalance.total_gastos,
-          balance_neto: dataBalance.balance_neto,
-          capital_inicial: dataBalance.capital_inicial,
-          patrimonio: dataBalance.patrimonio,
-          status: dataBalance.status,
-          alerts: dataBalance.alerts,
-          total_ingresos_cop: dataBalance.total_ingresos_cop,
-          total_gastos_cop: dataBalance.total_gastos_cop,
-          balance_neto_cop: dataBalance.balance_neto_cop,
-          patrimonio_cop: dataBalance.patrimonio_cop,
-          total_ingresos_usd: dataBalance.total_ingresos_usd,
-          total_gastos_usd: dataBalance.total_gastos_usd,
-          balance_neto_usd: dataBalance.balance_neto_usd,
-          patrimonio_usd: dataBalance.patrimonio_usd
+          total_ingresos: data.balance.total_ingresos,
+          total_gastos: data.balance.total_gastos,
+          balance_neto: data.balance.balance_neto,
+          capital_inicial: data.balance.capital_inicial,
+          patrimonio: data.balance.patrimonio,
+          status: data.balance.status,
+          alerts: data.balance.alerts,
+          total_ingresos_cop: data.balance.total_ingresos_cop,
+          total_gastos_cop: data.balance.total_gastos_cop,
+          balance_neto_cop: data.balance.balance_neto_cop,
+          patrimonio_cop: data.balance.patrimonio_cop,
+          total_ingresos_usd: data.balance.total_ingresos_usd,
+          total_gastos_usd: data.balance.total_gastos_usd,
+          balance_neto_usd: data.balance.balance_neto_usd,
+          patrimonio_usd: data.balance.patrimonio_usd
         });
       }
 
-      // 2. Obtener Historial de Transacciones
-      const resTxs = await fetch(`${API_BASE_URL}/transactions?portfolio=${activePortfolio}`);
-      const dataTxs = await resTxs.json();
-      if (resTxs.ok) {
-        setTransactions(dataTxs);
+      // Transacciones (DT-12: paginadas, primeras 50)
+      if (data.transactions) setTransactions(data.transactions);
+      if (data.total_tx_count !== undefined) setTotalTxCount(data.total_tx_count);
+
+      // Cuentas
+      if (data.accounts) setAccounts(data.accounts);
+
+      // Perfil
+      if (data.profile) {
+        setProfile(data.profile);
+        setEditProfileName(data.profile.name);
+        setEditProfileEmail(data.profile.email);
+        setEditProfileRole(data.profile.role);
+        setEditProfileAvatar(data.profile.avatar_style);
       }
 
-      // 3. Obtener Cuentas
-      const resAccounts = await fetch(`${API_BASE_URL}/accounts`);
-      const dataAccounts = await resAccounts.json();
-      if (resAccounts.ok) {
-        setAccounts(dataAccounts);
-      }
+      // COA (Catálogo de Cuentas)
+      if (data.coa) {
+        setIsLoadingCoa(true);
+        try {
+          if (data.coa.status === "OK") {
+            setCoaTree(data.coa.data);
+            const flat = flattenCoa(data.coa.data);
+            const postable = flat.filter(acc => !acc.is_group);
+            setCoaFlatAccounts(postable);
 
-      // 4. Obtener Perfil
-      const resProfile = await fetch(`${API_BASE_URL}/profile`);
-      const dataProfile = await resProfile.json();
-      if (resProfile.ok) {
-        setProfile(dataProfile);
-        setEditProfileName(dataProfile.name);
-        setEditProfileEmail(dataProfile.email);
-        setEditProfileRole(dataProfile.role);
-        setEditProfileAvatar(dataProfile.avatar_style);
-      }
-
-      // 5. Obtener Catálogo de Cuentas (COA)
-      setIsLoadingCoa(true);
-      try {
-        const resCoa = await fetch(`${API_BASE_URL}/coa?portfolio=${encodeURIComponent(activePortfolio)}`);
-        const dataCoa = await resCoa.json();
-        if (resCoa.ok && dataCoa.status === "OK") {
-          setCoaTree(dataCoa.data);
-          const flat = flattenCoa(dataCoa.data);
-          const postable = flat.filter(acc => !acc.is_group);
-          setCoaFlatAccounts(postable);
-
-          if (postable.length > 0) {
-            // Buscar si coincide con la categoría actual
-            const matched = postable.find(acc => `${acc.code} - ${acc.name}` === category || acc.code === category);
-            if (matched) {
-              const fullVal = `${matched.code} - ${matched.name}`;
-              setCategory(fullVal);
-              setCoaSearchQuery(fullVal);
+            if (postable.length > 0) {
+              const matched = postable.find(acc => `${acc.code} - ${acc.name}` === category || acc.code === category);
+              if (matched) {
+                const fullVal = `${matched.code} - ${matched.name}`;
+                setCategory(fullVal);
+                setCoaSearchQuery(fullVal);
+              } else {
+                const defaultVal = `${postable[0].code} - ${postable[0].name}`;
+                setCategory(defaultVal);
+                setCoaSearchQuery(defaultVal);
+              }
             } else {
-              const defaultVal = `${postable[0].code} - ${postable[0].name}`;
-              setCategory(defaultVal);
-              setCoaSearchQuery(defaultVal);
+              setCoaSearchQuery("");
             }
-          } else {
-            setCoaSearchQuery("");
           }
+        } catch (coaErr) {
+          console.error("Error procesando COA:", coaErr);
+        } finally {
+          setIsLoadingCoa(false);
         }
-      } catch (coaErr) {
-        console.error("Error cargando COA:", coaErr);
-      } finally {
-        setIsLoadingCoa(false);
+      }
+
+      // Terceros (para búsqueda inline)
+      try {
+        const tpRes = await fetch(`${API_BASE_URL}/third-parties`);
+        if (tpRes.ok) {
+          const tpData = await tpRes.json();
+          setAllThirdParties(tpData);
+        }
+      } catch (tpErr) {
+        console.error("Error cargando terceros:", tpErr);
       }
     } catch (error) {
       console.error("⚠️ Error al conectar con el servidor backend:", error);
@@ -288,7 +351,7 @@ function App() {
   const renderCoaSelector = () => {
     if (coaFlatAccounts.length === 0) {
       return (
-        <div className="border-2 border-black p-3 bg-brutalAmber text-xs font-bold uppercase space-y-2">
+        <div className="border-2 border-black p-2 bg-brutalAmber text-xs font-bold uppercase space-y-1">
           <p className="text-black font-mono">⚠️ No hay Catálogo de Cuentas (COA) en este portafolio.</p>
           <div className="flex flex-wrap gap-1">
             <button 
@@ -413,10 +476,13 @@ function App() {
   // --- Envío Manual del Formulario ---
   const handleRegister = async (e) => {
     e.preventDefault();
-    if (!amount || !concept || !thirdPartyNumber || !thirdPartyName) {
-      alert("❌ Error: Los campos de Importe, Concepto, Identificación y Nombre de Tercero son obligatorios.");
+    if (!amount || !concept) {
+      alert("❌ Error: Los campos Importe y Concepto son obligatorios.");
       return;
     }
+    // Si no se ingresa tercero, usar valores por defecto
+    const finalThirdPartyNumber = thirdPartyNumber || "999999999";
+    const finalThirdPartyName = thirdPartyName || "Sin especificar";
 
     const customTaxesPayload = [];
     if (applyPropina) {
@@ -445,8 +511,8 @@ function App() {
       category,
       third_party: {
         identification_type: thirdPartyType,
-        identification_number: thirdPartyNumber,
-        name: thirdPartyName,
+        identification_number: finalThirdPartyNumber,
+        name: finalThirdPartyName,
         email: thirdPartyEmail || null,
         phone: thirdPartyPhone || null,
         website: thirdPartyWebsite || null
@@ -468,7 +534,8 @@ function App() {
       cxc_cxp: cxcCxpEnabled ? {
         type: cxcCxpType,
         due_date: cxcCxpDueDate,
-        term: cxcCxpTerm
+        term: cxcCxpTerm,
+        partial_value: cxcCxpValue ? parseFloat(cxcCxpValue) : null
       } : null,
       asset: assetEnabled && assetEstablecerActivo ? {
         name: assetName,
@@ -479,7 +546,9 @@ function App() {
         recurrence_interval_days: 30,
         recurrence_amount: assetVincularImporte ? parseFloat(amount || 0) : parseFloat(assetValue || 0)
       } : null,
-      evidence_file_path: evidenceFilePath || null
+      evidence_file_path: evidenceFilePath || null,
+      geo_maps_link: geoMapsLink || null,
+      tags: selectedTags.length > 0 ? selectedTags : null
     };
 
     try {
@@ -503,12 +572,14 @@ function App() {
         setApplyPropina(false);
         setIsRecurring(false);
         setFormSuggestion(null);
+        setGeoMapsLink("");
         setTrmValue("1.0");
         setSelectedDestAccountId("");
         
         // Reset Cartera / Activos
         setCxcCxpEnabled(false);
         setCxcCxpDueDate("");
+        setCxcCxpValue("");
         setAssetEnabled(false);
         setAssetName("");
         setAssetValue("");
@@ -517,6 +588,7 @@ function App() {
         setAssetEstablecerActivo(false);
         setAssetRecurrente(false);
         setEvidenceFilePath("");
+        setSelectedTags([]);
         
         fetchData();
         
@@ -585,6 +657,28 @@ function App() {
     } catch (error) {
       alert("❌ Error al conectar con el servidor.");
     }
+  };
+
+  const handleUpdateAccount = async (accountId) => {
+    if (!editAccountName.trim()) { alert("❌ El nombre no puede estar vacío."); return; }
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/${accountId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: editAccountName, type: editAccountType, current_balance: parseFloat(editAccountBalance) || 0 })
+      });
+      if (res.ok) { setEditingAccountId(null); fetchData(); }
+      else { const d = await res.json(); alert(`❌ ${d.detail}`); }
+    } catch { alert("❌ Error al conectar con el servidor."); }
+  };
+
+  const handleDeleteAccount = async (accountId, accountName) => {
+    if (!window.confirm(`¿Eliminar la cuenta "${accountName}"?\nLas transacciones vinculadas quedarán sin cuenta asignada.`)) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/accounts/${accountId}`, { method: "DELETE" });
+      if (res.ok) { fetchData(); }
+      else { const d = await res.json(); alert(`❌ ${d.detail}`); }
+    } catch { alert("❌ Error al conectar con el servidor."); }
   };
 
   // --- Crear Nuevo Portafolio ---
@@ -912,75 +1006,54 @@ function App() {
 
 
   return (
-    <div className="min-h-screen bg-brutalBg text-black font-mono p-4 flex flex-col antialiased selection:bg-brutalGreen">
+    <div className="min-h-screen bg-brutalBg text-black font-mono p-2 flex flex-col antialiased selection:bg-brutalGreen">
       
       {/* ============================================================================== */}
-      {/* 🏛️ APP HEADER TERMINAL STYLE */}
+      {/* 🏛️ BARRA DE PORTAFOLIOS — compacta, sin duplicar el título del shell */}
       {/* ============================================================================== */}
-      <header className="border-3 border-black bg-white p-4 mb-6 shadow-brutal flex flex-col md:flex-row justify-between items-start md:items-center">
-        <div>
-          <div className="flex items-center space-x-3">
-            <h1 className="text-2xl font-bold tracking-tight uppercase">FIN-SYS OS v2.0</h1>
-            <span className="bg-brutalGreen border-2 border-black text-black px-2 py-0.5 text-xs font-bold uppercase tracking-wider">
-              {cajaViva.status}
-            </span>
-          </div>
-          <p className="text-xs text-gray-500 mt-1 uppercase">Terminal de Contabilidad Asistida por IA & pgvector RAG</p>
+      <header className="border-2 border-black bg-white px-2 py-1 mb-2 shadow-brutal flex items-center justify-between flex-wrap gap-1">
+        {/* Selector de portafolio */}
+        <div className="flex items-center gap-1 flex-wrap">
+          <span className="text-[10px] font-bold uppercase text-gray-400 mr-1 tracking-widest">Portafolio:</span>
+          {portfolios.map((port) => (
+            <button
+              key={port.id}
+              onClick={() => setActivePortfolio(port.name)}
+              className={`px-2 py-0.5 text-[10px] font-bold uppercase transition-all border ${
+                activePortfolio === port.name
+                  ? "bg-black text-white border-black"
+                  : "border-gray-300 hover:border-black hover:bg-brutalNeutral"
+              }`}
+              type="button"
+              title={`${port.name} (${port.industry_type})`}
+            >
+              {port.name.substring(0, 14)}
+            </button>
+          ))}
+          <button
+            onClick={() => setIsNewPortfolioModalOpen(true)}
+            className="px-2 py-0.5 text-[10px] font-bold uppercase bg-brutalGreen border border-black text-black hover:bg-black hover:text-white transition-all"
+            type="button"
+          >+ Empresa</button>
         </div>
-        
-        {/* Portafolio Activo */}
-        <div className="mt-4 md:mt-0 flex flex-col md:items-end">
-          <span className="text-xs font-bold uppercase text-gray-400">Portafolio Activo</span>
-          <div className="flex bg-brutalBg border-2 border-black p-1 space-x-1 mt-1 items-center flex-wrap">
-            {portfolios.map((port) => (
-              <button
-                key={port.id}
-                onClick={() => setActivePortfolio(port.name)}
-                className={`px-2 py-1 text-xs font-bold uppercase transition-all mb-1 ${
-                  activePortfolio === port.name 
-                    ? "bg-black text-white" 
-                    : "hover:bg-brutalNeutral"
-                }`}
-                type="button"
-                title={`${port.name} (${port.industry_type}${port.sub_industry_type ? ' - ' + port.sub_industry_type : ''})`}
-              >
-                {port.name.substring(0, 15)}
-              </button>
-            ))}
-            <button
-              onClick={() => setIsNewPortfolioModalOpen(true)}
-              className="px-2 py-1 text-xs font-bold uppercase bg-brutalGreen border-2 border-black text-black hover:bg-black hover:text-white transition-all ml-2 mb-1"
-              type="button"
-            >
-              + Agregar Empresa
-            </button>
-            <button
-              onClick={handleSeedSynthetic}
-              className="px-2 py-1 text-xs font-bold uppercase bg-brutalAmber border-2 border-black text-black hover:bg-black hover:text-white transition-all ml-2"
-              type="button"
-              title="Crea datos sintéticos de insolvencia"
-            >
-              ⚡ Semillar
-            </button>
-            <button
-              onClick={handleResetDatabase}
-              className="px-2 py-1 text-xs font-bold uppercase bg-brutalCrimson border-2 border-black text-white hover:bg-black hover:text-white transition-all ml-2"
-              type="button"
-              title="Borra todas las transacciones y reinicia las cuentas"
-            >
-              ⚠️ Reiniciar
-            </button>
-
-          </div>
+        {/* Acciones rápidas + estado */}
+        <div className="flex items-center gap-2">
+          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 border ${
+            cajaViva.status === 'NOMINAL' ? 'bg-brutalGreen border-black text-black' :
+            cajaViva.status === 'INSOLVENTE' ? 'bg-brutalCrimson border-black text-white animate-pulse' :
+            'bg-brutalAmber border-black text-black'
+          }`}>{cajaViva.status || 'CARGANDO'}</span>
+          <button onClick={handleSeedSynthetic} className="px-2 py-0.5 text-[10px] font-bold uppercase bg-brutalAmber border border-black text-black hover:bg-black hover:text-white transition-all" type="button" title="Datos sintéticos">⚡ Semillar</button>
+          <button onClick={handleResetDatabase} className="px-2 py-0.5 text-[10px] font-bold uppercase bg-brutalCrimson border border-black text-white hover:bg-black transition-all" type="button" title="Reiniciar BD">⚠️ Reiniciar</button>
         </div>
       </header>
 
       {/* Modal de Nueva Empresa */}
       {isNewPortfolioModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white border-4 border-black p-6 shadow-brutal max-w-sm w-full">
-            <h2 className="text-xl font-bold uppercase mb-4 border-b-2 border-black pb-2">🏢 Agregar Empresa</h2>
-            <form onSubmit={handleCreatePortfolio} className="space-y-4">
+          <div className="bg-white border-4 border-black p-2 shadow-brutal max-w-sm w-full">
+            <h2 className="text-xl font-bold uppercase mb-2 border-b-2 border-black pb-2">🏢 Agregar Empresa</h2>
+            <form onSubmit={handleCreatePortfolio} className="space-y-2">
               <div>
                 <label className="text-xs font-bold uppercase block mb-1">Nombre de Empresa</label>
                 <input
@@ -1041,7 +1114,7 @@ function App() {
 
       {/* Alert Banner for Financial Risk */}
       {cajaViva.alerts && cajaViva.alerts.length > 0 && (
-        <div className="bg-brutalCrimson border-3 border-black text-white p-4 mb-6 shadow-brutal flex flex-col space-y-2 uppercase animate-pulse">
+        <div className="bg-brutalCrimson border-2 border-black text-white p-2 mb-2 shadow-brutal flex flex-col space-y-1 uppercase animate-pulse">
           <span className="font-extrabold text-sm tracking-widest flex items-center">
             🚨 ALERTA DE RIESGO FINANCIERO Y PATRIMONIAL DETECTADA 🚨
           </span>
@@ -1056,60 +1129,64 @@ function App() {
       {/* ============================================================================== */}
       {/* 📊 CAJA VIVA METRICS BAR */}
       {/* ============================================================================== */}
-      <section className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+      <section className="grid grid-cols-1 md:grid-cols-4 gap-2 mb-2">
         {/* Tarjeta Ingresos */}
-        <div className="bg-white border-3 border-black p-5 shadow-brutal flex flex-col justify-between">
+        <div className="bg-white border-2 border-black p-2 shadow-brutal flex flex-col justify-between">
           <span className="text-xs font-bold text-gray-400 uppercase">Total Ingresos</span>
-          <div className="mt-2 space-y-1.5">
-            <div className="text-base font-bold text-black bg-brutalGreen border-2 border-black py-1 px-2 text-center uppercase tracking-tight font-mono">
+          <div className="mt-1 space-y-1">
+            <div className="text-sm font-bold text-black bg-brutalGreen border-2 border-black py-0.5 px-2 text-center uppercase tracking-tight font-mono">
               COP {cajaViva.total_ingresos_cop?.toLocaleString('es-CO', { minimumFractionDigits: 2 }) || "0,00"}
             </div>
-            <div className="text-base font-bold text-black bg-brutalGreen border-2 border-black py-1 px-2 text-center uppercase tracking-tight font-mono">
+            <div className="text-sm font-bold text-black bg-brutalGreen border-2 border-black py-0.5 px-2 text-center uppercase tracking-tight font-mono">
               USD {cajaViva.total_ingresos_usd?.toLocaleString('en-US', { minimumFractionDigits: 2 }) || "0.00"}
             </div>
           </div>
         </div>
 
         {/* Tarjeta Gastos */}
-        <div className="bg-white border-3 border-black p-5 shadow-brutal flex flex-col justify-between">
+        <div className="bg-white border-2 border-black p-2 shadow-brutal flex flex-col justify-between">
           <span className="text-xs font-bold text-gray-400 uppercase">Total Gastos</span>
-          <div className="mt-2 space-y-1.5">
-            <div className="text-base font-bold text-black border-2 border-black border-b-brutalCrimson border-b-4 py-1 px-2 text-center tracking-tight font-mono">
+          <div className="mt-1 space-y-1">
+            <div className="text-sm font-bold text-black border-2 border-black border-b-brutalCrimson border-b-4 py-0.5 px-2 text-center tracking-tight font-mono">
               COP {cajaViva.total_gastos_cop?.toLocaleString('es-CO', { minimumFractionDigits: 2 }) || "0,00"}
             </div>
-            <div className="text-base font-bold text-black border-2 border-black border-b-brutalCrimson border-b-4 py-1 px-2 text-center tracking-tight font-mono">
+            <div className="text-sm font-bold text-black border-2 border-black border-b-brutalCrimson border-b-4 py-0.5 px-2 text-center tracking-tight font-mono">
               USD {cajaViva.total_gastos_usd?.toLocaleString('en-US', { minimumFractionDigits: 2 }) || "0.00"}
             </div>
           </div>
         </div>
 
         {/* Tarjeta Balance */}
-        <div className="bg-white border-3 border-black p-5 shadow-brutal flex flex-col justify-between">
+        <div className="bg-white border-2 border-black p-2 shadow-brutal flex flex-col justify-between">
           <span className="text-xs font-bold text-gray-400 uppercase">Balance Neto</span>
-          <div className="mt-2 space-y-1.5">
-            <div className="text-base font-bold text-black border-2 border-black bg-brutalNeutral py-1 px-2 text-center tracking-tight font-mono">
+          <div className="mt-1 space-y-1">
+            <div className={`text-sm font-bold border-2 border-black py-0.5 px-2 text-center tracking-tight font-mono ${
+              (cajaViva.balance_neto_cop ?? 0) >= 0 ? 'bg-brutalGreen text-black' : 'bg-brutalCrimson text-white animate-pulse'
+            }`}>
               COP {cajaViva.balance_neto_cop?.toLocaleString('es-CO', { minimumFractionDigits: 2 }) || "0,00"}
             </div>
-            <div className="text-base font-bold text-black border-2 border-black bg-brutalNeutral py-1 px-2 text-center tracking-tight font-mono">
+            <div className={`text-sm font-bold border-2 border-black py-0.5 px-2 text-center tracking-tight font-mono ${
+              (cajaViva.balance_neto_usd ?? 0) >= 0 ? 'bg-brutalGreen text-black' : 'bg-brutalCrimson text-white animate-pulse'
+            }`}>
               USD {cajaViva.balance_neto_usd?.toLocaleString('en-US', { minimumFractionDigits: 2 }) || "0.00"}
             </div>
           </div>
         </div>
 
-        {/* Tarjeta Patrimonio Neto */}
-        <div className="bg-white border-3 border-black p-5 shadow-brutal flex flex-col justify-between">
+        {/* Tarjeta Patrimonio Neto — dinámico: Activos − Pasivos */}
+        <div className="bg-white border-2 border-black p-2 shadow-brutal flex flex-col justify-between">
           <div className="flex justify-between items-center">
             <span className="text-xs font-bold text-gray-400 uppercase">Patrimonio Neto</span>
-            <span className="text-[9px] text-gray-400 font-bold uppercase">(Capital: 5M COP | 1K USD)</span>
+            <span className="text-[8px] text-gray-400 font-bold uppercase">Activos − Pasivos</span>
           </div>
-          <div className="mt-2 space-y-1.5">
-            <div className={`text-base font-bold border-2 border-black py-1 px-2 text-center tracking-tight font-mono ${
-              cajaViva.patrimonio_cop < 0 ? "bg-brutalCrimson text-white animate-pulse" : "bg-brutalAmber text-black"
+          <div className="mt-1 space-y-1">
+            <div className={`text-sm font-bold border-2 border-black py-0.5 px-2 text-center tracking-tight font-mono ${
+              (cajaViva.patrimonio_cop ?? 0) < 0 ? "bg-brutalCrimson text-white animate-pulse" : "bg-brutalAmber text-black"
             }`}>
               COP {cajaViva.patrimonio_cop?.toLocaleString('es-CO', { minimumFractionDigits: 2 }) || "0,00"}
             </div>
-            <div className={`text-base font-bold border-2 border-black py-1 px-2 text-center tracking-tight font-mono ${
-              cajaViva.patrimonio_usd < 0 ? "bg-brutalCrimson text-white animate-pulse" : "bg-brutalAmber text-black"
+            <div className={`text-sm font-bold border-2 border-black py-0.5 px-2 text-center tracking-tight font-mono ${
+              (cajaViva.patrimonio_usd ?? 0) < 0 ? "bg-brutalCrimson text-white animate-pulse" : "bg-brutalAmber text-black"
             }`}>
               USD {cajaViva.patrimonio_usd?.toLocaleString('en-US', { minimumFractionDigits: 2 }) || "0.00"}
             </div>
@@ -1120,163 +1197,83 @@ function App() {
       {/* ============================================================================== */}
       {/* 💼 SPLIT SCREEN WORKSPACE */}
       {/* ============================================================================== */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start flex-grow">
-        
-        {/* ----------------- PANEL IZQUIERDO: REGISTRO & VOZ ----------------- */}
-        <div className="lg:col-span-1 space-y-6">
-          
-          {/* Widget de Perfil de Usuario Principal */}
-          <div className="bg-white border-3 border-black p-6 shadow-brutal">
-            <h2 className="text-lg font-bold uppercase border-b-2 border-black pb-2 mb-4">👤 Usuario Principal</h2>
-            {isEditingProfile ? (
-              <form onSubmit={handleUpdateProfile} className="space-y-3">
-                <div>
-                  <label className="text-xs font-bold uppercase block mb-1">Nombre</label>
-                  <input
-                    type="text"
-                    value={editProfileName}
-                    onChange={(e) => setEditProfileName(e.target.value)}
-                    required
-                    className="w-full bg-white border-2 border-black p-2 text-xs font-mono outline-none focus:border-brutalGreen"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold uppercase block mb-1">Email</label>
-                  <input
-                    type="email"
-                    value={editProfileEmail}
-                    onChange={(e) => setEditProfileEmail(e.target.value)}
-                    required
-                    className="w-full bg-white border-2 border-black p-2 text-xs font-mono outline-none focus:border-brutalGreen"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold uppercase block mb-1">Cargo/Rol</label>
-                  <input
-                    type="text"
-                    value={editProfileRole}
-                    onChange={(e) => setEditProfileRole(e.target.value)}
-                    required
-                    className="w-full bg-white border-2 border-black p-2 text-xs font-mono outline-none focus:border-brutalGreen"
-                  />
-                </div>
-                <div className="flex space-x-2 pt-2">
-                  <button
-                    type="submit"
-                    className="flex-1 bg-brutalGreen text-black font-bold border-2 border-black py-1.5 text-xs uppercase hover:bg-black hover:text-white"
-                  >
-                    Guardar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsEditingProfile(false)}
-                    className="flex-1 bg-brutalCrimson text-white font-bold border-2 border-black py-1.5 text-xs uppercase hover:bg-black"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <div className="flex items-center space-x-4">
-                {renderPixelAvatar(profile.name)}
-                <div className="flex-grow min-w-0">
-                  <p className="text-sm font-bold uppercase truncate">{profile.name}</p>
-                  <p className="text-[10px] text-gray-500 truncate">{profile.email}</p>
-                  <p className="text-xs font-bold text-brutalAmber bg-black px-1.5 py-0.5 mt-1 inline-block uppercase">
-                    {profile.role}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setIsEditingProfile(true)}
-                  className="bg-brutalNeutral border-2 border-black p-1 hover:bg-black hover:text-white transition-all text-xs font-bold"
-                  type="button"
-                  title="Editar Perfil"
-                >
-                  ✏️
-                </button>
-              </div>
-            )}
-          </div>
+      <div className="flex flex-col gap-2 flex-grow">
 
-          {/* Widget de Gestión de Cuentas */}
-          <div className="bg-white border-3 border-black p-6 shadow-brutal">
-            <h2 className="text-lg font-bold uppercase border-b-2 border-black pb-2 mb-4">💳 Cuentas Financieras</h2>
-            <div className="space-y-2 mb-4 max-h-48 overflow-y-auto">
-              {accounts.map((acc) => (
-                <div key={acc.id} className="border-2 border-black p-2 flex justify-between items-center bg-brutalBg hover:bg-brutalNeutral">
-                  <div>
-                    <span className="text-xs font-bold uppercase block">{acc.name}</span>
-                    <span className="text-[10px] text-gray-500 uppercase font-mono">{acc.type} ({acc.currency})</span>
-                  </div>
-                  <span className={`text-xs font-bold font-mono px-2 py-0.5 border border-black ${
-                    acc.current_balance < 0 ? "bg-brutalCrimson text-white animate-pulse" : "bg-white text-black"
-                  }`}>
-                    {acc.currency === "USD" ? "$" : "$"}
-                    {acc.current_balance?.toLocaleString('es-CO', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
+        {/* ── FILA SUPERIOR ── */}
+        <div className="grid grid-cols-5 gap-2 items-start">
+
+          {/* PANEL IZQUIERDO VERTICAL (col-span-2) */}
+          <div className="lg:col-span-2 col-span-5 space-y-2">
+
+          {/* ═══ NAV SUBSECCIONES ═══ */}
+          <div className="bg-white border-2 border-black p-1.5 shadow-brutal">
+            <div className="flex flex-wrap gap-1">
+              {[
+                { id: 'registro', label: '📝 Registro', icon: '' },
+                { id: 'facturacion', label: '🧾 Facturación', icon: '' },
+              ].map((sec) => (
+                <button
+                  key={sec.id}
+                  type="button"
+                  onClick={() => setActiveLeftSection(sec.id)}
+                  className={`px-2 py-0.5 text-[9px] font-bold uppercase border transition-all ${
+                    activeLeftSection === sec.id
+                      ? 'bg-black text-white border-black'
+                      : 'border-gray-300 hover:border-black hover:bg-brutalNeutral'
+                  }`}
+                >{sec.label}</button>
               ))}
             </div>
-
-            {/* Formulario de Agregar Cuenta */}
-            <form onSubmit={handleCreateAccount} className="border-2 border-black p-3 bg-white space-y-3">
-              <span className="text-xs font-bold uppercase block mb-1 border-b border-black pb-0.5">➕ Agregar Cuenta</span>
-              <input
-                type="text"
-                placeholder="Nombre Cuenta (ej. Bancolombia)"
-                value={newAccountName}
-                onChange={(e) => setNewAccountName(e.target.value)}
-                required
-                className="w-full bg-white border border-black p-1.5 text-xs font-mono outline-none focus:border-brutalGreen"
-              />
-              <div className="grid grid-cols-2 gap-2">
-                <select
-                  value={newAccountType}
-                  onChange={(e) => setNewAccountType(e.target.value)}
-                  className="bg-white border border-black p-1 text-xs font-mono outline-none"
-                >
-                  <option value="Ahorros">Ahorros</option>
-                  <option value="Corriente">Corriente</option>
-                  <option value="Crédito">Crédito</option>
-                  <option value="Crypto">Crypto</option>
-                  <option value="Efectivo">Efectivo</option>
-                </select>
-                <select
-                  value={newAccountCurrency}
-                  onChange={(e) => setNewAccountCurrency(e.target.value)}
-                  className="bg-white border border-black p-1 text-xs font-mono outline-none"
-                >
-                  <option value="COP">COP</option>
-                  <option value="USD">USD</option>
-                </select>
-              </div>
-              <div className="flex space-x-2">
-                <input
-                  type="number"
-                  step="0.01"
-                  placeholder="Saldo Inicial"
-                  value={newAccountInitialBalance}
-                  onChange={(e) => setNewAccountInitialBalance(e.target.value)}
-                  className="flex-grow bg-white border border-black p-1 text-xs font-mono outline-none focus:border-brutalGreen"
-                />
-                <button
-                  type="submit"
-                  className="bg-black text-white hover:bg-brutalGreen hover:text-black border border-black px-3 font-bold text-xs uppercase"
-                >
-                  Añadir
-                </button>
-              </div>
-            </form>
           </div>
 
-          {/* Módulo de Grabadora de Voz (Asistencia IA) */}
-          <div className="bg-white border-3 border-black p-6 shadow-brutal">
-            <h2 className="text-lg font-bold uppercase border-b-2 border-black pb-2 mb-4">🎤 Ingestión por Voz Inteligente</h2>
-            <p className="text-xs text-gray-500 uppercase leading-relaxed mb-4">
+          {/* Widgets de Usuario y Cuentas movidos al formulario Registro como colapsables */}
+
+          {/* ═══ FACTURACIÓN (subsección nueva) ═══ */}
+          {activeLeftSection === 'facturacion' && (
+            <div className="bg-white border-2 border-black p-2 shadow-brutal">
+              <h2 className="text-sm font-bold uppercase border-b-2 border-black pb-1 mb-2">🧾 Facturación</h2>
+              <div className="space-y-2">
+                <p className="text-[10px] text-gray-500 uppercase">Módulo de facturación electrónica en desarrollo.</p>
+                <div className="grid grid-cols-2 gap-1">
+                  <button type="button" className="border-2 border-black bg-brutalBg p-2 text-[10px] font-bold uppercase hover:bg-brutalNeutral transition-all text-left">
+                    📄 Nueva Factura
+                  </button>
+                  <button type="button" className="border-2 border-black bg-brutalBg p-2 text-[10px] font-bold uppercase hover:bg-brutalNeutral transition-all text-left">
+                    📋 Historial
+                  </button>
+                  <button type="button" className="border-2 border-black bg-brutalBg p-2 text-[10px] font-bold uppercase hover:bg-brutalNeutral transition-all text-left">
+                    📊 Reportes
+                  </button>
+                  <button type="button" className="border-2 border-black bg-brutalBg p-2 text-[10px] font-bold uppercase hover:bg-brutalNeutral transition-all text-left">
+                    ⚙️ Configuración
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Módulo de Voz IA — Widget Colapsable */}
+          {activeLeftSection === 'registro' && (
+          <div className="border-2 border-black bg-white shadow-brutal">
+            <div
+              onClick={() => setShowVoiceWidget(prev => !prev)}
+              className="p-2 cursor-pointer flex justify-between items-center hover:bg-brutalBg transition-all"
+            >
+              <span className="text-[10px] font-bold uppercase font-mono">
+                {showVoiceWidget ? '[x] 🎤 VOZ IA — INGESTIÓN INTELIGENTE' : '[+] 🎤 VOZ IA — INGESTIÓN INTELIGENTE'}
+              </span>
+              <span className="text-[9px] font-mono text-gray-400">
+                {isRecording ? '🔴 Grabando...' : drafts.length > 0 ? `${drafts.length} borradores` : 'Click para grabar'}
+              </span>
+            </div>
+            {showVoiceWidget && (
+          <div className="bg-white border-2 border-black p-2 shadow-brutal">
+            <h2 className="text-sm font-bold uppercase border-b-2 border-black pb-1 mb-2">🎤 Ingestión por Voz Inteligente</h2>
+            <p className="text-xs text-gray-500 uppercase leading-relaxed mb-2">
               Presiona el micrófono y registra libremente. Llama 3.3 y RAG autocompletarán los datos recurrentes como borradores.
             </p>
 
-            <div className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-black bg-brutalBg">
+            <div className="flex flex-col items-center justify-center p-2 border-2 border-dashed border-black bg-brutalBg">
               {!isRecording ? (
                 <button
                   onClick={startRecording}
@@ -1308,7 +1305,7 @@ function App() {
             </div>
 
             {/* Consola de Transcripción Editable */}
-            <div className="mt-4 border-2 border-black bg-brutalBg p-3 space-y-2">
+            <div className="mt-2 border-2 border-black bg-brutalBg p-2 space-y-1">
               <span className="text-xs font-bold uppercase text-gray-500 block">📝 Consola de Transcripción (Editable)</span>
               <textarea
                 value={liveTranscript}
@@ -1331,12 +1328,12 @@ function App() {
             {drafts.length > 0 && (
               <div className="mt-6 border-t-2 border-black pt-4">
                 <span className="text-xs font-bold uppercase text-gray-400 block mb-2">📥 Borradores de Voz Pendientes</span>
-                <div className="space-y-3 max-h-48 overflow-y-auto">
+                <div className="space-y-1 max-h-48 overflow-y-auto">
                   {drafts.map((d, index) => (
                     <div 
                       key={index}
                       onClick={() => loadDraftIntoForm(d)}
-                      className="border-2 border-black bg-white p-3 hover:bg-brutalNeutral cursor-pointer flex flex-col justify-between transition-all"
+                      className="border-2 border-black bg-white p-2 hover:bg-brutalNeutral cursor-pointer flex flex-col justify-between transition-all"
                     >
                       <div className="flex justify-between items-start">
                         <span className="text-xs bg-brutalAmber border border-black px-1 py-0.5 font-bold uppercase text-black">
@@ -1364,16 +1361,99 @@ function App() {
               </div>
             )}
           </div>
+            )}
+          </div>
+          )}
 
           {/* Formulario Manual Módulo 01 */}
-          <div className="bg-white border-3 border-black p-6 shadow-brutal">
-            <h2 className="text-lg font-bold uppercase border-b-2 border-black pb-2 mb-4">📝 Módulo 01: Registro Contable</h2>
+          {activeLeftSection === 'registro' && (
+          <div className="bg-white border-2 border-black p-2 shadow-brutal">
+            <div className="flex justify-between items-center border-b-2 border-black pb-1 mb-2">
+              <h2 className="text-sm font-bold uppercase">📝 Módulo 01: Registro Contable</h2>
+              <button
+                type="button"
+                onClick={() => setCalcOpen(!calcOpen)}
+                className={`px-2 py-0.5 text-[10px] font-bold uppercase border-2 border-black transition-all ${
+                  calcOpen ? 'bg-brutalGreen text-black' : 'bg-black text-white hover:bg-brutalGreen hover:text-black'
+                }`}
+                title="Calculadora rápida"
+              >
+                🧮 CALC
+              </button>
+            </div>
+
+            {/* ═══ CALCULADORA RÁPIDA EXPANDIBLE ═══ */}
+            {calcOpen && (
+              <div className="border-2 border-black bg-brutalBg p-2 mb-2 shadow-brutal">
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-[9px] font-bold uppercase text-gray-400">Calculadora</span>
+                  <button type="button" onClick={() => { setCalcDisplay("0"); setCalcPrev(null); setCalcOp(null); }} className="text-[9px] font-bold uppercase bg-brutalCrimson text-white border border-black px-1.5 py-0.5 hover:bg-black">CE</button>
+                </div>
+                <div className="bg-white border-2 border-black p-2 text-right text-sm font-bold font-mono mb-1 overflow-hidden">
+                  {calcPrev !== null && <span className="text-[9px] text-gray-400 block">{calcPrev} {calcOp}</span>}
+                  {calcDisplay}
+                </div>
+                <div className="grid grid-cols-4 gap-0.5">
+                  {['7','8','9','÷','4','5','6','×','1','2','3','−','0','.','±','+'].map(btn => (
+                    <button
+                      key={btn}
+                      type="button"
+                      onClick={() => {
+                        const ops = {'÷':'/','×':'*','−':'-','+':'+'};
+                        if (ops[btn]) {
+                          const curr = parseFloat(calcDisplay) || 0;
+                          if (calcPrev !== null && calcOp) {
+                            const r = calcOp === '+' ? calcPrev+curr : calcOp === '-' ? calcPrev-curr : calcOp === '*' ? calcPrev*curr : calcPrev/curr;
+                            setCalcPrev(r); setCalcDisplay(String(r));
+                          } else { setCalcPrev(curr); }
+                          setCalcOp(ops[btn]); setCalcReset(true);
+                        } else if (btn === '±') {
+                          setCalcDisplay(d => String(parseFloat(d) * -1));
+                        } else if (btn === '.') {
+                          setCalcDisplay(d => d.includes('.') ? d : d + '.');
+                        } else {
+                          setCalcDisplay(d => (d === '0' || calcReset) ? btn : d + btn);
+                          setCalcReset(false);
+                        }
+                      }}
+                      className={`p-1.5 text-xs font-bold font-mono border border-black transition-all ${
+                        '÷×−+'.includes(btn)
+                          ? 'bg-brutalAmber text-black hover:bg-black hover:text-white'
+                          : 'bg-white hover:bg-brutalNeutral'
+                      }`}
+                    >
+                      {btn}
+                    </button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 gap-0.5 mt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (calcPrev !== null && calcOp) {
+                        const curr = parseFloat(calcDisplay) || 0;
+                        const r = calcOp === '+' ? calcPrev+curr : calcOp === '-' ? calcPrev-curr : calcOp === '*' ? calcPrev*curr : calcPrev/curr;
+                        setCalcDisplay(String(Math.round(r * 100) / 100));
+                        setCalcPrev(null); setCalcOp(null); setCalcReset(true);
+                      }
+                    }}
+                    className="p-1.5 text-xs font-bold font-mono border border-black bg-brutalGreen text-black hover:bg-black hover:text-white"
+                  >=</button>
+                  <button
+                    type="button"
+                    onClick={() => { setAmount(calcDisplay); setCalcOpen(false); }}
+                    className="p-1.5 text-[9px] font-bold font-mono uppercase border border-black bg-black text-white hover:bg-brutalGreen hover:text-black"
+                    title="Usar este resultado como importe"
+                  >→ IMPORTE</button>
+                </div>
+              </div>
+            )}
             
-            <form onSubmit={handleRegister} className="space-y-4">
+            <form onSubmit={handleRegister} className="space-y-2">
               
               {/* Sugerencia Informativa de Campos Faltantes */}
               {formSuggestion && (
-                <div className="bg-brutalAmber border-2 border-black p-3 text-xs font-bold uppercase space-y-2">
+                <div className="bg-brutalAmber border-2 border-black p-2 text-xs font-bold uppercase space-y-1">
                   <div className="flex justify-between items-start">
                     <span className="text-black">💡 CAMPOS FALTANTES EN AUDIO</span>
                     <button 
@@ -1413,7 +1493,7 @@ function App() {
               </div>
 
               {/* Importe y Concepto */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-xs font-bold uppercase block mb-1">Importe ($)*</label>
                   <input
@@ -1451,8 +1531,8 @@ function App() {
 
               {/* Cuentas, Categoría y Conversión */}
               {formType === "TRANSFERENCIA" ? (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-xs font-bold uppercase block mb-1">Cuenta Origen*</label>
                       <select 
@@ -1481,7 +1561,7 @@ function App() {
                       </select>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-xs font-bold uppercase block mb-1">Cuenta Contable (COA)</label>
                       {renderCoaSelector()}
@@ -1567,8 +1647,8 @@ function App() {
                   </div>
                 </div>
               ) : (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-xs font-bold uppercase block mb-1">Cuenta*</label>
                       <select 
@@ -1587,7 +1667,7 @@ function App() {
                       {renderCoaSelector()}
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-xs font-bold uppercase block mb-1">Divisa Transacción</label>
                       <select 
@@ -1683,7 +1763,7 @@ function App() {
 
               {/* TRM Manual si es Cross-Currency */}
               {isCrossCurrency && (
-                <div className="border-2 border-black p-3 bg-brutalAmber space-y-2">
+                <div className="border-2 border-black p-2 bg-brutalAmber space-y-1">
                   <label className="text-xs font-bold uppercase block mb-1 text-black font-mono">💹 TRM Manual Requerida*</label>
                   <div className="flex items-center space-x-2">
                     <span className="text-xs font-bold text-black font-mono">1 USD =</span>
@@ -1704,435 +1784,24 @@ function App() {
                 </div>
               )}
 
-              {/* Sección Colapsable: Identificación de Tercero (MANDATORIO) */}
-              <div className="border-2 border-black bg-brutalBg shadow-brutal">
-                <div 
-                  onClick={() => setExpandedTercero(!expandedTercero)}
-                  className="p-2.5 flex justify-between items-center cursor-pointer select-none font-bold text-xs uppercase"
-                >
-                  <span>{expandedTercero ? "[-] IDENTIFICACIÓN DE TERCERO" : "[+] IDENTIFICACIÓN DE TERCERO"}</span>
-                  <span className="font-extrabold">{expandedTercero ? "—" : "+"}</span>
-                </div>
-                {expandedTercero && (
-                  <div className="border-t-2 border-black p-3 bg-white space-y-3">
-                    <div>
-                      <label className="text-[10px] font-bold uppercase block mb-1">Nombre / Tercero</label>
-                      <input
-                        type="text"
-                        value={thirdPartyName}
-                        onChange={(e) => setThirdPartyName(e.target.value)}
-                        required
-                        placeholder="Nombre Completo / Empresa"
-                        className="w-full bg-white border-2 border-black p-2 text-xs font-mono outline-none focus:border-brutalGreen"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[10px] font-bold uppercase block mb-1">Tipo Identificación</label>
-                        <select
-                          value={thirdPartyType}
-                          onChange={(e) => setThirdPartyType(e.target.value)}
-                          className="w-full bg-white border-2 border-black p-2 text-xs font-mono outline-none"
-                        >
-                          <option value="NIT">NIT</option>
-                          <option value="CC">CC</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-bold uppercase block mb-1">Número ID</label>
-                        <input
-                          type="text"
-                          value={thirdPartyNumber}
-                          onChange={(e) => setThirdPartyNumber(e.target.value)}
-                          required
-                          placeholder="23"
-                          className="w-full bg-white border-2 border-black p-2 text-xs font-mono outline-none focus:border-brutalGreen"
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[10px] font-bold uppercase block mb-1">Correo Electrónico</label>
-                        <input
-                          type="email"
-                          value={thirdPartyEmail}
-                          onChange={(e) => setThirdPartyEmail(e.target.value)}
-                          placeholder="mail@ejemplo.com"
-                          className="w-full bg-white border-2 border-black p-2 text-xs font-mono outline-none focus:border-brutalGreen"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-bold uppercase block mb-1">Número de Contacto</label>
-                        <input
-                          type="text"
-                          value={thirdPartyPhone}
-                          onChange={(e) => setThirdPartyPhone(e.target.value)}
-                          placeholder="300 123 4567"
-                          className="w-full bg-white border-2 border-black p-2 text-xs font-mono outline-none focus:border-brutalGreen"
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-bold uppercase block mb-1">Web</label>
-                      <input
-                        type="text"
-                        value={thirdPartyWebsite}
-                        onChange={(e) => setThirdPartyWebsite(e.target.value)}
-                        placeholder="https://www.ejemplo.com"
-                        className="w-full bg-white border-2 border-black p-2 text-xs font-mono outline-none focus:border-brutalGreen"
-                      />
-                    </div>
-                    
-                    <button
-                      type="button"
-                      onClick={() => setExpandedTercero(false)}
-                      className="w-full bg-black text-brutalGreen hover:bg-brutalGreen hover:text-black border-2 border-black py-2 text-xs font-extrabold uppercase transition-all shadow-brutal active:translate-y-0.5"
-                    >
-                      GUARDAR
-                    </button>
-                  </div>
-                )}
+              {/* Ubicación / Geolocalización */}
+              <div className="mt-2">
+                <label className="text-[10px] font-bold uppercase block mb-1">📍 Ubicación (Google Maps Link)</label>
+                <input
+                  type="url"
+                  value={geoMapsLink}
+                  onChange={(e) => setGeoMapsLink(e.target.value)}
+                  placeholder="https://maps.google.com/..."
+                  className="w-full bg-white border-2 border-black p-2 text-xs font-mono outline-none focus:border-brutalGreen"
+                />
               </div>
 
-              {/* Sección Colapsable: Impuestos y Tasas Ocultas */}
-              <div className="border-2 border-black bg-white shadow-brutal">
-                <div 
-                  onClick={() => setExpandedTaxes(!expandedTaxes)}
-                  className="p-2.5 flex justify-between items-center bg-brutalBg cursor-pointer select-none font-bold text-xs uppercase"
-                >
-                  <span>{expandedTaxes ? "[—] IMPUESTOS Y TASAS OCULTAS" : "[%] IMPUESTOS Y TASAS OCULTAS"}</span>
-                  <span className="font-extrabold">{expandedTaxes ? "—" : "+"}</span>
-                </div>
-                {expandedTaxes && (
-                  <div className="border-t-2 border-black p-3 bg-white space-y-4">
-                    <div className="space-y-2 border-b-2 border-dashed border-black pb-3">
-                      <label className="flex items-center text-xs uppercase font-bold cursor-pointer">
-                        <input 
-                          type="checkbox"
-                          checked={applyIva}
-                          onChange={(e) => setApplyIva(e.target.checked)}
-                          className="mr-2 h-4 w-4 border-2 border-black rounded-none outline-none accent-black" 
-                        />
-                        [{applyIva ? "X" : " "}] IVA (19%) - ADITIVO
-                      </label>
-                      <label className="flex items-center text-xs uppercase font-bold cursor-pointer">
-                        <input 
-                          type="checkbox"
-                          checked={applyPropina}
-                          onChange={(e) => setApplyPropina(e.target.checked)}
-                          className="mr-2 h-4 w-4 border-2 border-black rounded-none outline-none accent-black" 
-                        />
-                        [{applyPropina ? "X" : " "}] PROPINA (10%) - ADITIVO
-                      </label>
-                      <label className="flex items-center text-xs uppercase font-bold cursor-pointer">
-                        <input 
-                          type="checkbox"
-                          checked={applyGmf}
-                          onChange={(e) => setApplyGmf(e.target.checked)}
-                          className="mr-2 h-4 w-4 border-2 border-black rounded-none outline-none accent-black" 
-                        />
-                        [{applyGmf ? "X" : " "}] GMF 4X1000 - DEDUCTIVO
-                      </label>
-                      
-                      {customTaxesList.map((tax) => (
-                        <label key={tax.id} className="flex items-center text-xs uppercase font-bold cursor-pointer">
-                          <input 
-                            type="checkbox"
-                            checked={tax.checked}
-                            onChange={(e) => {
-                              const checkedVal = e.target.checked;
-                              setCustomTaxesList(prev => prev.map(t => t.id === tax.id ? { ...t, checked: checkedVal } : t));
-                            }}
-                            className="mr-2 h-4 w-4 border-2 border-black rounded-none outline-none accent-black" 
-                          />
-                          [{tax.checked ? "X" : " "}] {tax.name} ({tax.rate}%) - {tax.type === "ADDITIVE" ? "ADITIVO" : "DEDUCTIVO"}
-                        </label>
-                      ))}
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <h4 className="text-[10px] font-extrabold uppercase tracking-wider text-black">ADMINISTRADOR DE TASAS PERSONALIZADAS</h4>
-                      
-                      <div 
-                        onClick={() => setIsAddingTaxOpen(!isAddingTaxOpen)}
-                        className="border-2 border-black p-2 text-center font-bold text-[10px] uppercase bg-brutalBg cursor-pointer select-none hover:bg-brutalNeutral transition-all"
-                      >
-                        {isAddingTaxOpen ? "CERRAR FORMULARIO (—)" : "AGREGAR TASA (+)"}
-                      </div>
-                      
-                      {isAddingTaxOpen && (
-                        <div className="border-2 border-black p-3 bg-brutalBg space-y-3 text-xs shadow-brutal">
-                          <div>
-                            <label className="text-[9px] font-bold uppercase block mb-1">Nombre de la Tasa</label>
-                            <input
-                              type="text"
-                              value={newTaxName}
-                              onChange={(e) => setNewTaxName(e.target.value)}
-                              placeholder="Ej. ICA"
-                              className="w-full bg-white border-2 border-black p-2 text-xs font-mono outline-none"
-                            />
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <label className="text-[9px] font-bold uppercase block mb-1">Porcentaje (%)</label>
-                              <input
-                                type="number"
-                                step="0.01"
-                                value={newTaxRate}
-                                onChange={(e) => setNewTaxRate(e.target.value)}
-                                placeholder="0.0"
-                                className="w-full bg-white border-2 border-black p-2 text-xs font-mono outline-none"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[9px] font-bold uppercase block mb-1">Tipo</label>
-                              <select
-                                value={newTaxType}
-                                onChange={(e) => setNewTaxType(e.target.value)}
-                                className="w-full bg-white border-2 border-black p-2 text-xs font-mono outline-none"
-                              >
-                                <option value="ADDITIVE">Aditivo</option>
-                                <option value="DEDUCTIVE">Deductivo</option>
-                              </select>
-                            </div>
-                          </div>
-                          
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (!newTaxName || !newTaxRate) {
-                                alert("❌ Completa el nombre y el porcentaje de la tasa.");
-                                return;
-                              }
-                              const rateVal = parseFloat(newTaxRate);
-                              if (isNaN(rateVal)) return;
-                              
-                              const newTax = {
-                                id: String(Date.now()),
-                                name: newTaxName.toUpperCase(),
-                                rate: rateVal,
-                                type: newTaxType,
-                                checked: true
-                              };
-                              setCustomTaxesList(prev => [...prev, newTax]);
-                              setNewTaxName("");
-                              setNewTaxRate("");
-                              setIsAddingTaxOpen(false);
-                            }}
-                            className="w-full bg-black text-brutalGreen hover:bg-brutalGreen hover:text-black border-2 border-black py-2 text-xs font-extrabold uppercase transition-all"
-                          >
-                            GUARDAR
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Sección Colapsable: Cartera (CXC / CXP) */}
-              <div className="border-2 border-black bg-white shadow-brutal">
-                <div 
-                  onClick={() => setExpandedCartera(!expandedCartera)}
-                  className="p-2.5 flex justify-between items-center bg-brutalBg cursor-pointer select-none font-bold text-xs uppercase"
-                >
-                  <span>{cxcCxpEnabled ? "[x] CARTERA (CXC / CXP)" : "[+] CARTERA (CXC / CXP)"}</span>
-                  <span className="font-extrabold">{expandedCartera ? "—" : "+"}</span>
-                </div>
-                {expandedCartera && (
-                  <div className="p-3 bg-white space-y-3 border-t-2 border-black">
-                    <div className="flex items-center space-x-6 py-1">
-                      <label className="flex items-center text-xs uppercase font-extrabold cursor-pointer">
-                        <input 
-                          type="radio"
-                          name="cxcCxpType"
-                          value="CXC"
-                          checked={cxcCxpType === "CXC"}
-                          onChange={() => setCxcCxpType("CXC")}
-                          className="mr-2 h-4 w-4 border-2 border-black accent-black"
-                        />
-                        CUENTAS POR COBRAR (CXC)
-                      </label>
-                      <label className="flex items-center text-xs uppercase font-extrabold cursor-pointer">
-                        <input 
-                          type="radio"
-                          name="cxcCxpType"
-                          value="CXP"
-                          checked={cxcCxpType === "CXP"}
-                          onChange={() => setCxcCxpType("CXP")}
-                          className="mr-2 h-4 w-4 border-2 border-black accent-black"
-                        />
-                        CUENTAS POR PAGAR (CXP)
-                      </label>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[10px] font-bold uppercase block mb-1">Fecha*</label>
-                        <input
-                          type="date"
-                          value={cxcCxpDueDate}
-                          onChange={(e) => setCxcCxpDueDate(e.target.value)}
-                          className="w-full bg-white border-2 border-black p-2 text-xs font-mono outline-none"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-bold uppercase block mb-1">Plazo</label>
-                        <select
-                          value={cxcCxpTerm}
-                          onChange={(e) => setCxcCxpTerm(e.target.value)}
-                          className="w-full bg-white border-2 border-black p-2 text-xs font-mono outline-none"
-                        >
-                          <option value="Corto">Corto</option>
-                          <option value="Mediano">Mediano</option>
-                          <option value="Largo">Largo</option>
-                        </select>
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <label className="text-[10px] font-bold uppercase block mb-1">Tercero</label>
-                      <input
-                        type="text"
-                        value={thirdPartyName || "Ninguno"}
-                        readOnly
-                        placeholder="Nombre del Tercero"
-                        className="w-full bg-brutalNeutral border-2 border-black p-2 text-xs font-mono outline-none cursor-not-allowed"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setIsThirdPartyModalOpen(true)}
-                        className="mt-2 w-full bg-yellow-200 text-black border-2 border-black py-1.5 text-[10px] font-black uppercase hover:bg-yellow-400 transition-all"
-                      >
-                        {thirdPartyName ? "CAMBIAR TERCERO" : "🔍 ASIGNAR TERCERO"}
-                      </button>
-                    </div>
-                    
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!cxcCxpDueDate) {
-                          alert("❌ Completa la fecha de vencimiento para guardar en cartera.");
-                          return;
-                        }
-                        setCxcCxpEnabled(true);
-                        setExpandedCartera(false);
-                      }}
-                      className="w-full bg-black text-brutalGreen hover:bg-brutalGreen hover:text-black border-2 border-black py-2 text-xs font-extrabold uppercase transition-all shadow-brutal active:translate-y-0.5"
-                    >
-                      GUARDAR EN CARTERA
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Sección Colapsable: Gestión de Activos */}
-              <div className="border-2 border-black bg-white shadow-brutal">
-                <div 
-                  onClick={() => setExpandedActivos(!expandedActivos)}
-                  className="p-2.5 flex justify-between items-center bg-brutalBg cursor-pointer select-none font-bold text-xs uppercase"
-                >
-                  <span>{assetEnabled && assetEstablecerActivo ? "[x] GESTIÓN DE ACTIVOS" : "[+] GESTIÓN DE ACTIVOS"}</span>
-                  <span className="font-extrabold">{expandedActivos ? "—" : "+"}</span>
-                </div>
-                {expandedActivos && (
-                  <div className="p-3 bg-white space-y-3 border-t-2 border-black">
-                    <div>
-                      <label className="text-[10px] font-bold uppercase block mb-1">Nombre del Activo</label>
-                      <input
-                        type="text"
-                        value={assetName}
-                        onChange={(e) => setAssetName(e.target.value)}
-                        placeholder="Ej. Equipo de Cómputo"
-                        className="w-full bg-white border-2 border-black p-2 text-xs font-mono outline-none focus:border-brutalGreen"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[10px] font-bold uppercase block mb-1">Valor</label>
-                        <input
-                          type="number"
-                          value={assetValue}
-                          onChange={(e) => setAssetValue(e.target.value)}
-                          disabled={assetVincularImporte}
-                          placeholder="0.00"
-                          className={`w-full border-2 border-black p-2 text-xs font-mono outline-none focus:border-brutalGreen ${
-                            assetVincularImporte ? "bg-brutalNeutral cursor-not-allowed" : "bg-white"
-                          }`}
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-bold uppercase block mb-1">Etiqueta</label>
-                        <input
-                          type="text"
-                          value={assetTag}
-                          onChange={(e) => setAssetTag(e.target.value)}
-                          placeholder="Ej. IT"
-                          className="w-full bg-white border-2 border-black p-2 text-xs font-mono outline-none focus:border-brutalGreen"
-                        />
-                      </div>
-                    </div>
-                    
-                    <div className="space-y-1.5 py-1">
-                      <label className="flex items-center text-xs uppercase font-extrabold cursor-pointer">
-                        <input 
-                          type="checkbox"
-                          checked={assetVincularImporte}
-                          onChange={(e) => setAssetVincularImporte(e.target.checked)}
-                          className="mr-2 h-4 w-4 border-2 border-black rounded-none outline-none accent-black" 
-                        />
-                        [{assetVincularImporte ? "X" : " "}] VINCULAR AL IMPORTE
-                      </label>
-                      <label className="flex items-center text-xs uppercase font-extrabold cursor-pointer">
-                        <input 
-                          type="checkbox"
-                          checked={assetEstablecerActivo}
-                          onChange={(e) => setAssetEstablecerActivo(e.target.checked)}
-                          className="mr-2 h-4 w-4 border-2 border-black rounded-none outline-none accent-black" 
-                        />
-                        [{assetEstablecerActivo ? "X" : " "}] ESTABLECER COMO ACTIVO
-                      </label>
-                    </div>
-
-                    <div className="border-t border-dashed border-black pt-2 pb-2">
-                      <label className="flex items-center text-xs uppercase font-extrabold cursor-pointer">
-                        <input 
-                          type="checkbox"
-                          checked={assetRecurrente}
-                          onChange={(e) => setAssetRecurrente(e.target.checked)}
-                          className="mr-2 h-4 w-4 border-2 border-black rounded-none outline-none accent-black" 
-                        />
-                        [{assetRecurrente ? "X" : " "}] VOLVER RECURRENTE
-                      </label>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!assetName) {
-                          alert("❌ Completa el nombre del activo para guardar.");
-                          return;
-                        }
-                        if (!assetVincularImporte && !assetValue) {
-                          alert("❌ Completa el valor del activo o vincúlalo al importe.");
-                          return;
-                        }
-                        setAssetEnabled(true);
-                        setAssetEstablecerActivo(true);
-                        setExpandedActivos(false);
-                      }}
-                      className="w-full bg-black text-brutalGreen hover:bg-brutalGreen hover:text-black border-2 border-black py-2 text-xs font-extrabold uppercase transition-all shadow-brutal active:translate-y-0.5"
-                    >
-                      GUARDAR ACTIVO
-                    </button>
-                  </div>
-                )}
-              </div>
+              {/* ═══ Secciones colapsables movidas al ContextPanel (panel derecho) ═══ */}
 
               {/* Sección Evidencia / Subir Archivo - Integrada a Módulo 01 */}
-              <div className="border-2 border-black p-3 bg-white space-y-2 shadow-brutal">
+              <div className="border-2 border-black p-2 bg-white space-y-1 shadow-brutal">
                 <label className="text-[10px] font-bold uppercase block mb-1">EVIDENCIA / COMPROBANTE DE TRANSACCIÓN</label>
-                <label className="flex flex-col items-center justify-center border-2 border-dashed border-black p-4 bg-gray-50 cursor-pointer hover:bg-brutalBg transition-all select-none">
+                <label className="flex flex-col items-center justify-center border-2 border-dashed border-black p-2 bg-gray-50 cursor-pointer hover:bg-brutalBg transition-all select-none">
                   <span className="text-xl mb-1">📷</span>
                   <span className="text-[10px] font-bold uppercase font-mono text-center">
                     {isUploadingEvidence 
@@ -2162,12 +1831,64 @@ function App() {
               </button>
             </form>
           </div>
-        </div>
+          )}
+        </div>{/* fin panel izquierdo */}
 
-        {/* ----------------- PANEL DERECHO: LIBRO DIARIO DETALLADO ----------------- */}
-        <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white border-3 border-black p-6 shadow-brutal overflow-hidden flex flex-col">
-            <h2 className="text-lg font-bold uppercase border-b-2 border-black pb-2 mb-4">📖 Módulo 02: Libro Diario Inteligente</h2>
+          {/* PANEL DERECHO — FORM + BD POR TAB */}
+          <ContextPanel
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            tercero={{
+              name: thirdPartyName, setName: setThirdPartyName,
+              idType: thirdPartyType, setIdType: setThirdPartyType,
+              idNumber: thirdPartyNumber, setIdNumber: setThirdPartyNumber,
+              email: thirdPartyEmail, setEmail: setThirdPartyEmail,
+              phone: thirdPartyPhone, setPhone: setThirdPartyPhone,
+              address: thirdPartyWebsite, setAddress: setThirdPartyWebsite,
+            }}
+            taxes={{
+              enabled: applyIva, setEnabled: setApplyIva,
+              type: 'IVA_19', setType: () => {},
+              customRate: '', setCustomRate: () => {},
+            }}
+            cartera={{
+              enabled: cxcCxpEnabled, setEnabled: setCxcCxpEnabled,
+              type: cxcCxpType, setType: setCxcCxpType,
+              dueDate: cxcCxpDueDate, setDueDate: setCxcCxpDueDate,
+              term: cxcCxpTerm, setTerm: setCxcCxpTerm,
+              partialValue: cxcCxpValue, setPartialValue: setCxcCxpValue,
+              totalAmount: amount,
+            }}
+            assets={{
+              enabled: assetEnabled, setEnabled: setAssetEnabled,
+              name: assetName, setName: setAssetName,
+              value: assetValue, setValue: setAssetValue,
+              tag: assetTag, setTag: setAssetTag,
+            }}
+            tagState={{
+              selected: selectedTags, setSelected: setSelectedTags,
+              search: tagSearch, setSearch: setTagSearch,
+            }}
+            allThirdParties={allThirdParties}
+            setAllThirdParties={setAllThirdParties}
+            activePortfolio={activePortfolio}
+            accounts={accounts}
+            profile={profile}
+            profileEdit={{
+              isEditing: isEditingProfile, setIsEditing: setIsEditingProfile,
+              name: editProfileName, setName: setEditProfileName,
+              email: editProfileEmail, setEmail: setEditProfileEmail,
+              role: editProfileRole, setRole: setEditProfileRole,
+              handleSave: handleUpdateProfile,
+            }}
+          />
+
+        </div>{/* fin fila superior */}
+
+        {/* ── FILA INFERIOR: Libro Diario ancho completo ── */}
+        <div className="w-full">
+          <div className="bg-white border-2 border-black p-2 shadow-brutal overflow-hidden flex flex-col">
+            <h2 className="text-sm font-bold uppercase border-b-2 border-black pb-1 mb-2">📖 Módulo 02: Libro Diario Inteligente</h2>
             
             {/* Rejilla de Movimientos Históricos */}
             <div className="overflow-x-auto">
@@ -2194,7 +1915,12 @@ function App() {
                     </tr>
                   ) : (
                     transactions.map((tx) => (
-                      <tr key={tx.id} className="hover:bg-brutalBg transition-all" title="Doble clic en una celda para editar (estilo Excel)">
+                      <React.Fragment key={tx.id}>
+                      <tr 
+                        className={`hover:bg-brutalBg transition-all cursor-pointer ${expandedTxId === tx.id ? 'bg-brutalBg' : ''}`} 
+                        title="Click para ver detalles · Doble clic en celda para editar"
+                        onClick={() => setExpandedTxId(expandedTxId === tx.id ? null : tx.id)}
+                      >
                         {/* Tipo */}
                         <td className="p-2 border-r border-black font-bold">
                           {editingCell && editingCell.txId === tx.id && editingCell.field === "type" ? (
@@ -2445,10 +2171,137 @@ function App() {
                           </button>
                         </td>
                       </tr>
+
+                      {/* ═══ FILA EXPANDIBLE: Detalles de la Transacción ═══ */}
+                      {expandedTxId === tx.id && (
+                        <tr>
+                          <td colSpan="9" className="p-0 border-t border-black">
+                            <div className="bg-brutalBg p-3 border-b-2 border-black">
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px] font-mono">
+
+                                {/* Tercero */}
+                                {tx.third_party_name && (
+                                  <div className="space-y-0.5">
+                                    <span className="font-bold uppercase text-gray-400 block">👤 Tercero</span>
+                                    <span className="font-bold block">{tx.third_party_name}</span>
+                                    <span className="text-gray-400 block">{tx.identification_type} {tx.identification_number}</span>
+                                  </div>
+                                )}
+
+                                {/* CXC/CXP */}
+                                {tx.cxc_type && (
+                                  <div className="space-y-0.5">
+                                    <span className="font-bold uppercase text-gray-400 block">📄 {tx.cxc_type === 'CXC' ? 'Cuenta por Cobrar' : 'Cuenta por Pagar'}</span>
+                                    <span className={`inline-block px-1.5 py-0.5 text-[9px] font-bold uppercase border ${tx.cxc_type === 'CXC' ? 'bg-brutalGreen border-black text-black' : 'bg-brutalAmber border-black text-black'}`}>
+                                      {tx.cxc_type}
+                                    </span>
+                                    <span className="block">Vence: {tx.cxc_due_date || '-'}</span>
+                                    <span className="block">Plazo: {tx.cxc_term || '-'}</span>
+                                    {tx.cxc_status && <span className="block">Estado: {tx.cxc_status}</span>}
+                                  </div>
+                                )}
+
+                                {/* Impuestos */}
+                                {(tx.tax_iva_amount > 0 || tx.tax_gmf_amount > 0) && (
+                                  <div className="space-y-0.5">
+                                    <span className="font-bold uppercase text-gray-400 block">📈 Impuestos</span>
+                                    {tx.tax_iva_amount > 0 && <span className="block">IVA: ${Number(tx.tax_iva_amount).toLocaleString()}</span>}
+                                    {tx.tax_gmf_amount > 0 && <span className="block">GMF: ${Number(tx.tax_gmf_amount).toLocaleString()}</span>}
+                                    <span className="block font-bold">Bruto: ${Number(tx.amount).toLocaleString()}</span>
+                                  </div>
+                                )}
+
+                                {/* Divisa / TRM */}
+                                {tx.transaction_currency && tx.transaction_currency !== 'COP' && (
+                                  <div className="space-y-0.5">
+                                    <span className="font-bold uppercase text-gray-400 block">💱 Divisa</span>
+                                    <span className="block">{tx.transaction_currency}</span>
+                                    {tx.trm && tx.trm !== 1 && <span className="block">TRM: {tx.trm}</span>}
+                                  </div>
+                                )}
+
+                                {/* Recurrencia */}
+                                {tx.is_recurring && (
+                                  <div className="space-y-0.5">
+                                    <span className="font-bold uppercase text-gray-400 block">🔁 Recurrencia</span>
+                                    <span className="block">{tx.recurrence_interval || 'MENSUAL'} ({tx.recurrence_days || 30}d)</span>
+                                    {tx.recurrence_max_reps && <span className="block">Máx: {tx.recurrence_max_reps} reps</span>}
+                                    {tx.recurrence_end_date && <span className="block">Hasta: {tx.recurrence_end_date}</span>}
+                                  </div>
+                                )}
+
+                                {/* Recurso / Activo */}
+                                {tx.asset_name && (
+                                  <div className="space-y-0.5">
+                                    <span className="font-bold uppercase text-gray-400 block">📦 Recurso</span>
+                                    <span className="font-bold block">{tx.asset_name}</span>
+                                    {tx.asset_tag && <span className="block">Tag: {tx.asset_tag}</span>}
+                                    {tx.asset_is_passive && <span className="block text-brutalGreen font-bold">♻ Ingreso pasivo</span>}
+                                  </div>
+                                )}
+
+                                {/* Geo */}
+                                {tx.geo_maps_link && (
+                                  <div className="space-y-0.5">
+                                    <span className="font-bold uppercase text-gray-400 block">📍 Ubicación</span>
+                                    <a href={tx.geo_maps_link} target="_blank" rel="noreferrer" className="text-blue-600 underline break-all">
+                                      Ver en Maps →
+                                    </a>
+                                  </div>
+                                )}
+
+                                {/* Tags (si existen en el futuro) */}
+                                {tx.tags && tx.tags.length > 0 && (
+                                  <div className="space-y-0.5">
+                                    <span className="font-bold uppercase text-gray-400 block">🏷️ Etiquetas</span>
+                                    <div className="flex flex-wrap gap-1">
+                                      {tx.tags.map(tag => (
+                                        <span key={tag} className="bg-black text-white px-1 py-0.5 text-[8px] font-bold uppercase">{tag}</span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Si no hay datos extra */}
+                              {!tx.third_party_name && !tx.cxc_type && !tx.tax_iva_amount && !tx.tax_gmf_amount && !tx.is_recurring && !tx.asset_name && !(tx.transaction_currency && tx.transaction_currency !== 'COP') && (
+                                <p className="text-[10px] text-gray-300 font-mono uppercase text-center py-2">Sin datos adicionales registrados</p>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </React.Fragment>
                     ))
                   )}
                 </tbody>
               </table>
+
+              {/* DT-12: Botón "Cargar más" si hay más TXs disponibles */}
+              {transactions.length < totalTxCount && (
+                <div style={{
+                  display: 'flex', justifyContent: 'center', alignItems: 'center',
+                  gap: 12, padding: '12px 0', borderTop: '2px solid #000',
+                }}>
+                  <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, color: '#888', textTransform: 'uppercase' }}>
+                    Mostrando {transactions.length} de {totalTxCount} registros
+                  </span>
+                  <button
+                    onClick={loadMoreTransactions}
+                    disabled={loadingMore}
+                    style={{
+                      fontFamily: 'IBM Plex Mono, monospace', fontSize: 10,
+                      textTransform: 'uppercase', letterSpacing: 1,
+                      background: '#000', color: '#fff',
+                      border: '2px solid #000', padding: '6px 16px',
+                      cursor: loadingMore ? 'wait' : 'pointer',
+                      opacity: loadingMore ? 0.5 : 1,
+                    }}
+                  >
+                    {loadingMore ? '▓ CARGANDO...' : '↓ CARGAR 50 MÁS'}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -2459,9 +2312,9 @@ function App() {
       {/* 🖼️ EVIDENCE MODAL POPUP */}
       {/* ============================================================================== */}
       {evidenceUrl && (
-        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white border-3 border-black p-6 max-w-lg w-full shadow-brutal my-8 font-mono">
-            <div className="flex justify-between items-center border-b-2 border-black pb-2 mb-4">
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-2 z-50 overflow-y-auto">
+          <div className="bg-white border-2 border-black p-2 max-w-lg w-full shadow-brutal my-8 font-mono">
+            <div className="flex justify-between items-center border-b-2 border-black pb-1 mb-2">
               <span className="text-sm font-bold uppercase">📂 Visualizador de Evidencia</span>
               <button 
                 onClick={() => {
@@ -2475,9 +2328,9 @@ function App() {
             </div>
             
             {selectedEvidenceTx ? (
-              <div className="space-y-4">
+              <div className="space-y-2">
                 {/* Brutalist Simulated Receipt Visualizer */}
-                <div className="border-2 border-black p-4 bg-brutalBg text-xs space-y-3 uppercase">
+                <div className="border-2 border-black p-2 bg-brutalBg text-xs space-y-2 uppercase">
                   <div className="text-center font-bold border-b border-black pb-2 text-sm">
                     *** CERTIFICADO / RECIBO DE CAJA ***
                     <br />
@@ -2646,7 +2499,7 @@ function App() {
                 </div>
 
                 {/* Sección de Auditoría / Advertencias */}
-                <div className="border-2 border-black p-3 bg-white space-y-2 uppercase text-[10px]">
+                <div className="border-2 border-black p-2 bg-white space-y-1 uppercase text-[10px]">
                   <div className="font-bold border-b border-black pb-1 text-gray-600">
                     🔍 CONTROL INTERNO Y AUDITORÍA DE SOPORTES
                   </div>
@@ -2696,7 +2549,7 @@ function App() {
 
                 {/* Evidencia física real (si existe) */}
                 {selectedEvidenceTx.evidence_file_path && selectedEvidenceTx.evidence_file_path !== "recibo_demo.png" && (
-                  <div className="border-2 border-black p-3 bg-white space-y-2 uppercase text-[10px]">
+                  <div className="border-2 border-black p-2 bg-white space-y-1 uppercase text-[10px]">
                     <div className="font-bold border-b border-black pb-1">
                       📂 ARCHIVO DE SOPORTE ADJUNTO
                     </div>

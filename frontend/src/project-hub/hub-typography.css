@@ -1,0 +1,196 @@
+/*
+ * hub-typography.css — Escala tipográfica global del Project Hub
+ * FIN-SYS OS v2.0 — Módulo 08
+ * 
+ * Propósito: centraliza los tamaños de fuente del hub para fácil mantenimiento.
+ * Importado en: ProjectHubApp.jsx
+ *
+ * REGLA: NO usar fuentes < 12px en el hub. Mínimo para interfaz de trabajo.
+ * Escala base: 13px (cuerpo) / 12px (labels) / 11px (badges)
+ */
+
+/* ─── Reset base para todo el Hub ───────────────────────────────────────────── */
+.hub-root * {
+  box-sizing: border-box;
+}
+
+/* ─── Tipografía base ────────────────────────────────────────────────────────── */
+.hub-root {
+  font-family: 'IBM Plex Mono', 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Tarjetas Kanban ────────────────────────────────────────────────────────── */
+.hub-card-title {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  line-height: 1.4 !important;
+}
+
+.hub-card-desc {
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+}
+
+.hub-card-badge {
+  font-size: 11px !important;
+  padding: 2px 8px !important;
+}
+
+.hub-card-deadline {
+  font-size: 11px !important;
+}
+
+/* ─── Columnas Kanban ────────────────────────────────────────────────────────── */
+.hub-column-label {
+  font-size: 12px !important;
+  letter-spacing: 0.5px !important;
+}
+
+.hub-column-count {
+  font-size: 13px !important;
+}
+
+.hub-add-task-btn {
+  font-size: 12px !important;
+}
+
+/* ─── Lista de tareas ────────────────────────────────────────────────────────── */
+.hub-list-header {
+  font-size: 11px !important;
+  letter-spacing: 1px !important;
+}
+
+.hub-list-row {
+  font-size: 13px !important;
+}
+
+.hub-list-status-badge {
+  font-size: 11px !important;
+}
+
+/* ─── TaskBoard: header de proyecto ─────────────────────────────────────────── */
+.hub-project-title {
+  font-size: 17px !important;
+}
+
+.hub-task-count {
+  font-size: 12px !important;
+}
+
+.hub-stat-label {
+  font-size: 11px !important;
+  letter-spacing: 0.5px !important;
+}
+
+.hub-stat-count {
+  font-size: 13px !important;
+}
+
+/* ─── Modal de tarea ─────────────────────────────────────────────────────────── */
+.hub-modal-heading {
+  font-size: 15px !important;
+  letter-spacing: 1px !important;
+}
+
+.hub-modal-label {
+  font-size: 11px !important;
+  letter-spacing: 1px !important;
+}
+
+.hub-modal-input {
+  font-size: 14px !important;
+  padding: 10px 14px !important;
+}
+
+.hub-modal-select {
+  font-size: 13px !important;
+}
+
+.hub-modal-member-name {
+  font-size: 13px !important;
+}
+
+.hub-modal-member-role {
+  font-size: 11px !important;
+}
+
+.hub-modal-btn-cancel {
+  font-size: 12px !important;
+  padding: 9px 16px !important;
+}
+
+.hub-modal-btn-save {
+  font-size: 13px !important;
+  padding: 9px 20px !important;
+}
+
+/* ─── Notas ──────────────────────────────────────────────────────────────────── */
+.hub-note-title {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+}
+
+.hub-note-preview {
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+}
+
+.hub-note-meta {
+  font-size: 11px !important;
+}
+
+/* ─── Miembros / Equipo ──────────────────────────────────────────────────────── */
+.hub-member-name {
+  font-size: 14px !important;
+  font-weight: 700 !important;
+}
+
+.hub-member-role {
+  font-size: 12px !important;
+}
+
+.hub-member-email {
+  font-size: 11px !important;
+}
+
+.hub-kpi-value {
+  font-size: 20px !important;
+  font-weight: 700 !important;
+}
+
+.hub-kpi-label {
+  font-size: 11px !important;
+}
+
+/* ─── Workspace switcher ─────────────────────────────────────────────────────── */
+.hub-ws-name {
+  font-size: 13px !important;
+  font-weight: 700 !important;
+}
+
+.hub-ws-plan {
+  font-size: 10px !important;
+  letter-spacing: 1px !important;
+}
+
+/* ─── Scrollbars accesibles en dark theme ────────────────────────────────────── */
+.hub-root ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.hub-root ::-webkit-scrollbar-track {
+  background: #0d0d0d;
+}
+
+.hub-root ::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 3px;
+}
+
+.hub-root ::-webkit-scrollbar-thumb:hover {
+  background: #0EA5E9;
+}

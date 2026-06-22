@@ -6,20 +6,21 @@ import { useState, useCallback } from 'react';
 
 const API = 'http://localhost:8000/api/hub';
 
-// ─── Hook principal ────────────────────────────────────────────────────────
-export function useProjectHub() {
-  const [user, setUser]               = useState(() => {
-    try { return JSON.parse(localStorage.getItem('hub_user')); } catch { return null; }
-  });
-  const [workspace, setWorkspace]     = useState(() => {
-    try { return JSON.parse(localStorage.getItem('hub_workspace')); } catch { return null; }
-  });
-  const [workspaces, setWorkspaces]   = useState([]);
-  const [activeProject, setActiveProject] = useState(null);
-  const [loading, setLoading]         = useState(false);
-  const [error, setError]             = useState(null);
+// ─── Helpers localStorage ────────────────────────────────────────────────────
+const getStored = (key) => { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } };
+const setStored = (key, val) => localStorage.setItem(key, JSON.stringify(val));
+const clearStored = () => { localStorage.removeItem('hub_user'); localStorage.removeItem('hub_workspace'); };
 
-  // ── Auth ──────────────────────────────────────────────────────────────────
+// ─── Hook principal ──────────────────────────────────────────────────────────
+export function useProjectHub() {
+  const [user,          setUser]          = useState(() => getStored('hub_user'));
+  const [workspace,     setWorkspace]     = useState(() => getStored('hub_workspace'));
+  const [workspaces,    setWorkspaces]    = useState([]);
+  const [activeProject, setActiveProject] = useState(null);
+  const [loading,       setLoading]       = useState(false);
+  const [error,         setError]         = useState(null);
+
+  // ── Auth ───────────────────────────────────────────────────────────────────
   const login = useCallback(async (email, password) => {
     setLoading(true); setError(null);
     try {
@@ -28,11 +29,13 @@ export function useProjectHub() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
-      if (!res.ok) throw new Error((await res.json()).detail || 'Login fallido');
-      const { user: u } = await res.json();
-      localStorage.setItem('hub_user', JSON.stringify(u));
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.detail || 'Login fallido');
+      const u = json.user;
+      if (!u || !u.id) throw new Error('Respuesta de login inválida');
+      setStored('hub_user', u);
       setUser(u);
-      await loadWorkspaces(u.id, u.is_superuser);
+      await loadWorkspacesForUser(u.id, u.is_superuser);
       return u;
     } catch (e) { setError(e.message); throw e; }
     finally { setLoading(false); }
@@ -46,41 +49,56 @@ export function useProjectHub() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
-      if (!res.ok) throw new Error((await res.json()).detail || 'Registro fallido');
-      const { user: u } = await res.json();
-      localStorage.setItem('hub_user', JSON.stringify(u));
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.detail || 'Registro fallido');
+      const u = json.user;
+      setStored('hub_user', u);
       setUser(u);
-      await loadWorkspaces(u.id, u.is_superuser);
+      await loadWorkspacesForUser(u.id, u.is_superuser);
       return u;
     } catch (e) { setError(e.message); throw e; }
     finally { setLoading(false); }
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem('hub_user');
-    localStorage.removeItem('hub_workspace');
-    setUser(null); setWorkspace(null); setWorkspaces([]);
+    clearStored();
+    setUser(null); setWorkspace(null); setWorkspaces([]); setActiveProject(null);
   }, []);
 
-  // ── Workspaces ────────────────────────────────────────────────────────────
-  const loadWorkspaces = useCallback(async (userId, isSuperuser) => {
+  // ── Workspaces ─────────────────────────────────────────────────────────────
+  // Carga los workspaces del usuario y selecciona el correcto
+  const loadWorkspacesForUser = useCallback(async (userId, isSuperuser) => {
+    if (!userId) return [];
     const url = isSuperuser
       ? `${API}/workspaces?all=true`
       : `${API}/workspaces?user_id=${userId}`;
-    const res = await fetch(url);
+    const res  = await fetch(url);
     const data = await res.json();
-    setWorkspaces(Array.isArray(data) ? data : []);
-    if (data.length > 0) {
-      const saved = JSON.parse(localStorage.getItem('hub_workspace'));
-      const active = saved && data.find(w => w.id === saved.id) ? saved : data[0];
-      localStorage.setItem('hub_workspace', JSON.stringify(active));
+    const list = Array.isArray(data) ? data : [];
+    setWorkspaces(list);
+
+    if (list.length > 0) {
+      // Intentar restaurar el workspace guardado, pero solo si pertenece al usuario
+      const saved   = getStored('hub_workspace');
+      const inList  = saved && list.find(w => w.id === saved.id);
+      const active  = inList ? saved : list[list.length - 1]; // último = más reciente = con datos
+      setStored('hub_workspace', active);
       setWorkspace(active);
+    } else {
+      // Sin workspaces: limpiar
+      localStorage.removeItem('hub_workspace');
+      setWorkspace(null);
     }
-    return data;
+    return list;
   }, []);
 
+  // Alias público para compatibilidad
+  const loadWorkspaces = useCallback(async (userId, isSuperuser) => {
+    return loadWorkspacesForUser(userId, isSuperuser);
+  }, [loadWorkspacesForUser]);
+
   const switchWorkspace = useCallback((ws) => {
-    localStorage.setItem('hub_workspace', JSON.stringify(ws));
+    setStored('hub_workspace', ws);
     setWorkspace(ws);
     setActiveProject(null);
   }, []);
@@ -91,7 +109,8 @@ export function useProjectHub() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(form),
     });
-    const { workspace: ws } = await res.json();
+    const json = await res.json();
+    const ws   = json.workspace;
     setWorkspaces(prev => [...prev, ws]);
     switchWorkspace(ws);
     return ws;

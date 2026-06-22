@@ -83,7 +83,7 @@ export default function CTKpiCards({ kpis, activeEntity, onOpenApprovals }) {
   const isNegative = balance < 0;
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 p-4">
+    <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 p-4">
       {/* Caja Disponible */}
       <KpiCard
         icon="💵"
@@ -103,13 +103,22 @@ export default function CTKpiCards({ kpis, activeEntity, onOpenApprovals }) {
         <MiniBarChart ingresos={k.total_ingresos || 0} gastos={k.total_gastos || 0} />
       </div>
 
-      {/* CXC Pendiente */}
+      {/* DT-03: CXC Pendiente (Cuentas por Cobrar) */}
       <KpiCard
-        icon="⏳"
-        label="CXC Pendiente"
+        icon="📥"
+        label="CXC · Por Cobrar"
         value={fmt(k.total_cxc || 0)}
         sub="Cuentas por cobrar activas"
         highlight={k.total_cxc > 0}
+      />
+
+      {/* DT-03: CXP Pendiente (Cuentas por Pagar) */}
+      <KpiCard
+        icon="📤"
+        label="CXP · Por Pagar"
+        value={fmt(k.total_cxp || 0)}
+        sub="Cuentas por pagar pendientes"
+        danger={k.total_cxp > 0}
       />
 
       {/* Centro de Aprobaciones */}

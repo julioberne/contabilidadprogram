@@ -1,7 +1,9 @@
 # 🏁 Manual de Verificación y Uso — FIN-SYS OS v2.0
 
-> **Última actualización**: 09 Junio 2026
+> **Última actualización**: 18 Junio 2026
 > Esta guía detalla cómo iniciar, verificar y operar el sistema completo en localhost.
+> Para el detalle de la sesión 11 Jun 2026, ver `docs/checkpoints.md` (Hito 13–14).
+> **NOTA DE DUPLICIDAD**: Algunos endpoints documentados aquí también aparecen en `docs/api_spec.md`. El archivo `api_spec.md` es la fuente autoritativa de contratos de API. Este archivo se enfoca en flujos de usuario.
 
 ---
 
@@ -16,6 +18,8 @@
 | Módulo 05 | Activos Patrimoniales + recurrencia | ✅ |
 | Módulo 06 | Ingestión por Voz (Groq Whisper + Llama 3.3 + RAG) | ✅ |
 | **Módulo 07** | **Control Tower — Contabilidad Multi-Entidad B2B** | **✅** |
+| **Módulo 08** | **Project Hub — Kanban, Notas, Calendario, Org Chart** | **✅** |
+| **Módulo 08c** | **RRHH / Empresas — CompanyMapTab, Documentos, Historial, Comprobantes** | **✅ EN USO** |
 
 **Stack técnico:**
 - Backend: FastAPI (`server.py`) en `:8000`
@@ -81,13 +85,14 @@ python scripts/health_check.py
 
 ## 📱 4. Navegación de la Aplicación
 
-Al abrir `http://localhost:5173` se muestra la barra de navegación superior con **3 botones**:
+Al abrir `http://localhost:5173` se muestra la barra de navegación superior con **4 botones**:
 
 | Botón | Descripción |
 |---|---|
 | `APP` | Módulos 1–6 (contabilidad principal) |
 | `TEST COA` | Módulo de prueba del Catálogo de Cuentas |
-| `⬡ CONTROL TOWER` | Módulo 07 — Gestión Multi-Entidad B2B |
+| `⧡ CONTROL TOWER` | Módulo 07 — Gestión Multi-Entidad B2B |
+| `⧡ PROJECT HUB` | Módulo 08/08c — Hub colaborativo + RRHH |
 
 ---
 
@@ -158,7 +163,49 @@ Regresa al módulo principal sin perder los datos de la app.
 
 ---
 
-## 🔧 7. Estabilidad y Fixes Aplicados
+## 👥 7. RRHH / Empresas — Módulo 08c (18 Jun 2026)
+
+### Acceso
+1. Click **⧡ PROJECT HUB** en la barra superior
+2. Login: `andres@finsys.io` / `admin123`
+3. En el sidebar izquierdo click **EMPRESAS** (antes RRHH)
+
+### CompanyMapTab — Árbol Jerárquico
+- Muestra el árbol Holding → Empresa → Subsidiaria → Proyecto
+- Botones **⊕ Agregar**, **✏️ Editar**, **🗑️ Eliminar** nodo
+- Al seleccionar un nodo se abre el panel de miembros de esa compañía
+- Click en un miembro abre el **MemberProfile**
+
+### MemberProfile — Pestañas Documentos + Historial
+
+#### Pestaña Documentos (DocumentsTab)
+- Vista drive-style: cards con ícono por categoría
+- Comprobantes de nómina muestran 🧾u + label **COMPROBANTE**
+- Click en tarjeta → modal de preview (HTML renderizado vía `atob()` si es data URL)
+- Botón **⤓ Descargar** usa `downloadFile()` blob-based (no `<a href download>` directo)
+- Botón **⬆ Subir** permite agregar PDFs/imágenes al perfil
+
+#### Pestaña Historial (HistorialTab)
+- Lista todos los registros de pago del miembro con monto, fecha, tipo
+- **◈ Generar** en cada fila genera comprobante HTML de nómina:
+  1. Construye HTML de comprobante con datos del pago
+  2. Codifica con `btoa()` → `data:text/html;base64,...`
+  3. Guarda en BD (`hr_documents.file_url`) via `POST /api/hr/documents/{user_id}`
+  4. Vincula pago → documento via `PUT /api/hr/payments/{user_id}/{rec_id}/voucher?doc_id={id}`
+  5. DocumentsTab recarga automáticamente y muestra tarjeta 🧾
+
+### Bugs Corregidos Sesión 18 Jun 2026
+| Bug | Fix |
+|---|---|
+| Parse error HistorialTab.jsx | Llave de cierre `};` faltante por merge corrupto |
+| `mime type text/html is not supported` | Storage bloquea text/html; cambiado a `application/octet-stream`; luego migrado a data URL en BD |
+| `No module named 'supabase'` | SDK Python no instalado; reemplazado por llamadas HTTP con `requests` |
+| Descarga 404 | `<a href download>` → `downloadFile()` blob-based en FileCard y FileRow |
+| Miniaturas comprobante | FileCard detecta `isVoucher` → muestra 🧾 + label COMPROBANTE |
+
+---
+
+## 🔧 8. Estabilidad y Fixes Aplicados (Historial)
 
 | Fix | Descripción |
 |---|---|
@@ -199,12 +246,15 @@ Ejecutados en `scratch/ct_seed_data.py`. Estado actual en Supabase:
 
 ```
 contabilidadprogram/
-├── server.py                       ← API FastAPI central (~ 38KB)
+├── server.py                       ← API FastAPI central (~77KB, 87+ endpoints)
 ├── .env                            ← Credenciales (NO commitear)
 ├── CHECKLIST.md                    ← Health Check de inicio de sesión
 ├── fin_sys_core/
 │   ├── database_driver.py          ← Conexión + CRUD módulos 1–6
 │   ├── control_tower_driver.py     ← Control Tower: 5 tablas
+│   ├── hub_driver.py               ← Project Hub: 10 tablas hub_*
+│   ├── hr_driver.py                ← RRHH: hr_members, hr_companies, hr_payment_records
+│   ├── hr_documents_driver.py      ← RRHH Documentos: hr_documents
 │   ├── ai_engine.py                ← Groq/Gemini + RAG + pgvector
 │   ├── ledger_math.py              ← Caja Viva + Pockets
 │   ├── tax_motor.py                ← IVA + GMF + personalizados
@@ -213,31 +263,33 @@ contabilidadprogram/
 ├── frontend/src/
 │   ├── App.jsx                     ← Módulos 1–6 (SPA principal)
 │   ├── CoaTest.jsx                 ← Test COA
-│   ├── main.jsx                    ← Router: APP | COA | CT
-│   └── control-tower/
-│       ├── ControlTowerApp.jsx     ← Raíz del módulo CT
-│       ├── hooks/useControlTower.js← Estado global CT
-│       └── components/
-│           ├── CTTopBar.jsx
-│           ├── CTLoginRegister.jsx
-│           ├── CTKpiCards.jsx
-│           ├── CTEntityTree.jsx
-│           ├── CTSidePanel.jsx
-│           ├── CTApprovalsCenter.jsx
-│           ├── CTResourceIds.jsx
-│           └── CTCollaborators.jsx
+│   ├── main.jsx                    ← Router: APP | COA | CT | HUB
+│   ├── control-tower/
+│   │   ├── ControlTowerApp.jsx     ← Raíz del módulo CT
+│   │   ├── hooks/useControlTower.js← Estado global CT
+│   │   └── components/ (8 archivos)
+│   └── project-hub/
+│       ├── ProjectHubApp.jsx       ← Raíz del módulo 08
+│       ├── hooks/useProjectHub.js  ← Estado global Hub
+│       └── features/
+│           ├── tasks/               ← Kanban + Lista + TaskModal
+│           ├── notes/               ← NotesApp + NoteEditor
+│           ├── calendar/            ← CalendarApp + EventModal
+│           ├── members/
+│           │   ├── MembersList.jsx
+│           │   ├── MemberProfile.jsx
+│           │   ├── CompanyMapTab.jsx   ← Árbol jerárquico RRHH
+│           │   ├── RRHHView.jsx
+│           │   └── tabs/
+│           │       ├── DocumentsTab.jsx ← Drive-style + preview comprobantes
+│           │       └── HistorialTab.jsx ← Pagos + generación comprobantes
+│           └── workspace/ (settings + EntityTree)
 ├── docs/                           ← Documentación actualizada
-│   ├── checkpoints.md              ← Bitácora de hitos
-│   ├── user_stories.md             ← Historias de usuario
-│   ├── database_schema.md          ← 15 tablas documentadas
-│   ├── api_spec.md                 ← Todos los endpoints
-│   ├── architecture_design.md      ← Diagramas de arquitectura
-│   ├── implementaciones_futuras.md ← Roadmap y backlog
-│   ├── reglas_proyecto.md          ← Reglas del proyecto
-│   ├── design_system.md            ← Sistema de diseño brutalista
-│   └── walkthrough.md              ← Este archivo
 ├── scripts/
-│   └── health_check.py             ← Validación completa del sistema
+│   ├── health_check.py
+│   ├── session_maintenance.py
+│   ├── seed_hub.py
+│   └── cleanup_empty_workspace.py
 └── scratch/
-    └── ct_seed_data.py             ← Seed datos Control Tower
+    └── ct_seed_data.py
 ```

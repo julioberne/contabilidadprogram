@@ -23,11 +23,13 @@ Permite registrar transacciones, gestionar multi-empresa (Control Tower) y lleva
 - **Módulo 05**: Activos Patrimoniales con recurrencia
 - **Módulo 06**: Motor de Voz (Groq Whisper + Llama 3.3 + RAG pgvector)
 - **Módulo 07**: Control Tower — árbol jerárquico, KPIs consolidados, aprobaciones, inventario IDs, colaboradores
+- **Módulo 08**: Project Hub — dashboard colaborativo multi-tenant: Kanban, notas BlockNote, calendario, org chart
+- **Módulo 08c**: RRHH / Empresas — CompanyMapTab (Holding→Empresa→Sub), MemberProfile, SalaryTab (nómina + deducciones), DocumentsTab (drive-style + preview comprobantes HTML), HistorialTab (pagos + generación comprobantes vía data URL base64). **28 endpoints** `/api/hr/*`. Completado 18 Jun 2026.
 
 ## Módulos Planificados 🔵
-- **Módulo 08**: Trading/NASDAQ-100 — PnL realizado/flotante integrado a libro contable
-- **Módulo 09**: Bot WhatsApp/Telegram — ingestión móvil vía Twilio + Groq
-- **Módulo 10**: Reportes PDF/Excel por entidad
+- **Módulo 09**: Bot IA (WhatsApp/Telegram + Groq) — ingestín móvil vía Twilio
+- **Módulo 10**: Trading NASDAQ-100 — PnL realizado/flotante integrado a libro contable
+- **Módulo 11**: Reportes PDF/Excel por entidad
 
 ## Regla de Oro
 **Zero-Impact Policy**: nuevas funcionalidades = nuevos archivos. No destruir lo construido.

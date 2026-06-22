@@ -10,17 +10,19 @@ from datetime import datetime, timezone
 import psycopg2
 import psycopg2.extras
 
-# ─── Conexión (reutiliza las mismas variables de entorno que el proyecto) ──────
+# ─── Conexión (SOL-02: pool centralizado) ──────────────────────────────────
 def _get_conn():
-    return psycopg2.connect(
-        host=os.environ.get("DB_HOST"),
-        port=int(os.environ.get("DB_PORT", 5432)),
-        dbname=os.environ.get("DB_NAME"),
-        user=os.environ.get("DB_USER"),
-        password=os.environ.get("DB_PASSWORD"),
-        sslmode="require",
-        cursor_factory=psycopg2.extras.RealDictCursor
-    )
+    """Obtiene una conexión del pool centralizado.
+    IMPORTANTE: El caller debe cerrarla con _put_conn() en el finally block."""
+    from fin_sys_core.db_pool import get_conn
+    conn = get_conn()
+    conn.cursor_factory = psycopg2.extras.RealDictCursor
+    return conn
+
+def _put_conn(conn):
+    """Devuelve la conexión al pool centralizado."""
+    from fin_sys_core.db_pool import put_conn
+    put_conn(conn)
 
 def _hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
@@ -47,7 +49,7 @@ def create_workspace(name: str, nit: str = None, logo_url: str = None) -> dict:
             conn.commit()
             return dict(row)
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 def get_workspaces_for_user(user_id: str) -> list:
@@ -65,7 +67,7 @@ def get_workspaces_for_user(user_id: str) -> list:
             """, (user_id,))
             return [dict(r) for r in cur.fetchall()]
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 def get_all_workspaces() -> list:
@@ -76,7 +78,7 @@ def get_all_workspaces() -> list:
             cur.execute("SELECT * FROM hub_workspaces ORDER BY created_at ASC")
             return [dict(r) for r in cur.fetchall()]
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -126,7 +128,7 @@ def register_user(email: str, password: str, name: str, cedula: str = None,
             conn.commit()
             return user
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 def login_user(email: str, password: str) -> dict | None:
@@ -143,7 +145,7 @@ def login_user(email: str, password: str) -> dict | None:
             row = cur.fetchone()
             return dict(row) if row else None
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 def get_workspace_members(workspace_id: str) -> list:
@@ -161,7 +163,7 @@ def get_workspace_members(workspace_id: str) -> list:
             """, (workspace_id,))
             return [dict(r) for r in cur.fetchall()]
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 def add_member_to_workspace(workspace_id: str, user_id: str, role: str = "member") -> dict:
@@ -178,7 +180,7 @@ def add_member_to_workspace(workspace_id: str, user_id: str, role: str = "member
             conn.commit()
             return dict(cur.fetchone())
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -205,7 +207,7 @@ def get_entity_tree(workspace_id: str) -> list:
             """, (workspace_id, workspace_id))
             return [dict(r) for r in cur.fetchall()]
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 def create_entity(workspace_id: str, name: str, entity_type: str = "CUSTOM",
@@ -222,7 +224,7 @@ def create_entity(workspace_id: str, name: str, entity_type: str = "CUSTOM",
             conn.commit()
             return dict(cur.fetchone())
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 def delete_entity(entity_id: str) -> bool:
@@ -233,7 +235,7 @@ def delete_entity(entity_id: str) -> bool:
             conn.commit()
             return cur.rowcount > 0
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -254,7 +256,7 @@ def create_project(workspace_id: str, name: str, entity_id: str = None,
             conn.commit()
             return dict(cur.fetchone())
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 def get_projects(workspace_id: str, entity_id: str = None) -> list:
@@ -279,7 +281,7 @@ def get_projects(workspace_id: str, entity_id: str = None) -> list:
                 """, (workspace_id,))
             return [dict(r) for r in cur.fetchall()]
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -323,11 +325,12 @@ def get_tasks(project_id: str, status: str = None) -> list:
                 result.append(d)
             return result
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 def create_task(workspace_id: str, project_id: str, title: str,
                 description: str = None, priority: str = "medium",
+                status: str = "todo",
                 due_date: str = None, created_by: str = None,
                 assignee_ids: list = None) -> dict:
     conn = _get_conn()
@@ -340,14 +343,24 @@ def create_task(workspace_id: str, project_id: str, title: str,
             )
             position = cur.fetchone()["pos"]
 
+            # Auto-set timestamps según el status inicial
+            started_at = None
+            completed_at = None
+            if status == "in_progress":
+                started_at = datetime.now(timezone.utc).isoformat()
+            elif status in ("done", "review"):
+                started_at = datetime.now(timezone.utc).isoformat()
+                if status == "done":
+                    completed_at = datetime.now(timezone.utc).isoformat()
+
             cur.execute("""
                 INSERT INTO hub_tasks
                   (workspace_id, project_id, title, description, priority,
-                   due_date, created_by, position)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                   status, due_date, created_by, position, started_at, completed_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING *
             """, (workspace_id, project_id, title, description, priority,
-                  due_date, created_by, position))
+                  status, due_date, created_by, position, started_at, completed_at))
             task = dict(cur.fetchone())
 
             # Asignar usuarios
@@ -362,7 +375,8 @@ def create_task(workspace_id: str, project_id: str, title: str,
             task["assignees"] = assignee_ids or []
             return task
     finally:
-        conn.close()
+        _put_conn(conn)
+
 
 
 def update_task(task_id: str, **kwargs) -> dict:
@@ -403,7 +417,7 @@ def update_task(task_id: str, **kwargs) -> dict:
             conn.commit()
             return dict(cur.fetchone()) if cur.rowcount else {}
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 def delete_task(task_id: str) -> bool:
@@ -414,7 +428,7 @@ def delete_task(task_id: str) -> bool:
             conn.commit()
             return cur.rowcount > 0
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -436,7 +450,7 @@ def get_notes(workspace_id: str, user_id: str) -> list:
             """, (workspace_id, user_id))
             return [dict(r) for r in cur.fetchall()]
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 def create_note(workspace_id: str, user_id: str, title: str = "Sin título",
@@ -452,7 +466,7 @@ def create_note(workspace_id: str, user_id: str, title: str = "Sin título",
             conn.commit()
             return dict(cur.fetchone())
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 def update_note(note_id: str, title: str = None, content=None,
@@ -479,7 +493,7 @@ def update_note(note_id: str, title: str = None, content=None,
             conn.commit()
             return dict(cur.fetchone()) if cur.rowcount else {}
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -518,7 +532,7 @@ def get_events(workspace_id: str) -> list:
                 result.append(d)
             return result
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 def create_event(workspace_id: str, title: str, start_time: str, end_time: str,
@@ -549,7 +563,7 @@ def create_event(workspace_id: str, title: str, start_time: str, end_time: str,
             event["attendees"] = attendee_ids or []
             return event
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 def update_event(event_id: str, **kwargs) -> dict:
@@ -575,7 +589,7 @@ def update_event(event_id: str, **kwargs) -> dict:
             cur.execute("SELECT * FROM hub_events WHERE id = %s", (event_id,))
             return dict(cur.fetchone()) if cur.rowcount else {}
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -609,4 +623,4 @@ def get_user_metrics(workspace_id: str) -> list:
             """, (workspace_id, workspace_id))
             return [dict(r) for r in cur.fetchall()]
     finally:
-        conn.close()
+        _put_conn(conn)

@@ -10,9 +10,12 @@ desde la base de datos PostgreSQL.
 import os
 import base64
 import json
-import requests
+import httpx
 from typing import Dict, Any, List, Optional
 from database_driver import get_db_connection, obtener_transacciones
+
+# Cliente HTTP reutilizable con timeout (evita abrir/cerrar sockets por request)
+_http_client = httpx.Client(timeout=30.0)
 
 # Cargar API Keys desde variables de entorno
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
@@ -112,7 +115,7 @@ def transcribe_audio_only(audio_file_path: str) -> str:
         with open(audio_file_path, "rb") as audio_file:
             files = {"file": (os.path.basename(audio_file_path), audio_file, mime_type)}
             data = {"model": "whisper-large-v3", "language": "es"}
-            response = requests.post(GROQ_API_URL_TRANSCRIPT, headers=headers, files=files, data=data)
+            response = _http_client.post(GROQ_API_URL_TRANSCRIPT, headers=headers, files=files, data=data)
 
         if response.status_code != 200:
             raise RuntimeError(f"❌ Error en Groq Whisper STT: {response.text}")
@@ -147,7 +150,7 @@ def transcribe_audio_only(audio_file_path: str) -> str:
     }
     headers = {"Content-Type": "application/json"}
     params = {"key": GEMINI_API_KEY}
-    response = requests.post(GEMINI_API_URL, headers=headers, params=params, json=payload)
+    response = _http_client.post(GEMINI_API_URL, headers=headers, params=params, json=payload)
     if response.status_code != 200:
         raise RuntimeError(f"Error al transcribir con Gemini: {response.text}")
     try:
@@ -216,7 +219,7 @@ def structure_text_only(transcript: str, portfolio_name: str = "Negocio A") -> D
             "response_format": {"type": "json_object"},
             "temperature": 0.1
         }
-        chat_response = requests.post(GROQ_API_URL_CHAT, headers=chat_headers, json=chat_payload)
+        chat_response = _http_client.post(GROQ_API_URL_CHAT, headers=chat_headers, json=chat_payload)
         if chat_response.status_code != 200:
             raise RuntimeError(f"❌ Error en Groq Llama 3.3: {chat_response.text}")
         chat_result = chat_response.json()["choices"][0]["message"]["content"]
@@ -274,7 +277,7 @@ def structure_text_only(transcript: str, portfolio_name: str = "Negocio A") -> D
     }
     headers = {"Content-Type": "application/json"}
     params = {"key": GEMINI_API_KEY}
-    response = requests.post(GEMINI_API_URL, headers=headers, params=params, json=payload)
+    response = _http_client.post(GEMINI_API_URL, headers=headers, params=params, json=payload)
     if response.status_code != 200:
         raise RuntimeError(f"Error en Gemini Text JSON: {response.text}")
     try:

@@ -1,6 +1,6 @@
-# 🏛️ FIN-SYS OS v2.0 — Especificación de Arquitectura del Sistema
+# 🏙️ FIN-SYS OS v2.0 — Especificación de Arquitectura del Sistema
 
-> **Última actualización**: 09 Junio 2026
+> **Última actualización**: 18 Junio 2026
 
 ---
 
@@ -69,6 +69,9 @@ graph TD
 |---|---|
 | `database_driver.py` | Conexión, init de 10 tablas principales, CRUD transacciones/cuentas/terceros |
 | `control_tower_driver.py` | CRUD de las 5 tablas CT con mock fallback |
+| `hub_driver.py` | CRUD de las 10 tablas `hub_*` (Project Hub) |
+| `hr_driver.py` | CRUD `hr_members`, `hr_companies`, `hr_payment_records` |
+| `hr_documents_driver.py` | CRUD `hr_documents` (file_url como data URL en BD) |
 | `tax_motor.py` | IVA 19%, GMF 4x1000, tasas personalizadas (aditivas/deductivas) |
 | `ledger_math.py` | Caja Viva consolidada, validación de Pockets, alerta insolvencia |
 | `ai_engine.py` | Groq Whisper STT + Llama 3.3 estructuración + embeddings + búsqueda RAG pgvector |
@@ -184,6 +187,60 @@ graph TD
 3. Configurar Nginx y SSL en Dokploy
 4. Migrar `on_event("startup")` a `lifespan` handler
 5. Cambiar hash MD5 de CT por bcrypt + JWT
+
+---
+
+## 7. Módulo 08c — RRHH / Empresas
+
+### Componentes UI
+```
+project-hub/features/members/
+├── RRHHView.jsx           ← Vista principal del módulo (contenedor)
+├── CompanyMapTab.jsx      ← Árbol jerárquico Holding→Empresa→Sub→Proyecto
+├── MemberProfile.jsx      ← Perfil con pestañas Documentos | Historial
+└── tabs/
+    ├── DocumentsTab.jsx   ← Drive-style + preview HTML comprobantes
+    └── HistorialTab.jsx   ← Historial pagos + generación comprobantes
+```
+
+### Drivers Backend
+```
+fin_sys_core/
+├── hr_driver.py           ← CRUD hr_members, hr_companies, hr_payment_records
+└── hr_documents_driver.py ← CRUD hr_documents (file_url como data URL)
+```
+
+### Flujo de Datos: Generación de Comprobante
+```
+HistorialTab (click ◈ Generar)
+    ↓
+Genera HTML string del comprobante
+    ↓
+btoa(html) → "data:text/html;base64,{b64}"
+    ↓
+POST /api/hr/documents/{user_id}    ← Guarda data URL en hr_documents.file_url
+    ↓
+PUT /api/hr/payments/{uid}/{rec}/voucher?doc_id={id}  ← Vincula pago → doc
+    ↓
+DocumentsTab recarga → muestra tarjeta 🧾 COMPROBANTE
+    ↓
+Click tarjeta → HtmlPreview detecta "data:" → atob() → renderiza HTML
+```
+
+### Estrategia de Storage: Data URL en BD
+**Problema**: Supabase Storage bucket `hr-docs` bloquea MIME type `text/html` (política de seguridad).
+
+**Solución adoptada**: Guardar comprobantes HTML como `data:text/html;base64,...` directamente en
+la columna `hr_documents.file_url` (TEXT). Esto elimina la dependencia de Storage para documentos
+generados programáticamente.
+
+**Ventajas**:
+- Cero dependencia de Storage para comprobantes generados
+- Preview instantáneo sin fetch adicional
+- Portabilidad: el documento viaja con el registro de BD
+
+**Limitación**: Solo válido para documentos pequeños (<500KB). Para PDFs/imágenes subidos por
+el usuario, se sigue usando el bucket `hr-docs` con `application/octet-stream`.
 
 ---
 

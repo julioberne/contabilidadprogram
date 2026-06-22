@@ -18,7 +18,7 @@ from typing import List, Dict, Any, Optional
 
 # Importar el driver de BD existente para reutilizar la conexión
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from database_driver import get_db_connection, IS_POSTGRES_ACTIVE
+from database_driver import get_db_connection, release_db_connection, IS_POSTGRES_ACTIVE
 
 # ──────────────────────────────────────────────
 # MODO SIMULACIÓN (cuando Postgres no está activo)
@@ -187,7 +187,7 @@ def init_control_tower_db():
 
         conn.commit()
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         print("✅ Control Tower DB inicializado correctamente.")
         return True
     except Exception as e:
@@ -214,7 +214,7 @@ def obtener_entidades_arbol() -> List[Dict[str, Any]]:
         cols = [d[0] for d in cur.description]
         flat = [dict(zip(cols, r)) for r in rows]
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         return _build_tree(flat)
     except Exception:
         return _build_tree(MOCK_ENTITIES)
@@ -254,7 +254,7 @@ def crear_entidad(data: Dict[str, Any]) -> int:
         new_id = cur.fetchone()[0]
         conn.commit()
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         return new_id
     except Exception as e:
         print(f"Error creando entidad: {e}")
@@ -270,7 +270,7 @@ def actualizar_estado_entidad(entity_id: int, status: str) -> bool:
         cur.execute("UPDATE entities SET status = %s WHERE id = %s;", (status, entity_id))
         conn.commit()
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         return True
     except Exception:
         for e in MOCK_ENTITIES:
@@ -286,7 +286,7 @@ def eliminar_entidad(entity_id: int) -> bool:
         cur.execute("DELETE FROM entities WHERE id = %s;", (entity_id,))
         conn.commit()
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         return True
     except Exception:
         return False
@@ -313,7 +313,7 @@ def obtener_workspace_users() -> List[Dict[str, Any]]:
                 d["permissions"] = json.loads(d["permissions"])
             result.append(d)
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         return result
     except Exception:
         return [{k: v for k, v in u.items() if k != "password_hash"}
@@ -340,7 +340,7 @@ def registrar_workspace_user(data: Dict[str, Any]) -> Dict[str, Any]:
         row = cur.fetchone()
         conn.commit()
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         return {"id": row[0], "name": row[1], "email": row[2], "role_label": row[3]}
     except Exception as e:
         raise ValueError(f"Error registrando usuario: {e}")
@@ -358,7 +358,7 @@ def login_workspace_user(email: str, password: str) -> Optional[Dict[str, Any]]:
         """, (email, password_hash))
         row = cur.fetchone()
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         if row:
             perms = row[4]
             if isinstance(perms, str):
@@ -388,7 +388,7 @@ def obtener_resource_ids(entity_id: int) -> List[Dict[str, Any]]:
         rows = cur.fetchall()
         cols = [d[0] for d in cur.description]
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         return [dict(zip(cols, r)) for r in rows]
     except Exception:
         return [r for r in MOCK_RESOURCE_IDS if r.get("entity_id") == entity_id]
@@ -409,7 +409,7 @@ def crear_resource_id(data: Dict[str, Any]) -> int:
         new_id = cur.fetchone()[0]
         conn.commit()
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         return new_id
     except Exception as e:
         new_id = len(MOCK_RESOURCE_IDS) + 1
@@ -424,7 +424,7 @@ def eliminar_resource_id(rid: int) -> bool:
         cur.execute("DELETE FROM resource_ids WHERE id = %s;", (rid,))
         conn.commit()
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         return True
     except Exception:
         return False
@@ -462,7 +462,7 @@ def obtener_aprobaciones(entity_id: Optional[int] = None) -> List[Dict[str, Any]
         rows = cur.fetchall()
         cols = [d[0] for d in cur.description]
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         return [dict(zip(cols, r)) for r in rows]
     except Exception:
         return MOCK_APPROVALS
@@ -482,7 +482,7 @@ def crear_aprobacion(data: Dict[str, Any]) -> int:
         new_id = cur.fetchone()[0]
         conn.commit()
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         return new_id
     except Exception as e:
         new_id = len(MOCK_APPROVALS) + 1
@@ -501,7 +501,7 @@ def resolver_aprobacion(approval_id: int, status: str, reviewer_id: int, notes: 
         """, (status, reviewer_id, notes, approval_id))
         conn.commit()
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         return True
     except Exception:
         for a in MOCK_APPROVALS:
@@ -529,7 +529,7 @@ def obtener_miembros_entidad(entity_id: int) -> List[Dict[str, Any]]:
         rows = cur.fetchall()
         cols = [d[0] for d in cur.description]
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         return [dict(zip(cols, r)) for r in rows]
     except Exception:
         return []
@@ -551,7 +551,7 @@ def invitar_miembro(entity_id: int, user_id: int, role_label: str,
         new_id = cur.fetchone()[0]
         conn.commit()
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         return new_id
     except Exception as e:
         raise ValueError(f"Error invitando miembro: {e}")
@@ -589,6 +589,7 @@ def obtener_kpis_entidad(entity_id: int) -> Dict[str, Any]:
         total_ingresos = 0.0
         total_gastos = 0.0
         total_cxc = 0.0
+        total_cxp = 0.0
         pending_approvals = 0
 
         if portfolio_ids:
@@ -603,16 +604,24 @@ def obtener_kpis_entidad(entity_id: int) -> Dict[str, Any]:
             total_ingresos = float(row[0] or 0)
             total_gastos = float(row[1] or 0)
 
+            # DT-03: CXC + CXP completo
             try:
                 cur.execute("""
-                SELECT COALESCE(SUM(remaining_balance), 0)
+                SELECT
+                    COALESCE(SUM(CASE WHEN cxc.type = 'CXC' AND cxc.status = 'PENDIENTE'
+                                      THEN cxc.remaining_balance ELSE 0 END), 0) as total_cxc,
+                    COALESCE(SUM(CASE WHEN cxc.type = 'CXP' AND cxc.status = 'PENDIENTE'
+                                      THEN cxc.remaining_balance ELSE 0 END), 0) as total_cxp
                 FROM cxp_cxc_ledger cxc
                 JOIN transactions t ON cxc.transaction_id = t.id
-                WHERE t.portfolio_id = ANY(%s) AND cxc.type = 'CXC' AND cxc.status = 'PENDIENTE';
+                WHERE t.portfolio_id = ANY(%s);
                 """, (portfolio_ids,))
-                total_cxc = float(cur.fetchone()[0] or 0)
+                cxc_row = cur.fetchone()
+                total_cxc = float(cxc_row[0] or 0)
+                total_cxp = float(cxc_row[1] or 0)
             except Exception:
                 total_cxc = 0.0  # tabla no existe aún
+                total_cxp = 0.0
 
         # Aprobaciones pendientes
         cur.execute("""
@@ -628,13 +637,14 @@ def obtener_kpis_entidad(entity_id: int) -> Dict[str, Any]:
         child_count = cur.fetchone()[0]
 
         cur.close()
-        conn.close()
+        release_db_connection(conn)
 
         return {
             "total_ingresos": total_ingresos,
             "total_gastos": total_gastos,
             "balance_neto": total_ingresos - total_gastos,
             "total_cxc": total_cxc,
+            "total_cxp": total_cxp,
             "pending_approvals": pending_approvals,
             "child_entities": child_count,
             "entity_ids_in_scope": len(entity_ids)
@@ -646,6 +656,7 @@ def obtener_kpis_entidad(entity_id: int) -> Dict[str, Any]:
             "total_gastos": 26352500.0,
             "balance_neto": 42222500.0,
             "total_cxc": 0.0,
+            "total_cxp": 0.0,
             "pending_approvals": 4,
             "child_entities": 4,
             "entity_ids_in_scope": 7

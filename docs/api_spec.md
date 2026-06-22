@@ -1,7 +1,8 @@
 # 🔌 FIN-SYS OS v2.0 — Especificación de la API REST
 
 > **Motor**: FastAPI (Python 3.10+) · **Puerto**: `8000`
-> **Última actualización**: 09 Junio 2026
+> **Última actualización**: 18 Junio 2026
+> **NOTA DE DUPLICIDAD**: Algunos flujos de uso de estos endpoints también se describen en `docs/walkthrough.md`. Este archivo es la **fuente autoritativa** de los contratos de API (request/response schemas). Para guía de uso interactivo, ver `walkthrough.md`.
 
 ---
 
@@ -27,6 +28,15 @@
 | **`/api/ct/approvals`** | **CT: Aprobaciones** | GET, POST |
 | **`/api/ct/approvals/{id}/resolve`** | **CT: Resolver Aprobación** | PATCH |
 | **`/api/ct/quick-transaction`** | **CT: TX Rápida** | POST |
+| **`/api/hr/profile/{user_id}`** | **RRHH: Perfil** | GET, PUT |
+| **`/api/hr/salary/{user_id}`** | **RRHH: Salario** | GET, PUT |
+| **`/api/hr/companies/{user_id}`** | **RRHH: Empresas** | GET, POST, PUT, DELETE |
+| **`/api/hr/folders/{workspace_id}`** | **RRHH: Carpetas** | GET, POST, PUT, DELETE |
+| **`/api/hr/documents/{user_id}`** | **RRHH: Documentos** | GET, POST, PUT, DELETE |
+| **`/api/hr/categories/{workspace_id}`** | **RRHH: Categorías** | GET, POST, PUT, DELETE |
+| **`/api/hr/payments/{user_id}`** | **RRHH: Pagos** | GET, POST |
+| **`/api/hr/payments/{user_id}/{rec}/voucher`** | **RRHH: Vincular Comprobante** | PUT |
+| **`/api/hr/company-links`** | **RRHH: Links Empresa** | GET |
 
 ---
 
@@ -319,3 +329,206 @@ class TransactionInput(BaseModel):
     asset_is_passive: bool = False
     asset_recurrence_amount: Optional[float] = None
 ```
+
+---
+
+## 4. Módulo RRHH / Empresas (08c) — `/api/hr/*`
+
+> **28 endpoints** gestionados por `fin_sys_core/hr_driver.py` y `fin_sys_core/hr_documents_driver.py`.
+
+### 4.1 Perfil de Miembro
+
+#### `GET /api/hr/profile/{user_id}`
+Retorna el perfil RRHH de un miembro (nombre, cargo, departamento, fecha ingreso, etc.).
+
+**Response `200`**:
+```json
+{ "id": 1, "full_name": "Andres", "position": "Director", "department": "Gerencia", "hire_date": "2024-01-01", "status": "ACTIVO" }
+```
+
+#### `PUT /api/hr/profile/{user_id}`
+Actualiza campos del perfil. Solo los campos enviados se modifican.
+
+```json
+{ "position": "CEO", "department": "Dirección" }
+```
+
+---
+
+### 4.2 Salario
+
+#### `GET /api/hr/salary/{user_id}`
+Retorna la estructura salarial: salario base, auxilio transporte, deducciones y neto calculado.
+
+**Response `200`**:
+```json
+{
+  "salario_base": 3500000,
+  "auxilio_transporte": 162000,
+  "salud_empleado": 140000,
+  "pension_empleado": 140000,
+  "neto": 3382000
+}
+```
+
+#### `PUT /api/hr/salary/{user_id}`
+Actualiza los campos de salario. Recalcula el neto en backend.
+
+```json
+{ "salario_base": 4000000 }
+```
+
+> **Endpoints huérfanos relacionados** (existen, no se usan):
+> - `POST /api/hr/salary/calculate` — el cálculo ocurre localmente en `SalaryTab.jsx`
+> - `PUT /api/hr/salary/v2/{user_id}` — versión beta, sin consumidor en frontend
+
+---
+
+### 4.3 Empresas / Company Links
+
+#### `GET /api/hr/companies/{user_id}`
+Listado de todas las asociaciones empresa↔miembro del usuario.
+
+**Response `200`**: Array `{ id, user_id, company_name, role, start_date, end_date, is_current }`
+
+#### `POST /api/hr/companies/{user_id}`
+Crea una nueva asociación empresa↔miembro.
+
+```json
+{ "company_name": "Pegasus SAS", "role": "Socio", "start_date": "2024-01-01", "is_current": true }
+```
+
+#### `PUT /api/hr/companies/{user_id}/{link_id}`
+Actualiza un vínculo empresa existente.
+
+#### `DELETE /api/hr/companies/{user_id}/{link_id}`
+Elimina un vínculo empresa (soft delete recomendado).
+
+#### `GET /api/hr/company-links`
+Listado global de todos los company-links (sin filtro por usuario). Uso administrativo.
+
+---
+
+### 4.4 Carpetas de Documentos
+
+#### `GET /api/hr/folders/{workspace_id}`
+Retorna todas las carpetas de documentos del workspace.
+
+**Response `200`**: Array `{ id, workspace_id, name, color, created_at }`
+
+#### `POST /api/hr/folders/{workspace_id}`
+Crea una carpeta nueva.
+
+```json
+{ "name": "Contratos 2026", "color": "#00FF88" }
+```
+
+#### `PUT /api/hr/folders/{workspace_id}/{folder_id}`
+Renombra o cambia color de una carpeta.
+
+#### `DELETE /api/hr/folders/{workspace_id}/{folder_id}`
+Elimina la carpeta (y sus documentos si la FK es CASCADE).
+
+---
+
+### 4.5 Documentos
+
+#### `GET /api/hr/documents/{user_id}`
+Retorna todos los documentos de un miembro. Incluye `file_url` (puede ser data URL base64 para HTMLs).
+
+**Response `200`**: Array `{ id, user_id, folder_id, category_id, name, file_url, created_at }`
+
+#### `POST /api/hr/documents/{user_id}`
+Sube metadatos de un documento. El archivo se referencia vía `file_url`.
+
+```json
+{
+  "name": "Comprobante Pago Jun 2026",
+  "folder_id": 2,
+  "category_id": 1,
+  "file_url": "data:text/html;base64,PHRtbC4uLg=="
+}
+```
+
+> **Nota**: Para comprobantes HTML, `file_url` es una data URL base64 (no una ruta de Storage).
+> Ver patrón completo en `memory-bank/systemPatterns.md → Patrón: Almacenamiento de Documentos HTML`.
+
+#### `PUT /api/hr/documents/{user_id}/{doc_id}`
+Actualiza metadatos de un documento (nombre, carpeta, categoría).
+
+#### `DELETE /api/hr/documents/{user_id}/{doc_id}`
+Elimina un documento y su referencia.
+
+> **Endpoint huérfano relacionado**:
+> - `POST /api/hr/storage/sign-upload` — reemplazado por data URL. No usar hasta resolver MIME restrictions.
+
+---
+
+### 4.6 Categorías de Documentos
+
+#### `GET /api/hr/categories/{workspace_id}`
+Listado de categorías disponibles en el workspace (ej: Contrato, Certificado, Comprobante).
+
+**Response `200`**: Array `{ id, workspace_id, name, color }`
+
+#### `POST /api/hr/categories/{workspace_id}`
+Crea una categoría nueva.
+
+```json
+{ "name": "Comprobante de Pago", "color": "#FFB000" }
+```
+
+#### `PUT /api/hr/categories/{workspace_id}/{cat_id}`
+Edita nombre o color de una categoría.
+
+#### `DELETE /api/hr/categories/{workspace_id}/{cat_id}`
+Elimina una categoría (solo si no tiene documentos asignados).
+
+---
+
+### 4.7 Pagos / Historial
+
+#### `GET /api/hr/payments/{user_id}`
+Historial completo de pagos del miembro, con datos del comprobante vinculado si existe.
+
+**Response `200`**:
+```json
+[
+  {
+    "id": 1,
+    "user_id": 1,
+    "period": "2026-06",
+    "amount": 3382000,
+    "payment_date": "2026-06-01",
+    "payment_method": "Transferencia",
+    "status": "PAGADO",
+    "voucher_doc_id": 5,
+    "notes": null
+  }
+]
+```
+
+#### `POST /api/hr/payments/{user_id}`
+Registra un nuevo pago de nómina.
+
+```json
+{
+  "period": "2026-06",
+  "amount": 3382000,
+  "payment_date": "2026-06-18",
+  "payment_method": "Transferencia",
+  "status": "PAGADO",
+  "notes": "Pago nomina junio"
+}
+```
+
+**Response `201`**: `{ "id": 1, "status": "OK" }`
+
+#### `PUT /api/hr/payments/{user_id}/{record_id}/voucher`
+Vincula un documento existente como comprobante de un pago.
+
+**Query params**: `?doc_id={id}`
+
+**Response `200`**: `{ "status": "OK", "voucher_doc_id": 5 }`
+
+> Este endpoint es el paso final del flujo de generación de comprobantes en `HistorialTab.jsx`.

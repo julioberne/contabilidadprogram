@@ -331,7 +331,20 @@ def create_manual_transaction(tx_input: TransactionInput):
 
         # 3. Guardar en la base de datos PostgreSQL
         transaction_id = registrar_transaccion(tx_data)
-        
+
+        # 4. Zero-COA: Emitir asiento contable al kernel (non-blocking)
+        try:
+            _emit_journal_entry(
+                category=tx_input.category or "",
+                tx_type=tx_input.type,
+                amount=float(tax_results["net_value"]),
+                account_id=tx_input.account_id,
+                referencia=f"TX-{transaction_id}",
+                descripcion=tx_input.concept or "",
+                fecha=tx_input.transaction_date
+            )
+        except: pass
+
         return {
             "status": "EXITOSO",
             "transaction_id": transaction_id,
@@ -1374,3 +1387,718 @@ def hub_get_metrics(workspace_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ENDPOINTS RESTAURADOS — Cartera, HR, Tags, Dashboard, Health, Zero-COA
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+# ── GET /health — Health check sin BD ──
+@app.get("/health")
+def health_check():
+    return {"status": "ok", "version": "2.0"}
+
+
+# ── POST /api/reconcile-balances ──
+@app.post("/api/reconcile-balances")
+def reconcile_balances():
+    try:
+        from fin_sys_core.database_driver import get_db_connection, release_db_connection, recalcular_saldos_cuentas
+        conn = get_db_connection()
+        recalcular_saldos_cuentas(conn)
+        conn.commit()
+        release_db_connection(conn)
+        return {"status": "OK", "message": "Saldos reconciliados"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── GET /api/dashboard-data ──
+@app.get("/api/dashboard-data")
+def get_dashboard_data(portfolio: Optional[str] = None):
+    try:
+        from fin_sys_core.database_driver import obtener_transacciones, obtener_cuentas
+        from fin_sys_core.ledger_math import calculate_caja_viva
+        txs = obtener_transacciones(portfolio)
+        accounts = obtener_cuentas()
+        totals = calculate_caja_viva(txs, accounts)
+        return {
+            "status": totals["status"],
+            "total_ingresos": totals["total_ingresos"],
+            "total_gastos": totals["total_gastos"],
+            "balance_neto": totals["balance_neto"],
+            "capital_inicial": totals.get("capital_inicial", 5000000.0),
+            "patrimonio": totals.get("patrimonio", 5000000.0),
+            "total_ingresos_cop": totals["total_ingresos_cop"],
+            "total_gastos_cop": totals["total_gastos_cop"],
+            "balance_neto_cop": totals["balance_neto_cop"],
+            "patrimonio_cop": totals["patrimonio_cop"],
+            "total_ingresos_usd": totals["total_ingresos_usd"],
+            "total_gastos_usd": totals["total_gastos_usd"],
+            "balance_neto_usd": totals["balance_neto_usd"],
+            "patrimonio_usd": totals["patrimonio_usd"],
+            "alerts": totals.get("alerts", [])
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── POST /api/cache/invalidate ──
+@app.post("/api/cache/invalidate")
+def invalidate_cache():
+    return {"status": "OK", "message": "Cache invalidado"}
+
+
+# ── Tags ──
+@app.get("/api/tags")
+def list_tags():
+    try:
+        from fin_sys_core.database_driver import listar_tags
+        return listar_tags()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/tags", status_code=201)
+def create_tag(body: dict):
+    try:
+        from fin_sys_core.database_driver import crear_tag
+        return crear_tag(body.get("name", ""), body.get("color", "#000000"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Custom Taxes ──
+@app.get("/api/custom-taxes")
+def list_custom_taxes():
+    try:
+        from fin_sys_core.database_driver import listar_custom_taxes
+        return listar_custom_taxes()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/custom-taxes", status_code=201)
+def create_custom_tax(body: dict):
+    try:
+        from fin_sys_core.database_driver import crear_custom_tax
+        return crear_custom_tax(body.get("name", ""), float(body.get("rate", 0)), body.get("tax_type", "ADDITIVE"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CARTERA (CXC / CXP)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/cartera")
+def list_cartera(portfolio: Optional[str] = None):
+    from fin_sys_core.database_driver import listar_cartera
+    return listar_cartera(portfolio)
+
+@app.put("/api/cartera/{ledger_id}/status")
+def update_cartera_status(ledger_id: int, body: dict):
+    from fin_sys_core.database_driver import actualizar_cartera_status
+    try:
+        updated = actualizar_cartera_status(
+            ledger_id, body.get("status", ""),
+            remaining_balance=body.get("remaining_balance")
+        )
+        return {"status": "OK", "updated": updated}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/cartera/summary")
+def get_cartera_summary():
+    from fin_sys_core.database_driver import get_db_connection, release_db_connection
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        # Ensure cartera_payments table
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cartera_payments (
+                id SERIAL PRIMARY KEY,
+                ledger_id INTEGER NOT NULL REFERENCES cxp_cxc_ledger(id) ON DELETE CASCADE,
+                amount DECIMAL(15,2) NOT NULL,
+                payment_date DATE DEFAULT CURRENT_DATE,
+                note TEXT,
+                balance_after DECIMAL(15,2),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.commit()
+        cur.execute("""
+            SELECT
+                COUNT(*) FILTER (WHERE type='CXC') as total_cxc,
+                COUNT(*) FILTER (WHERE type='CXP') as total_cxp,
+                COALESCE(SUM(original_amount) FILTER (WHERE type='CXC'), 0) as monto_cxc,
+                COALESCE(SUM(original_amount) FILTER (WHERE type='CXP'), 0) as monto_cxp,
+                COALESCE(SUM(remaining_balance) FILTER (WHERE type='CXC'), 0) as pendiente_cxc,
+                COALESCE(SUM(remaining_balance) FILTER (WHERE type='CXP'), 0) as pendiente_cxp,
+                COUNT(*) FILTER (WHERE status='PAGADO') as pagados,
+                COUNT(*) FILTER (WHERE status='VENCIDO') as vencidos
+            FROM cxp_cxc_ledger;
+        """)
+        row = cur.fetchone()
+        cur.close()
+        release_db_connection(conn)
+        return {
+            "total_cxc": row[0], "total_cxp": row[1],
+            "monto_cxc": float(row[2]), "monto_cxp": float(row[3]),
+            "pendiente_cxc": float(row[4]), "pendiente_cxp": float(row[5]),
+            "pagados": row[6], "vencidos": row[7]
+        }
+    except Exception as e:
+        if conn:
+            try: release_db_connection(conn)
+            except: pass
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/cartera/{ledger_id}/payments")
+def get_cartera_payments(ledger_id: int):
+    from fin_sys_core.database_driver import get_db_connection, release_db_connection
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, amount, payment_date, note, balance_after, created_at
+            FROM cartera_payments WHERE ledger_id = %s
+            ORDER BY created_at DESC;
+        """, (ledger_id,))
+        cols = [d[0] for d in cur.description]
+        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+        for r in rows:
+            for k in ['payment_date','created_at']:
+                if k in r and r[k]: r[k] = str(r[k])
+            for k in ['amount','balance_after']:
+                if k in r and r[k] is not None: r[k] = float(r[k])
+        cur.close()
+        release_db_connection(conn)
+        return rows
+    except Exception as e:
+        if conn:
+            try: release_db_connection(conn)
+            except: pass
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/cartera/{ledger_id}/payment")
+def register_cartera_payment(ledger_id: int, body: dict):
+    from fin_sys_core.database_driver import get_db_connection, release_db_connection
+    amount = float(body.get("amount", 0))
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Monto inválido")
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT remaining_balance, status FROM cxp_cxc_ledger WHERE id = %s;", (ledger_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Cuenta no encontrada")
+        new_balance = max(0, float(row[0]) - amount)
+        new_status = "PAGADO" if new_balance == 0 else row[1]
+        cur.execute("""
+            INSERT INTO cartera_payments (ledger_id, amount, payment_date, note, balance_after)
+            VALUES (%s, %s, %s, %s, %s) RETURNING id;
+        """, (ledger_id, amount, body.get("payment_date") or None,
+              body.get("note") or None, new_balance))
+        pid = cur.fetchone()[0]
+        cur.execute("UPDATE cxp_cxc_ledger SET remaining_balance=%s, status=%s WHERE id=%s;",
+                    (new_balance, new_status, ledger_id))
+        conn.commit()
+        # Zero-COA: Emitir asiento de pago al kernel
+        try:
+            _emit_journal_entry(
+                category="__CXC_PAYMENT__", tx_type="CXC",
+                amount=amount, referencia=f"PAY-{pid}",
+                descripcion=f"Abono cartera #{ledger_id}"
+            )
+        except: pass
+        cur.close()
+        release_db_connection(conn)
+        return {"status": "OK", "payment_id": pid, "new_balance": new_balance, "new_status": new_status}
+    except HTTPException:
+        raise
+    except Exception as e:
+        if conn:
+            try: release_db_connection(conn)
+            except: pass
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/cartera")
+def create_cartera_entry(body: dict):
+    """Crea una cuenta CXC/CXP standalone."""
+    from fin_sys_core.database_driver import get_db_connection, release_db_connection
+    for f in ["third_party_id", "type", "original_amount", "due_date", "term"]:
+        if f not in body:
+            raise HTTPException(status_code=400, detail=f"Campo requerido: {f}")
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        amount = float(body["original_amount"])
+        partial = float(body.get("partial_payment", 0))
+        remaining = max(0, amount - partial)
+        start_date = body.get("start_date") or None
+        payment_freq = int(body.get("payment_frequency", 30))
+        cur.execute("""
+            INSERT INTO cxp_cxc_ledger
+                (third_party_id, type, original_amount, remaining_balance, due_date, term, status, start_date, payment_frequency)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, COALESCE(%s, CURRENT_DATE), %s) RETURNING id;
+        """, (body["third_party_id"], body["type"], amount, remaining,
+              body["due_date"], body["term"],
+              "PAGADO" if remaining == 0 else "PENDIENTE",
+              start_date, payment_freq))
+        lid = cur.fetchone()[0]
+        if partial > 0:
+            cur.execute("""
+                INSERT INTO cartera_payments (ledger_id, amount, payment_date, note, balance_after)
+                VALUES (%s, %s, CURRENT_DATE, 'Abono inicial', %s);
+            """, (lid, partial, remaining))
+        conn.commit()
+        # Zero-COA: Emitir asiento de creación CXC/CXP al kernel
+        try:
+            coa_cat = "__CXC_CREATE__" if body["type"] == "CXC" else "__CXP_CREATE__"
+            _emit_journal_entry(
+                category=coa_cat, tx_type=body["type"],
+                amount=amount,
+                referencia=f"{body['type']}-{lid}",
+                descripcion=f"Crear {body['type']} #{lid}"
+            )
+        except: pass
+        cur.close()
+        release_db_connection(conn)
+        return {"status": "CREADO", "id": lid, "remaining_balance": remaining}
+    except HTTPException:
+        raise
+    except Exception as e:
+        if conn:
+            try: release_db_connection(conn)
+            except: pass
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── POST /api/third-parties — Crear tercero standalone ──
+@app.post("/api/third-parties")
+def create_third_party(body: dict):
+    from fin_sys_core.database_driver import get_db_connection, release_db_connection
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Nombre requerido")
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO third_parties (name, identification_type, identification_number, email, phone, website)
+            VALUES (%s, %s, %s, %s, %s, %s) RETURNING id;
+        """, (name, body.get("identification_type", "NIT"),
+              body.get("identification_number", ""),
+              body.get("email", ""), body.get("phone", ""),
+              body.get("website", "")))
+        new_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        release_db_connection(conn)
+        return {"id": new_id, "name": name, "status": "CREADO"}
+    except Exception as e:
+        if conn:
+            try: release_db_connection(conn)
+            except: pass
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── PUT /api/third-parties/{tp_id} ──
+@app.put("/api/third-parties/{tp_id}")
+def update_third_party(tp_id: int, body: dict):
+    from fin_sys_core.database_driver import actualizar_tercero
+    try:
+        result = actualizar_tercero(
+            tp_id, name=body.get("name"),
+            identification_type=body.get("identification_type"),
+            identification_number=body.get("identification_number"),
+            email=body.get("email"), phone=body.get("phone"),
+            website=body.get("website")
+        )
+        return {"status": "OK", "updated": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── GET /api/cartera/alerts ──
+@app.get("/api/cartera/alerts")
+def get_cartera_alerts():
+    from fin_sys_core.database_driver import get_db_connection, release_db_connection
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        # Update vencidos
+        cur.execute("""
+            UPDATE cxp_cxc_ledger SET status = 'VENCIDO'
+            WHERE due_date < CURRENT_DATE AND status NOT IN ('PAGADO', 'VENCIDO', 'CANCELADO');
+        """)
+        conn.commit()
+        cur.execute("""
+            SELECT l.id, l.type, l.original_amount, l.remaining_balance, l.due_date, l.status,
+                   tp.name as third_party_name,
+                   (l.due_date - CURRENT_DATE) as days_until_due
+            FROM cxp_cxc_ledger l
+            LEFT JOIN third_parties tp ON tp.id = l.third_party_id
+            WHERE l.status NOT IN ('PAGADO', 'CANCELADO')
+            AND l.due_date <= CURRENT_DATE + INTERVAL '30 days'
+            ORDER BY l.due_date ASC;
+        """)
+        cols = [d[0] for d in cur.description]
+        alerts = []
+        for r in cur.fetchall():
+            row = dict(zip(cols, r))
+            for k in ['original_amount','remaining_balance']:
+                if row.get(k) is not None: row[k] = float(row[k])
+            if row.get('due_date'): row['due_date'] = str(row['due_date'])
+            if row.get('days_until_due') is not None: row['days_until_due'] = int(row['days_until_due'])
+            alerts.append(row)
+        cur.close()
+        release_db_connection(conn)
+        return {"alerts": alerts}
+    except Exception as e:
+        if conn:
+            try: release_db_connection(conn)
+            except: pass
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── DELETE /api/cartera/{id} ──
+@app.delete("/api/cartera/{ledger_id}")
+def delete_cartera_entry(ledger_id: int):
+    from fin_sys_core.database_driver import get_db_connection, release_db_connection
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM cartera_payments WHERE ledger_id = %s;", (ledger_id,))
+        cur.execute("DELETE FROM cxp_cxc_ledger WHERE id = %s RETURNING id;", (ledger_id,))
+        deleted = cur.fetchone()
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Cuenta {ledger_id} no encontrada")
+        conn.commit()
+        cur.close()
+        release_db_connection(conn)
+        return {"status": "ELIMINADO", "id": ledger_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        if conn:
+            try: release_db_connection(conn)
+            except: pass
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# HR ENDPOINTS (Módulo 08c)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/hr/profile/{user_id}")
+def hr_get_profile(user_id: str, workspace_id: str = "default"):
+    try:
+        from fin_sys_core.hr_driver import get_hr_profile
+        return get_hr_profile(user_id, workspace_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/hr/profile/{user_id}")
+def hr_update_profile(user_id: str, body: dict):
+    try:
+        from fin_sys_core.hr_driver import update_hr_profile
+        ws = body.pop("workspace_id", "default")
+        return update_hr_profile(user_id, ws, body)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/hr/salary/{user_id}")
+def hr_get_salary(user_id: str, workspace_id: str = "default"):
+    try:
+        from fin_sys_core.hr_driver import get_hr_salary
+        return get_hr_salary(user_id, workspace_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/hr/salary/{user_id}")
+def hr_update_salary(user_id: str, body: dict):
+    try:
+        from fin_sys_core.hr_driver import update_hr_salary
+        ws = body.pop("workspace_id", "default")
+        return update_hr_salary(user_id, ws, body)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/hr/companies/{user_id}")
+def hr_get_companies(user_id: str):
+    try:
+        from fin_sys_core.hr_driver import get_employee_companies
+        return get_employee_companies(user_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/hr/companies/{user_id}")
+def hr_add_company(user_id: str, body: dict):
+    try:
+        from fin_sys_core.hr_driver import add_employee_company
+        return add_employee_company(
+            user_id, body.get("entity_id"), body.get("entity_name", ""),
+            body.get("workspace_id", "default"), body.get("role", "Empleado"),
+            body.get("start_date")
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/hr/folders/{workspace_id}")
+def hr_get_folders(workspace_id: str):
+    try:
+        from fin_sys_core.hr_documents_driver import get_folders
+        return get_folders(workspace_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/hr/folders/{workspace_id}")
+def hr_create_folder(workspace_id: str, body: dict):
+    try:
+        from fin_sys_core.hr_documents_driver import create_folder
+        return create_folder(workspace_id, body.get("name", ""), body.get("parent_id"), body.get("color"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/hr/documents/{user_id}")
+def hr_get_documents(user_id: str, workspace_id: str = "default", folder_id: Optional[str] = None):
+    try:
+        from fin_sys_core.hr_documents_driver import get_documents
+        return get_documents(user_id, workspace_id, folder_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/hr/documents/{user_id}")
+def hr_save_document(user_id: str, body: dict):
+    try:
+        from fin_sys_core.hr_documents_driver import save_document_metadata
+        ws = body.get("workspace_id", "default")
+        return save_document_metadata(
+            user_id, ws, body.get("name", ""), body.get("doc_type", ""),
+            body.get("file_data"), body.get("file_name"), body.get("mime_type"),
+            body.get("folder_id"), body.get("notes"), body.get("category_id")
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/hr/salary/calculate")
+def hr_calculate_salary(body: dict):
+    """Endpoint huérfano — mantener hasta limpieza técnica."""
+    return {"status": "NOT_IMPLEMENTED", "message": "Cálculo ocurre localmente en SalaryTab.jsx"}
+
+@app.post("/api/hr/storage/sign-upload")
+def hr_sign_upload(body: dict):
+    """Endpoint huérfano — sustituido por data URL base64."""
+    return {"status": "NOT_IMPLEMENTED", "message": "Bucket bloquea MIME, usando base64"}
+
+@app.get("/api/hr/categories/{workspace_id}")
+def hr_get_categories(workspace_id: str):
+    try:
+        from fin_sys_core.hr_driver import get_doc_categories
+        return get_doc_categories(workspace_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/hr/categories/{workspace_id}")
+def hr_add_category(workspace_id: str, body: dict):
+    try:
+        from fin_sys_core.hr_driver import add_doc_category
+        return add_doc_category(workspace_id, body.get("name", ""), body.get("color", "#666"), body.get("sort_order", 0))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/hr/payments/{user_id}")
+def hr_get_payments(user_id: str, workspace_id: str = "default"):
+    try:
+        from fin_sys_core.hr_driver import get_payment_records
+        return get_payment_records(user_id, workspace_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/hr/payments/{user_id}")
+def hr_add_payment(user_id: str, body: dict):
+    try:
+        from fin_sys_core.hr_driver import add_payment_record
+        ws = body.pop("workspace_id", "default")
+        return add_payment_record(user_id, ws, body)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ZERO-COA — Kernel Integration (Posting Rules + Journal Entries)
+# ══════════════════════════════════════════════════════════════════════════════
+
+BANK_ACCOUNT_MAP = {
+    "Efectivo": "110505",
+    "Caja Menor": "110510",
+}
+
+def _resolve_bank_code(account_id: int = None) -> str:
+    """Resuelve un account_id a su código PUC. Default: 111005 (Bancos)."""
+    if not account_id:
+        return "111005"
+    try:
+        from fin_sys_core.database_driver import get_db_connection, release_db_connection
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM user_accounts WHERE id = %s;", (account_id,))
+        row = cur.fetchone()
+        cur.close()
+        release_db_connection(conn)
+        if row:
+            return BANK_ACCOUNT_MAP.get(row[0], "111005")
+        return "111005"
+    except:
+        return "111005"
+
+
+def _emit_journal_entry(category, tx_type, amount, account_id=None, referencia="", descripcion="", fecha=None):
+    """
+    Busca la posting_rule por (category, tx_type), resuelve __BANK__,
+    y emite el evento al kernel para generar el asiento de partida doble.
+    Nunca bloquea la operación original si falla.
+    """
+    import logging
+    logger = logging.getLogger("zero_coa")
+    try:
+        from kernel.kernel_event_bus import emit
+        from fin_sys_core.database_driver import get_db_connection, release_db_connection
+        from datetime import date
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT debit_account_code, credit_account_code, rule_name
+            FROM posting_rules
+            WHERE category = %s AND transaction_type = %s AND is_active = TRUE
+            ORDER BY portfolio_id NULLS LAST LIMIT 1;
+        """, (category, tx_type))
+        rule = cur.fetchone()
+        cur.close()
+        release_db_connection(conn)
+        if not rule:
+            return None
+        debit_code, credit_code, rule_name = rule
+        bank_code = _resolve_bank_code(account_id)
+        if debit_code == "__BANK__":
+            debit_code = bank_code
+        if credit_code == "__BANK__":
+            credit_code = bank_code
+        result = emit('fin.transaccion.registrada', {
+            'fecha': fecha or str(date.today()),
+            'modulo_origen': 'zero_coa',
+            'referencia': referencia,
+            'descripcion': f"[{rule_name}] {descripcion}",
+            'asientos': [
+                {'cuenta_codigo': debit_code, 'debito': amount, 'credito': 0,
+                 'cuenta_nombre': rule_name, 'cuenta_tipo': ''},
+                {'cuenta_codigo': credit_code, 'debito': 0, 'credito': amount,
+                 'cuenta_nombre': rule_name, 'cuenta_tipo': ''},
+            ]
+        })
+        logger.info(f"✅ Zero-COA: {rule_name} | ${amount:,.0f} | Db={debit_code} Cr={credit_code}")
+        return result
+    except Exception as e:
+        logger.warning(f"⚠️ Zero-COA emit failed: {e}")
+        return None
+
+
+# ── GET /api/journal-entries ──
+@app.get("/api/journal-entries")
+def get_journal_entries(
+    fecha_desde: Optional[str] = None, fecha_hasta: Optional[str] = None,
+    modulo_origen: Optional[str] = None, limit: int = 100, offset: int = 0
+):
+    try:
+        from kernel.kernel_accounting import obtener_asientos
+        entries = obtener_asientos(
+            fecha_desde=fecha_desde, fecha_hasta=fecha_hasta,
+            modulo_origen=modulo_origen, limit=limit, offset=offset
+        )
+        for e in entries:
+            for k in ['fecha', 'created_at']:
+                if k in e and e[k]: e[k] = str(e[k])
+            for k in ['debito', 'credito']:
+                if k in e and e[k] is not None: e[k] = float(e[k])
+        return entries
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── GET /api/financial-summary ──
+@app.get("/api/financial-summary")
+def get_financial_summary(fecha_desde: Optional[str] = None, fecha_hasta: Optional[str] = None):
+    try:
+        from kernel.kernel_accounting import obtener_resumen_financiero
+        return obtener_resumen_financiero(fecha_desde, fecha_hasta)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── GET /api/posting-rules ──
+@app.get("/api/posting-rules")
+def list_posting_rules():
+    from fin_sys_core.database_driver import get_db_connection, release_db_connection
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, rule_name, category, transaction_type,
+                   debit_account_code, credit_account_code, description, is_active
+            FROM posting_rules ORDER BY transaction_type, category;
+        """)
+        cols = [d[0] for d in cur.description]
+        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+        cur.close()
+        release_db_connection(conn)
+        return rows
+    except Exception as e:
+        if conn:
+            try: release_db_connection(conn)
+            except: pass
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── GET /api/posting-rules/preview ──
+@app.get("/api/posting-rules/preview")
+def preview_posting_rule(category: str, tx_type: str, amount: float = 0, account_id: int = None):
+    """Retorna el preview del asiento contable sin emitirlo."""
+    try:
+        from fin_sys_core.database_driver import get_db_connection, release_db_connection
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT debit_account_code, credit_account_code, rule_name, description
+            FROM posting_rules
+            WHERE category = %s AND transaction_type = %s AND is_active = TRUE
+            ORDER BY portfolio_id NULLS LAST LIMIT 1;
+        """, (category, tx_type))
+        rule = cur.fetchone()
+        cur.close()
+        release_db_connection(conn)
+        if not rule:
+            return {"found": False}
+        debit_code, credit_code, rule_name, desc = rule
+        bank_code = _resolve_bank_code(account_id)
+        if debit_code == "__BANK__":
+            debit_code = bank_code
+        if credit_code == "__BANK__":
+            credit_code = bank_code
+        return {
+            "found": True, "rule_name": rule_name, "description": desc,
+            "debit": {"cuenta_codigo": debit_code, "monto": amount},
+            "credit": {"cuenta_codigo": credit_code, "monto": amount},
+            "balanced": True
+        }
+    except:
+        return {"found": False}

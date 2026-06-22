@@ -57,10 +57,21 @@ def calculate_caja_viva(
                 total_gastos_cop += net_value
             
     balance_neto_cop = total_ingresos_cop - total_gastos_cop
-    patrimonio_cop = capital_inicial_cop + balance_neto_cop
-    
     balance_neto_usd = total_ingresos_usd - total_gastos_usd
+
+    # Patrimonio Neto = Suma de saldos actuales de todas las cuentas (Activos - Pasivos)
+    # Si hay cuentas, usamos la suma real. Si no, fallback al cálculo legado.
+    patrimonio_cop = capital_inicial_cop + balance_neto_cop
     patrimonio_usd = capital_inicial_usd + balance_neto_usd
+    if accounts:
+        patrimonio_cop = sum(
+            float(a.get("current_balance") or 0.0)
+            for a in accounts if a.get("currency", "COP") != "USD"
+        )
+        patrimonio_usd = sum(
+            float(a.get("current_balance") or 0.0)
+            for a in accounts if a.get("currency", "COP") == "USD"
+        )
     
     alerts = []
     status = "NOMINAL"

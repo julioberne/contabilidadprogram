@@ -13,6 +13,11 @@ from psycopg2.extras import RealDictCursor
 from typing import List, Dict, Any, Optional
 import json
 
+# SOL-02: Pool centralizado — reemplaza conexiones directas
+from fin_sys_core.db_pool import get_conn as _pool_get_conn, put_conn as _pool_put_conn
+# SOL-01: Cálculo incremental O(1) — reemplaza recalculación completa
+from fin_sys_core.incremental_balance import aplicar_delta_incremental, revertir_delta_incremental
+
 # Cargar variables de entorno por defecto (también soportado vía .env en FastAPI)
 DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_NAME = os.getenv("DB_NAME", "fin_sys_db")
@@ -164,18 +169,18 @@ IS_POSTGRES_ACTIVE = True
 
 
 def get_db_connection():
-    """Establece y devuelve una conexión a la base de datos PostgreSQL."""
+    """Obtiene una conexión del pool centralizado (SOL-02).
+    Fallback a conexión directa si el pool no está disponible.
+    IMPORTANTE: Devolver con release_db_connection() al terminar."""
     global IS_POSTGRES_ACTIVE
     if not IS_POSTGRES_ACTIVE:
         raise ConnectionError("PostgreSQL está desconectado (Modo Simulación Activo).")
-    return psycopg2.connect(
-        host=DB_HOST,
-        database=DB_NAME,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        port=DB_PORT,
-        connect_timeout=10
-    )
+    return _pool_get_conn()
+
+
+def release_db_connection(conn):
+    """Devuelve una conexión al pool para su reutilización (SOL-02)."""
+    _pool_put_conn(conn)
 
 
 def init_db():
@@ -362,6 +367,24 @@ def init_db():
             UNIQUE (portfolio_id, code)
         );
         """)
+
+        # 8. Posting Rules — Mapeo Categoría → Cuentas COA (Zero-COA)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS posting_rules (
+            id SERIAL PRIMARY KEY,
+            rule_name VARCHAR(100) NOT NULL,
+            category VARCHAR(150) NOT NULL,
+            transaction_type VARCHAR(15) NOT NULL,
+            debit_account_code VARCHAR(50) NOT NULL,
+            credit_account_code VARCHAR(50) NOT NULL,
+            description TEXT,
+            is_active BOOLEAN DEFAULT TRUE,
+            portfolio_id INTEGER REFERENCES portfolios(id) ON DELETE CASCADE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_posting_rules_cat_type
+            ON posting_rules (category, transaction_type, COALESCE(portfolio_id, 0));
+        """)
         conn.commit()
 
 
@@ -524,12 +547,84 @@ def registrar_transaccion(tx_data: Dict[str, Any]) -> int:
                 asset.get("recurrence_amount", 0.0) if asset.get("is_passive_income_generator", False) else None
             ))
         
-        # Recalcular saldos de cuentas
-        recalcular_saldos_cuentas(conn)
+        # SOL-01: Actualización incremental O(1) — solo toca las cuentas afectadas
+        aplicar_delta_incremental(conn, tx_data)
         
         conn.commit()
         cur.close()
-        conn.close()
+        release_db_connection(conn)
+
+        # ── KERNEL: Emitir evento contable → genera asiento de partida doble ──
+        try:
+            from kernel.kernel_event_bus import emit as kernel_emit
+
+            tx_type = tx_data["type"].upper()
+            amount = float(tx_data["amount"])
+            fecha = tx_data["transaction_date"]
+            concepto = tx_data["concept"]
+            iva = float(tx_data.get("tax_iva_amount", 0))
+            gmf = float(tx_data.get("tax_gmf_amount", 0))
+
+            asientos = []
+
+            if tx_type == "INGRESO":
+                # Db Bancos (recibo dinero) / Cr Ingresos (genero ingreso)
+                asientos = [
+                    {"cuenta_codigo": "1110", "cuenta_nombre": "Bancos", "cuenta_tipo": "ACTIVO",
+                     "debito": amount, "credito": 0},
+                    {"cuenta_codigo": "4120", "cuenta_nombre": "Ingresos Operacionales", "cuenta_tipo": "INGRESO",
+                     "debito": 0, "credito": amount},
+                ]
+            elif tx_type == "GASTO":
+                # Db Gastos (registro gasto) / Cr Bancos (sale dinero)
+                asientos = [
+                    {"cuenta_codigo": "5105", "cuenta_nombre": "Gastos Operacionales", "cuenta_tipo": "GASTO",
+                     "debito": amount, "credito": 0},
+                    {"cuenta_codigo": "1110", "cuenta_nombre": "Bancos", "cuenta_tipo": "ACTIVO",
+                     "debito": 0, "credito": amount},
+                ]
+            elif tx_type == "TRANSFERENCIA":
+                # Db Banco destino / Cr Banco origen (movimiento entre cuentas)
+                asientos = [
+                    {"cuenta_codigo": "1110", "cuenta_nombre": "Bancos (destino)", "cuenta_tipo": "ACTIVO",
+                     "debito": amount, "credito": 0},
+                    {"cuenta_codigo": "1110", "cuenta_nombre": "Bancos (origen)", "cuenta_tipo": "ACTIVO",
+                     "debito": 0, "credito": amount},
+                ]
+
+            # Asientos adicionales por impuestos
+            if iva > 0 and tx_type == "INGRESO":
+                # IVA cobrado al cliente → Pasivo (debo pagarle a la DIAN)
+                asientos.append({"cuenta_codigo": "2408", "cuenta_nombre": "IVA por Pagar", "cuenta_tipo": "PASIVO",
+                                 "debito": 0, "credito": iva})
+                # Ajustar el ingreso neto (el ingreso real es amount - iva)
+                asientos[1]["credito"] = amount - iva
+            elif iva > 0 and tx_type == "GASTO":
+                # IVA pagado → Activo (la DIAN me lo debe)
+                asientos.append({"cuenta_codigo": "2408", "cuenta_nombre": "IVA Descontable", "cuenta_tipo": "ACTIVO",
+                                 "debito": iva, "credito": 0})
+                # Ajustar el gasto neto
+                asientos[0]["debito"] = amount - iva
+
+            if gmf > 0:
+                # GMF → Gasto financiero adicional
+                asientos.append({"cuenta_codigo": "5305", "cuenta_nombre": "GMF (4x1000)", "cuenta_tipo": "GASTO",
+                                 "debito": gmf, "credito": 0})
+                asientos.append({"cuenta_codigo": "1110", "cuenta_nombre": "Bancos (GMF)", "cuenta_tipo": "ACTIVO",
+                                 "debito": 0, "credito": gmf})
+
+            if asientos:
+                kernel_emit("fin.transaccion.registrada", {
+                    "fecha": str(fecha),
+                    "modulo_origen": "fin",
+                    "referencia": f"TX-{transaction_id}",
+                    "descripcion": concepto,
+                    "asientos": asientos,
+                })
+        except Exception as kernel_err:
+            # El evento contable es complementario — si falla, la TX original NO se pierde
+            print(f"⚠️ [KERNEL] No se pudo emitir evento contable para TX-{transaction_id}: {kernel_err}")
+
         return transaction_id
     except Exception as e:
         import traceback
@@ -573,15 +668,36 @@ def registrar_transaccion(tx_data: Dict[str, Any]) -> int:
         return transaction_id
 
 
-def obtener_transacciones(portfolio_name: Optional[str] = None) -> List[Dict[str, Any]]:
+def obtener_transacciones(portfolio_name: Optional[str] = None, limit: Optional[int] = None, offset: int = 0) -> List[Dict[str, Any]]:
     """
     Obtiene las transacciones filtrando opcionalmente por portafolio.
-    Si falla Postgres, lee de la lista en memoria (Mock).
+    
+    DT-12: Soporta paginación con limit/offset.
+    - Si limit=None → devuelve TODAS (para cálculos de balance)
+    - Si limit=N → devuelve N transacciones + total_count en metadata
+    
+    Retorna dict: { "items": [...], "total_count": int }
+    Nota: Para compatibilidad, si limit=None retorna lista plana (legacy).
     """
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
         
+        # Contar total primero (para paginación)
+        count_query = """
+        SELECT COUNT(*) as total
+        FROM transactions t
+        JOIN portfolios p ON t.portfolio_id = p.id
+        """
+        count_params = []
+        if portfolio_name:
+            count_query += " WHERE p.name = %s"
+            count_params.append(portfolio_name)
+        
+        cur.execute(count_query, count_params)
+        total_count = cur.fetchone()["total"]
+        
+        # Query principal
         query = """
         SELECT 
             t.id, t.type, t.amount, t.concept, t.transaction_date, t.payment_method, t.category,
@@ -607,12 +723,27 @@ def obtener_transacciones(portfolio_name: Optional[str] = None) -> List[Dict[str
             query += " WHERE p.name = %s"
             params.append(portfolio_name)
             
-        query += " ORDER BY t.transaction_date DESC, t.id DESC;"
+        query += " ORDER BY t.transaction_date DESC, t.id DESC"
+        
+        # DT-12: Aplicar paginación si se especifica limit
+        if limit is not None:
+            query += " LIMIT %s OFFSET %s"
+            params.extend([limit, offset])
+        
+        query += ";"
         cur.execute(query, params)
         rows = cur.fetchall()
         cur.close()
-        conn.close()
-        return [dict(r) for r in rows]
+        release_db_connection(conn)
+        
+        items = [dict(r) for r in rows]
+        
+        # Si limit=None → retorno legacy (lista plana, para balance calculation)
+        if limit is None:
+            return items
+        
+        # Si limit → retorno paginado con metadata
+        return {"items": items, "total_count": total_count}
     except Exception:
         # Fallback de Simulación en Memoria
         results = []
@@ -646,7 +777,10 @@ def obtener_transacciones(portfolio_name: Optional[str] = None) -> List[Dict[str
                 "asset_is_passive": tx.get("asset", {}).get("is_passive_income_generator") if tx.get("asset") else None,
                 "asset_recurrence_amount": tx.get("asset", {}).get("recurrence_amount") if tx.get("asset") else None
             })
-        return results
+        
+        if limit is None:
+            return results
+        return {"items": results[offset:offset+limit], "total_count": len(results)}
 
 
 def actualizar_transaccion(tx_id: int, update_data: Dict[str, Any]) -> bool:
@@ -664,6 +798,19 @@ def actualizar_transaccion(tx_id: int, update_data: Dict[str, Any]) -> bool:
         if not row:
             raise ValueError(f"Transacción con ID {tx_id} no encontrada.")
         third_party_id = row[0]
+        
+        # SOL-01: Capturar datos ANTES del update para revertir el delta
+        cur.execute("""
+            SELECT type, amount, net_value, account_id, dest_account_id, 
+                   trm, transaction_currency
+            FROM transactions WHERE id = %s;
+        """, (tx_id,))
+        old_row = cur.fetchone()
+        old_tx_snapshot = {
+            "type": old_row[0], "amount": old_row[1], "net_value": old_row[2],
+            "account_id": old_row[3], "dest_account_id": old_row[4],
+            "trm": old_row[5], "transaction_currency": old_row[6],
+        } if old_row else None
         
         # 2. Actualizar datos en transactions
         tx_fields = []
@@ -693,12 +840,31 @@ def actualizar_transaccion(tx_id: int, update_data: Dict[str, Any]) -> bool:
             query = f"UPDATE third_parties SET {', '.join(tp_fields)} WHERE id = %s;"
             cur.execute(query, tp_params)
         
-        # Recalcular saldos de cuentas
-        recalcular_saldos_cuentas(conn)
+        # SOL-01: Para edición, revertir delta antiguo y aplicar delta nuevo
+        # Obtener datos DESPUÉS del UPDATE
+        cur2 = conn.cursor()
+        cur2.execute("""
+            SELECT type, amount, net_value, account_id, dest_account_id, 
+                   trm, transaction_currency
+            FROM transactions WHERE id = %s;
+        """, (tx_id,))
+        updated_row = cur2.fetchone()
+        cur2.close()
+        if updated_row and old_tx_snapshot:
+            new_tx_data = {
+                "type": updated_row[0], "amount": updated_row[1],
+                "net_value": updated_row[2], "account_id": updated_row[3],
+                "dest_account_id": updated_row[4], "trm": updated_row[5],
+                "transaction_currency": updated_row[6],
+            }
+            # Revertir el delta antiguo (datos antes del UPDATE)
+            revertir_delta_incremental(conn, old_tx_snapshot)
+            # Aplicar el delta nuevo (datos después del UPDATE)
+            aplicar_delta_incremental(conn, new_tx_data)
         
         conn.commit()
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         return True
     except Exception as e:
         print(f"🔌 [MODO SIMULACIÓN] Actualizando transacción local en memoria ID {tx_id}")
@@ -854,7 +1020,7 @@ def recalcular_saldos_cuentas(conn=None):
             conn.rollback()
     finally:
         if close_conn:
-            conn.close()
+            release_db_connection(conn)
 
 
 def obtener_perfil_usuario() -> Dict[str, Any]:
@@ -867,7 +1033,7 @@ def obtener_perfil_usuario() -> Dict[str, Any]:
         cur.execute("SELECT name, email, role, avatar_style FROM user_profiles ORDER BY id ASC LIMIT 1;")
         row = cur.fetchone()
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         if row:
             return dict(row)
         return MOCK_USER_PROFILE
@@ -893,7 +1059,7 @@ def actualizar_perfil_usuario(data: Dict[str, Any]) -> bool:
         """, (data.get("name"), data.get("email"), data.get("role"), data.get("avatar_style")))
         conn.commit()
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         return True
     except Exception as e:
         print(f"Error al actualizar perfil en BD: {e}")
@@ -910,7 +1076,7 @@ def obtener_cuentas() -> List[Dict[str, Any]]:
         cur.execute("SELECT id, name, type, currency, initial_balance, current_balance FROM user_accounts ORDER BY id ASC;")
         rows = cur.fetchall()
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         return [dict(r) for r in rows]
     except Exception:
         return MOCK_USER_ACCOUNTS
@@ -943,8 +1109,8 @@ def crear_cuenta(data: Dict[str, Any]) -> int:
         new_id = cur.fetchone()[0]
         conn.commit()
         cur.close()
-        conn.close()
-        recalcular_saldos_cuentas()
+        release_db_connection(conn)
+        # Nueva cuenta: initial_balance = current_balance, no necesita recalcular
         return new_id
     except Exception as e:
         print(f"Error al crear cuenta: {e}")
@@ -1019,7 +1185,7 @@ def reset_db() -> bool:
             
         conn.commit()
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         print("✅ Base de datos PostgreSQL reiniciada y semillada a sus valores iniciales.")
         return True
     except Exception as e:
@@ -1147,7 +1313,7 @@ def obtener_portafolios() -> List[Dict[str, Any]]:
         cur.execute("SELECT id, name, industry_type, sub_industry_type FROM portfolios ORDER BY id ASC;")
         rows = cur.fetchall()
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         return [dict(r) for r in rows]
     except Exception as e:
         print(f"Error obteniendo portafolios: {e}")
@@ -1172,7 +1338,7 @@ def crear_portafolio(name: str, industry_type: str = "ESTANDAR", sub_industry_ty
         new_id = cur.fetchone()[0]
         conn.commit()
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         # Inicializar el COA correspondiente
         cargar_plantilla_coa(name, industry_type)
         return new_id
@@ -1188,7 +1354,7 @@ def obtener_terceros():
         cur.execute("SELECT id, identification_type, identification_number, name, email, phone, website FROM third_parties ORDER BY name ASC;")
         rows = cur.fetchall()
         cur.close()
-        conn.close()
+        release_db_connection(conn)
         return [dict(r) for r in rows]
     except Exception as e:
         print(f"Error obteniendo terceros: {e}")
@@ -1204,3 +1370,407 @@ def obtener_terceros():
                 })
         return mock_terceros
 
+
+def actualizar_cuenta(cuenta_id: int, data: Dict[str, Any]) -> bool:
+    """Actualiza nombre, tipo y opcionalmente saldo de una cuenta."""
+    global IS_POSTGRES_ACTIVE
+    if not IS_POSTGRES_ACTIVE:
+        for acc in MOCK_USER_ACCOUNTS:
+            if acc["id"] == cuenta_id:
+                acc["name"] = data.get("name", acc["name"])
+                acc["type"] = data.get("type", acc["type"])
+                if data.get("current_balance") is not None:
+                    acc["current_balance"] = float(data["current_balance"])
+                save_mock_db()
+                return True
+        return False
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        if data.get("current_balance") is not None:
+            cur.execute(
+                "UPDATE user_accounts SET name = %s, type = %s, current_balance = %s WHERE id = %s;",
+                (data["name"], data["type"], float(data["current_balance"]), cuenta_id)
+            )
+        else:
+            cur.execute(
+                "UPDATE user_accounts SET name = %s, type = %s WHERE id = %s;",
+                (data["name"], data["type"], cuenta_id)
+            )
+        updated = cur.rowcount > 0
+        conn.commit()
+        cur.close()
+        release_db_connection(conn)
+        return updated
+    except Exception as e:
+        print(f"Error al actualizar cuenta {cuenta_id}: {e}")
+        raise e
+
+
+def eliminar_cuenta(cuenta_id: int) -> bool:
+    """Elimina una cuenta por ID. Las transacciones asociadas quedan con account_id NULL."""
+    global IS_POSTGRES_ACTIVE
+    if not IS_POSTGRES_ACTIVE:
+        original_len = len(MOCK_USER_ACCOUNTS)
+        MOCK_USER_ACCOUNTS[:] = [a for a in MOCK_USER_ACCOUNTS if a["id"] != cuenta_id]
+        save_mock_db()
+        return len(MOCK_USER_ACCOUNTS) < original_len
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        # Desasociar transacciones antes de eliminar para evitar FK violation
+        cur.execute("UPDATE transactions SET account_id = NULL WHERE account_id = %s;", (cuenta_id,))
+        cur.execute("DELETE FROM user_accounts WHERE id = %s;", (cuenta_id,))
+        deleted = cur.rowcount > 0
+        conn.commit()
+        cur.close()
+        release_db_connection(conn)
+        return deleted
+    except Exception as e:
+        print(f"Error al eliminar cuenta {cuenta_id}: {e}")
+        raise e
+
+
+# ═══════════════════════════════════════════════════════════════
+# PANEL CONTEXTUAL — Funciones CRUD para panel derecho dinámico
+# Agregado: 2026-06-21
+# ═══════════════════════════════════════════════════════════════
+
+def ensure_panel_tables():
+    """Crea las tablas nuevas si no existen: tag_definitions, custom_taxes_templates."""
+    if not IS_POSTGRES_ACTIVE:
+        return
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS tag_definitions (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(100) NOT NULL UNIQUE,
+                color VARCHAR(7) DEFAULT '#000000',
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS custom_taxes_templates (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                rate DECIMAL(10,4) NOT NULL,
+                type VARCHAR(20) DEFAULT 'ADDITIVE',
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+        """)
+        conn.commit()
+        cur.close()
+        release_db_connection(conn)
+        print("✅ Panel tables ensured: tag_definitions, custom_taxes_templates")
+    except Exception as e:
+        print(f"Error ensuring panel tables: {e}")
+
+
+# ── Tags CRUD ──
+
+def listar_tags() -> List[Dict[str, Any]]:
+    """Lista todas las etiquetas globales."""
+    if not IS_POSTGRES_ACTIVE:
+        return []
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT * FROM tag_definitions ORDER BY name;")
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close()
+        release_db_connection(conn)
+        return rows
+    except Exception as e:
+        print(f"Error listando tags: {e}")
+        return []
+
+
+def crear_tag(name: str, color: str = '#000000') -> Dict[str, Any]:
+    """Crea una etiqueta nueva."""
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute(
+        "INSERT INTO tag_definitions (name, color) VALUES (%s, %s) RETURNING *;",
+        (name.strip(), color)
+    )
+    row = dict(cur.fetchone())
+    conn.commit()
+    cur.close()
+    release_db_connection(conn)
+    return row
+
+
+def actualizar_tag(tag_id: int, name: str = None, color: str = None) -> bool:
+    """Actualiza nombre y/o color de una etiqueta."""
+    sets, params = [], []
+    if name is not None:
+        sets.append("name = %s")
+        params.append(name.strip())
+    if color is not None:
+        sets.append("color = %s")
+        params.append(color)
+    if not sets:
+        return False
+    params.append(tag_id)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(f"UPDATE tag_definitions SET {', '.join(sets)} WHERE id = %s;", params)
+    updated = cur.rowcount > 0
+    conn.commit()
+    cur.close()
+    release_db_connection(conn)
+    return updated
+
+
+def eliminar_tag(tag_id: int) -> bool:
+    """Elimina una etiqueta."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM tag_definitions WHERE id = %s;", (tag_id,))
+    deleted = cur.rowcount > 0
+    conn.commit()
+    cur.close()
+    release_db_connection(conn)
+    return deleted
+
+
+# ── Custom Taxes Templates CRUD ──
+
+def listar_custom_taxes() -> List[Dict[str, Any]]:
+    """Lista todas las plantillas de impuestos custom."""
+    if not IS_POSTGRES_ACTIVE:
+        return []
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT * FROM custom_taxes_templates ORDER BY name;")
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close()
+        release_db_connection(conn)
+        return rows
+    except Exception as e:
+        print(f"Error listando custom taxes: {e}")
+        return []
+
+
+def crear_custom_tax(name: str, rate: float, tax_type: str = 'ADDITIVE') -> Dict[str, Any]:
+    """Crea una plantilla de impuesto custom."""
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute(
+        "INSERT INTO custom_taxes_templates (name, rate, type) VALUES (%s, %s, %s) RETURNING *;",
+        (name.strip(), rate, tax_type.upper())
+    )
+    row = dict(cur.fetchone())
+    conn.commit()
+    cur.close()
+    release_db_connection(conn)
+    return row
+
+
+def actualizar_custom_tax(tax_id: int, name: str = None, rate: float = None, tax_type: str = None) -> bool:
+    """Actualiza una plantilla de impuesto custom."""
+    sets, params = [], []
+    if name is not None:
+        sets.append("name = %s")
+        params.append(name.strip())
+    if rate is not None:
+        sets.append("rate = %s")
+        params.append(rate)
+    if tax_type is not None:
+        sets.append("type = %s")
+        params.append(tax_type.upper())
+    if not sets:
+        return False
+    params.append(tax_id)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(f"UPDATE custom_taxes_templates SET {', '.join(sets)} WHERE id = %s;", params)
+    updated = cur.rowcount > 0
+    conn.commit()
+    cur.close()
+    release_db_connection(conn)
+    return updated
+
+
+def eliminar_custom_tax(tax_id: int) -> bool:
+    """Elimina una plantilla de impuesto custom."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM custom_taxes_templates WHERE id = %s;", (tax_id,))
+    deleted = cur.rowcount > 0
+    conn.commit()
+    cur.close()
+    release_db_connection(conn)
+    return deleted
+
+
+# ── Third Parties CRUD (PUT/DELETE — GET ya existe) ──
+
+def actualizar_tercero(tp_id: int, name: str = None, identification_type: str = None,
+                       identification_number: str = None, email: str = None,
+                       phone: str = None, website: str = None) -> bool:
+    """Actualiza un tercero existente."""
+    sets, params = [], []
+    if name is not None:
+        sets.append("name = %s")
+        params.append(name.strip())
+    if identification_type is not None:
+        sets.append("identification_type = %s")
+        params.append(identification_type)
+    if identification_number is not None:
+        sets.append("identification_number = %s")
+        params.append(identification_number)
+    if email is not None:
+        sets.append("email = %s")
+        params.append(email)
+    if phone is not None:
+        sets.append("phone = %s")
+        params.append(phone)
+    if website is not None:
+        sets.append("website = %s")
+        params.append(website)
+    if not sets:
+        return False
+    params.append(tp_id)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(f"UPDATE third_parties SET {', '.join(sets)} WHERE id = %s;", params)
+    updated = cur.rowcount > 0
+    conn.commit()
+    cur.close()
+    release_db_connection(conn)
+    return updated
+
+
+def eliminar_tercero(tp_id: int) -> bool:
+    """Elimina un tercero. Desasocia transacciones primero."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE transactions SET third_party_id = NULL WHERE third_party_id = %s;", (tp_id,))
+    cur.execute("UPDATE cxp_cxc_ledger SET third_party_id = NULL WHERE third_party_id = %s;", (tp_id,))
+    cur.execute("DELETE FROM third_parties WHERE id = %s;", (tp_id,))
+    deleted = cur.rowcount > 0
+    conn.commit()
+    cur.close()
+    release_db_connection(conn)
+    return deleted
+
+
+# ── Assets standalone CRUD ──
+
+def listar_assets(portfolio_name: str = None) -> List[Dict[str, Any]]:
+    """Lista activos/recursos, opcionalmente filtrados por portafolio."""
+    if not IS_POSTGRES_ACTIVE:
+        return []
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        query = """
+            SELECT a.*, p.name as portfolio_name
+            FROM assets a
+            JOIN portfolios p ON a.portfolio_id = p.id
+        """
+        params = []
+        if portfolio_name:
+            query += " WHERE p.name = %s"
+            params.append(portfolio_name)
+        query += " ORDER BY a.created_at DESC;"
+        cur.execute(query, params)
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close()
+        release_db_connection(conn)
+        return rows
+    except Exception as e:
+        print(f"Error listando assets: {e}")
+        return []
+
+
+def actualizar_asset(asset_id: int, name: str = None, custom_tag: str = None,
+                     purchase_value: float = None) -> bool:
+    """Actualiza un activo/recurso."""
+    sets, params = [], []
+    if name is not None:
+        sets.append("name = %s")
+        params.append(name.strip())
+    if custom_tag is not None:
+        sets.append("custom_tag = %s")
+        params.append(custom_tag)
+    if purchase_value is not None:
+        sets.append("purchase_value = %s")
+        params.append(purchase_value)
+    if not sets:
+        return False
+    params.append(asset_id)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(f"UPDATE assets SET {', '.join(sets)} WHERE id = %s;", params)
+    updated = cur.rowcount > 0
+    conn.commit()
+    cur.close()
+    release_db_connection(conn)
+    return updated
+
+
+def eliminar_asset(asset_id: int) -> bool:
+    """Elimina un activo/recurso."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM assets WHERE id = %s;", (asset_id,))
+    deleted = cur.rowcount > 0
+    conn.commit()
+    cur.close()
+    release_db_connection(conn)
+    return deleted
+
+
+# ── Cartera CXC/CXP standalone ──
+
+def listar_cartera(portfolio_name: str = None) -> List[Dict[str, Any]]:
+    """Lista el ledger de CXC/CXP con datos del tercero y la transacción."""
+    if not IS_POSTGRES_ACTIVE:
+        return []
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        query = """
+            SELECT c.*, tp.name as third_party_name, tp.identification_number,
+                   t.concept, t.amount as tx_amount, t.transaction_date,
+                   p.name as portfolio_name
+            FROM cxp_cxc_ledger c
+            LEFT JOIN third_parties tp ON c.third_party_id = tp.id
+            LEFT JOIN transactions t ON c.transaction_id = t.id
+            LEFT JOIN portfolios p ON t.portfolio_id = p.id
+        """
+        params = []
+        if portfolio_name:
+            query += " WHERE p.name = %s"
+            params.append(portfolio_name)
+        query += " ORDER BY c.due_date ASC;"
+        cur.execute(query, params)
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close()
+        release_db_connection(conn)
+        return rows
+    except Exception as e:
+        print(f"Error listando cartera: {e}")
+        return []
+
+
+def actualizar_cartera_status(ledger_id: int, status: str, remaining_balance: float = None) -> bool:
+    """Actualiza estado y saldo de un registro CXC/CXP."""
+    sets, params = ["status = %s"], [status.upper()]
+    if remaining_balance is not None:
+        sets.append("remaining_balance = %s")
+        params.append(remaining_balance)
+    params.append(ledger_id)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(f"UPDATE cxp_cxc_ledger SET {', '.join(sets)} WHERE id = %s;", params)
+    updated = cur.rowcount > 0
+    conn.commit()
+    cur.close()
+    release_db_connection(conn)
+    return updated
