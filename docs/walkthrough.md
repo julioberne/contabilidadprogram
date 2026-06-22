@@ -1,6 +1,6 @@
 # 🏁 Manual de Verificación y Uso — FIN-SYS OS v2.0
 
-> **Última actualización**: 18 Junio 2026
+> **Última actualización**: 22 Junio 2026
 > Esta guía detalla cómo iniciar, verificar y operar el sistema completo en localhost.
 > Para el detalle de la sesión 11 Jun 2026, ver `docs/checkpoints.md` (Hito 13–14).
 > **NOTA DE DUPLICIDAD**: Algunos endpoints documentados aquí también aparecen en `docs/api_spec.md`. El archivo `api_spec.md` es la fuente autoritativa de contratos de API. Este archivo se enfoca en flujos de usuario.
@@ -20,6 +20,8 @@
 | **Módulo 07** | **Control Tower — Contabilidad Multi-Entidad B2B** | **✅** |
 | **Módulo 08** | **Project Hub — Kanban, Notas, Calendario, Org Chart** | **✅** |
 | **Módulo 08c** | **RRHH / Empresas — CompanyMapTab, Documentos, Historial, Comprobantes** | **✅ EN USO** |
+| **Zero-COA** | **Motor contable partida doble automático (posting_rules + kernel)** | **✅ FASE 1+2** |
+| **Shell Unificado** | **Sidebar + HomeDashboard + GlobalLogin** | **✅** |
 
 **Stack técnico:**
 - Backend: FastAPI (`server.py`) en `:8000`
@@ -246,24 +248,38 @@ Ejecutados en `scratch/ct_seed_data.py`. Estado actual en Supabase:
 
 ```
 contabilidadprogram/
-├── server.py                       ← API FastAPI central (~77KB, 87+ endpoints)
+├── server.py                       ← API FastAPI central (~84KB, 94 endpoints)
 ├── .env                            ← Credenciales (NO commitear)
+├── AGENTS.md                       ← Instrucciones para agente IA
 ├── CHECKLIST.md                    ← Health Check de inicio de sesión
 ├── fin_sys_core/
-│   ├── database_driver.py          ← Conexión + CRUD módulos 1–6
+│   ├── database_driver.py          ← Conexión + CRUD módulos 1–6 + posting_rules
+│   ├── db_pool.py                  ← ThreadedConnectionPool centralizado
 │   ├── control_tower_driver.py     ← Control Tower: 5 tablas
 │   ├── hub_driver.py               ← Project Hub: 10 tablas hub_*
 │   ├── hr_driver.py                ← RRHH: hr_members, hr_companies, hr_payment_records
 │   ├── hr_documents_driver.py      ← RRHH Documentos: hr_documents
+│   ├── incremental_balance.py      ← Balance incremental
 │   ├── ai_engine.py                ← Groq/Gemini + RAG + pgvector
 │   ├── ledger_math.py              ← Caja Viva + Pockets
 │   ├── tax_motor.py                ← IVA + GMF + personalizados
 │   ├── coa_test_module.py          ← Pruebas Catálogo de Cuentas
 │   └── test_core.py                ← Suite 5 tests unitarios
+├── kernel/
+│   ├── __init__.py
+│   ├── kernel_event_bus.py         ← Event bus para asientos contables
+│   ├── kernel_accounting.py        ← Motor contable: registrar/obtener asientos
+│   └── reporte_d02.py              ← Reportes contables
 ├── frontend/src/
 │   ├── App.jsx                     ← Módulos 1–6 (SPA principal)
-│   ├── CoaTest.jsx                 ← Test COA
-│   ├── main.jsx                    ← Router: APP | COA | CT | HUB
+│   ├── main.jsx                    ← Router: Shell Unificado
+│   ├── components/
+│   │   └── ContextPanel.jsx        ← Cartera CXC/CXP + Toggle Ver Asiento
+│   ├── shell/
+│   │   ├── Sidebar.jsx             ← Navegación lateral
+│   │   ├── HomeDashboard.jsx       ← Dashboard principal
+│   │   ├── GlobalLogin.jsx         ← Login unificado
+│   │   └── shell.css               ← Design tokens
 │   ├── control-tower/
 │   │   ├── ControlTowerApp.jsx     ← Raíz del módulo CT
 │   │   ├── hooks/useControlTower.js← Estado global CT
@@ -282,14 +298,16 @@ contabilidadprogram/
 │           │   ├── RRHHView.jsx
 │           │   └── tabs/
 │           │       ├── DocumentsTab.jsx ← Drive-style + preview comprobantes
-│           │       └── HistorialTab.jsx ← Pagos + generación comprobantes
+│           │       ├── HistorialTab.jsx ← Pagos + generación comprobantes
+│           │       ├── HRProfileTab.jsx ← Perfil de empleado
+│           │       └── SalaryTab.jsx    ← Cálculo de nómina
 │           └── workspace/ (settings + EntityTree)
 ├── docs/                           ← Documentación actualizada
 ├── scripts/
 │   ├── health_check.py
 │   ├── session_maintenance.py
 │   ├── seed_hub.py
-│   └── cleanup_empty_workspace.py
-└── scratch/
-    └── ct_seed_data.py
+│   └── seed_puc.py                 ← PUC colombiano + 17 posting rules
+├── start_backend.vbs               ← Arranque backend (doble-clic)
+└── start_frontend.vbs              ← Arranque frontend (doble-clic)
 ```
