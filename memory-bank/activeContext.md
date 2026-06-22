@@ -5,7 +5,7 @@
 
 ---
 
-## Estado: 22 Jun 2026 — 00:15 COT
+## Estado: 22 Jun 2026 — 10:50 COT
 
 ## Módulos Activos
 
@@ -17,28 +17,56 @@
 | 08c | RRHH / Empresas / Documentos / Historial | ✅ EN USO | `project-hub/features/members/`, `hr_driver.py`, `hr_documents_driver.py` |
 | **Cartera CXC/CXP** | **Sub-módulo del ContextPanel** | ✅ EN USO | `ContextPanel.jsx`, `server.py` (endpoints finales) |
 | **Zero-COA** | **Motor contable automático** | ✅ FASE 1+2 COMPLETAS | `server.py`, `kernel/`, `posting_rules` |
+| **Shell Unificado** | **Navegación entre módulos** | ✅ NUEVO | `frontend/src/shell/*`, `main.jsx` |
 | 09 | Bot IA (WhatsApp/Telegram + Groq) | 🔵 PLANIFICADO | — |
 | 10 | Trading NASDAQ (PnL, velas, heatmap) | 🔵 PLANIFICADO | — |
 
 ---
 
-## Zero-COA — Estado Actual
+## Zero-COA — Estado Verificado E2E ✅
 
 **Arquitectura**: El usuario opera en lenguaje de negocio → el backend traduce a partida doble automáticamente.
 
 | Componente | Archivo | Estado |
 |---|---|---|
-| Tabla `posting_rules` | `database_driver.py` (init_db L371-388) | ✅ Creada |
-| 17 reglas de mapeo | `scripts/seed_puc.py` | ✅ Pobladas en Supabase |
-| Helper `_emit_journal_entry()` | `server.py` (final del archivo) | ✅ Activo |
-| emit() en POST /api/transactions | `server.py` L334-345 | ✅ Integrado |
+| Tabla `posting_rules` | `database_driver.py` (init_db) | ✅ 22 reglas (17 base + 5 fallback) |
+| Tabla `kernel_journal_entries` | `kernel/kernel_accounting.py` | ✅ 30 entries, todos cuadrados |
+| Helper `_emit_journal_entry()` | `server.py` (final del archivo) | ✅ Con fallback `__FALLBACK__` |
+| Listener `registrar_asiento` | `server.py` startup_event() L197-207 | ✅ Con dedup `off()` antes de `on()` |
+| emit() en POST /api/transactions | `server.py` L334-355 | ✅ Integrado |
 | emit() en POST /api/cartera | `server.py` (bloque cartera) | ✅ Integrado |
 | emit() en POST /api/cartera/{id}/payment | `server.py` (bloque cartera) | ✅ Integrado |
-| GET /api/posting-rules | `server.py` | ✅ Nuevo |
-| GET /api/posting-rules/preview | `server.py` | ✅ Nuevo |
-| GET /api/journal-entries | `server.py` | ✅ Nuevo |
-| GET /api/financial-summary | `server.py` | ✅ Nuevo |
-| Toggle "👁️ Ver Asiento" | `ContextPanel.jsx` L664-726 | ✅ Nuevo |
+| GET /api/posting-rules | `server.py` | ✅ Activo |
+| GET /api/posting-rules/preview | `server.py` | ✅ Con fallback |
+| GET /api/journal-entries | `server.py` | ✅ Activo |
+| GET /api/financial-summary | `server.py` | ✅ Activo |
+| GET /api/dashboard-data | `server.py` L1430-1505 | ✅ Consolidado (TX + accounts + profile + COA) |
+| Toggle "👁️ Ver Asiento" | `ContextPanel.jsx` L664-726 | ✅ Activo |
+
+### Bugs corregidos esta sesión (22 Jun 2026):
+1. **Listener no registrado** → `on()` en `startup_event()` — commit `b452c6d`
+2. **Categorías sin match** → fallback `__FALLBACK__` — commit `b452c6d`
+3. **Listener duplicado en hot-reload** → `off()` antes de `on()` — commit `2a21393`
+4. **"No hay registros" en Libro Diario** → `/api/dashboard-data` enriquecido — commit `2ca15cf`
+
+---
+
+## Datos Actuales en BD (Verificado 22 Jun 2026 10:50 COT)
+
+| Tabla | Registros |
+|---|---|
+| `portfolios` | 4 (Negocio A, Pegasus, MI EMPRESA, Negocio Principal) |
+| `user_accounts` | 5 (Efectivo, Bancolombia, Nequi, Davivienda, Binance) |
+| `transactions` | 10 |
+| `third_parties` | 5 (Papelería El Dorado, Carlos Mejía, Claro, Test, WeWork) |
+| `cxp_cxc_ledger` | 2 (CXC $3.2M + CXP $379.8K) |
+| `posting_rules` | 22 (17 base + 5 fallback) |
+| `kernel_journal_entries` | 30 (todos cuadrados Db=Cr) |
+| `tags` | 6 (Oficina, Operativo, Recurrente + 3 basura) |
+| `entities` (CT) | 13 |
+| `hub_workspaces` | 1 |
+| `hub_users` | 6 |
+| **Total tablas** | **~36** |
 
 ---
 
@@ -55,15 +83,14 @@
 | `GET` | `/api/cartera/{id}/payments` | Historial de abonos |
 | `DELETE` | `/api/cartera/{id}` | Elimina cuenta |
 
-### Terceros
-| `POST` | `/api/third-parties` | Crea tercero standalone |
-| `PUT` | `/api/third-parties/{id}` | Actualiza tercero |
-
 ### Zero-COA
-| `GET` | `/api/posting-rules` | Lista 17 reglas de mapeo |
+| `GET` | `/api/posting-rules` | Lista 22 reglas de mapeo |
 | `GET` | `/api/posting-rules/preview` | Preview asiento sin emitir |
 | `GET` | `/api/journal-entries` | Lista asientos contables |
 | `GET` | `/api/financial-summary` | Resumen financiero |
+
+### Dashboard Consolidado (SOL-04A)
+| `GET` | `/api/dashboard-data` | KPIs + transactions + accounts + portfolios + profile + COA |
 
 **Endpoints totales servidor**: ~94
 
@@ -71,10 +98,11 @@
 
 ## Archivos Permitidos en Próxima Sesión
 
-### Si se continúa con Cartera / Zero-COA:
+### Si se continúa con Contabilidad / Zero-COA:
 ```
 frontend/src/components/ContextPanel.jsx  ← Libre modificación
 server.py                                  ← Solo agregar al FINAL
+kernel/*                                   ← Libre modificación
 ```
 
 ### Si se trabaja en Módulo 09 (Bot IA) o 10 (Trading):
@@ -82,15 +110,18 @@ server.py                                  ← Solo agregar al FINAL
 server.py                                (solo agregar al FINAL)
 fin_sys_core/bot_driver.py               (NUEVO)
 frontend/src/bot/ o frontend/src/trading/ (NUEVO)
-main.jsx                                 (solo añadir pestaña al router)
+frontend/src/main.jsx                    (solo añadir al switch)
+frontend/src/shell/Sidebar.jsx           (solo añadir item al array NAV)
 ```
 
 ## Archivos PROHIBIDOS (Zero-Impact Policy)
 ```
+frontend/src/App.jsx                    ← Preferir extraer componente
 frontend/src/control-tower/*            ← NO tocar
 fin_sys_core/control_tower_driver.py    ← NO tocar (aprobación explícita)
-.env                                    ← NUNCA tocar bajo ninguna circunstancia
-Tablas de BD existentes                 ← NO alterar schema sin aprobación explícita
+fin_sys_core/database_driver.py         ← Solo con aprobación explícita
+.env                                    ← NUNCA tocar
+Tablas de BD existentes                 ← NO alterar schema sin aprobación
 ```
 
 ---
@@ -126,10 +157,11 @@ Tablas de BD existentes                 ← NO alterar schema sin aprobación ex
 | DT-07 | Fuentes Kanban/TaskModal pendientes | Baja |
 | DT-08 | Integración contabilidad-nómina | Media |
 | DT-09 | Comprobante nómina: integrar con tablas contables | Baja |
-| **DT-10** | **`<form>` anidado en App.jsx:1238** | **Alta** |
-| **DT-11** | **`userProfile` undefined en App.jsx:2450** | **Alta** |
-| **DT-12** | **Auto-mark VENCIDO en cartera batch** | **Resuelto** ✅ |
-| DT-13 | Limpiar datos sintéticos (IDs 3-7, "Test TP") | Baja |
+| DT-10 | `<form>` anidado en App.jsx:1238 | Alta |
+| DT-11 | `userProfile` undefined en App.jsx:2450 | Alta |
+| ~~DT-12~~ | ~~Auto-mark VENCIDO en cartera batch~~ | ~~Resuelto~~ ✅ |
+| DT-13 | Limpiar tags basura (bnm, dfghj, nm) | Baja |
+| DT-14 | Limpiar TX de prueba ("Test debug emit" x2) | Baja |
 
 ---
 
