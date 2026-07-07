@@ -13,8 +13,10 @@ services:
       dockerfile: Dockerfile
     container_name: finsys-backend
     restart: unless-stopped
-    # Variables de entorno: inyectadas por Dokploy (Environment tab)
-    # NO usar env_file — Dokploy las pasa directamente al contenedor
+    # Variables de entorno: Dokploy escribe el Environment tab en un archivo .env
+    # junto al compose — env_file lo inyecta al contenedor
+    env_file:
+      - .env
     expose:
       - "8000"
     volumes:
