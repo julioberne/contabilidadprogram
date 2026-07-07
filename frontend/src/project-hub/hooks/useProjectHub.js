@@ -3,8 +3,9 @@
  * Maneja: sesión de usuario, workspace activo, proyecto activo
  */
 import { useState, useCallback } from 'react';
+import { API_HUB } from '../../config';
 
-const API = 'http://localhost:8000/api/hub';
+const API = API_HUB;
 
 // ─── Helpers localStorage ────────────────────────────────────────────────────
 const getStored = (key) => { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } };

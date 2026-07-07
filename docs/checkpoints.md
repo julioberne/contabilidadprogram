@@ -2,6 +2,67 @@
 
 ---
 
+## Checkpoint 2026-07-05 — Sesión 19:09 COT
+
+**Estado**: ✅ Sistema operativo | Módulo 08c RRHH activo
+
+### Trabajo Completado Esta Sesión:
+- **Menú lateral**: "RRHH" renombrado a "EMPRESAS"
+- **CompanyMapTab**: árbol jerárquico Holding→Empresa→Subsidiaria→Proyecto (add/edit/delete)
+- **DocumentsTab**: drive-style, categorías persistentes, preview HTML comprobantes
+- **HistorialTab**: pestaña separada, totales nómina, generación comprobantes
+- **Fix upload comprobante**: usa `supabase.storage.from('hr-docs').upload()` JS directo
+- **Fix mime type**: `application/octet-stream` (Supabase bloquea text/html)
+- **Fix FileCard**: ícono 🧾 COMPROBANTE para vouchers, descarga blob-based
+- **Fix parse error**: llave cierre faltante en HistorialTab.jsx
+
+### Estado BD al Cierre:
+- Transacciones: 13
+- HR Members: N/A
+- HR Payments: 13
+- HR Docs: 6 (docs test eliminados previo)
+- Total tablas: 37
+
+### Próxima Sesión — Opciones:
+1. Probar flujo completo comprobante → ver en Documentos
+2. Integración contabilidad-nómina (DT-08)
+3. Módulo 09 — Bot IA (Groq + WhatsApp)
+4. Módulo 10 — Trading NASDAQ
+
+### Archivos NO tocados esta sesión:
+- App.jsx, control-tower/*, database_driver.py, control_tower_driver.py, .env
+
+
+---
+
+## Checkpoint 2026-06-27 — Sesión 23:30 COT
+
+**Estado**: ✅ Sistema operativo | Refactor 6 fases COMPLETADO
+
+### Trabajo Completado:
+- **Refactor monolíticos** → 5,957 ln split en ~32 archivos (−74%)
+- **App.jsx**: 1,999 → 717 ln (TransactionForm, LibroDiario, EvidenceModal extraídos)
+- **ContextPanel**: 1,249 → 217 ln (7 tabs)
+- **InventoryPanel**: 866 → 210 ln (5 archivos)
+- **DocumentsTab**: 932 → 456 ln (8 archivos)
+- **contabilidad.py**: 911 → 0 ln (7 routers: portfolios, transactions, profile_accounts, coa, dashboard_data, tags_taxes, schemas)
+- **Fix**: entity→portfolio bridge (no pisar portfolio activo)
+- **Limpieza**: contabilidad_OLD.py, __pycache__, scratch scripts
+
+### Estado BD al Cierre:
+- Transacciones: 12
+- Portafolios: 4
+- Entities CT: 13
+- Total tablas: ~36
+- Total endpoints: ~100 (14 routers)
+
+### Verificación:
+- Vite build: ✓ 4.25s (1,432 módulos)
+- Backend: ✓ Application startup complete
+- API dashboard-data: ✓ 12 transacciones
+
+---
+
 ## Checkpoint 2026-06-20 — Sesión 19:57 COT
 
 **Estado**: ✅ Sistema operativo | Módulo 08c RRHH activo

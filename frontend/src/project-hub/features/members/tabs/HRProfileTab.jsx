@@ -8,8 +8,9 @@
    ============================================================ */
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../../lib/supabaseClient';
+import { API_HR, API_CT } from '../../../../config';
 
-const API    = 'http://localhost:8000/api/hr';
+const API    = API_HR;
 const SB_URL = 'https://sciorfjvdqxvcwgvnmbv.supabase.co';
 
 const STATUS_OPTS = [
@@ -109,7 +110,7 @@ export default function HRProfileTab({ member, workspace, currentUser }) {
       .catch(() => {});
 
   const loadEntities = () =>
-    fetch('http://localhost:8000/api/ct/entities')
+    fetch(`${API_CT}/entities`)
       .then(r => r.json())
       .then(d => setEntities(Array.isArray(d) ? d : []))
       .catch(() => {});

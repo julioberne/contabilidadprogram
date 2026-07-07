@@ -5,8 +5,9 @@
 import { useState, useEffect } from 'react';
 import MemberProfile from './MemberProfile';
 import CompanyMapTab from './CompanyMapTab';
+import { API_HUB } from '../../../config';
 
-const API = 'http://localhost:8000/api/hub';
+const API = API_HUB;
 
 export default function MembersList({ workspace, user }) {
   const [members,  setMembers]  = useState([]);

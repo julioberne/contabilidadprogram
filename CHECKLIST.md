@@ -1,7 +1,7 @@
 # Checklist de Inicio de Sesión — FIN-SYS OS v2.0
 
 > Ejecutar SIEMPRE al iniciar un nuevo objetivo o tras un reinicio del sistema.
-> Última actualización: 20 Jun 2026 — 19:57 COT
+> Última actualización: 05 Jul 2026 — 19:09 COT
 
 ## Comandos Rápidos
 ```bash
@@ -53,11 +53,11 @@ Esperar: `VITE v8.x ready → http://localhost:5173`
 ### 5. Módulo Principal (01–06)
 - [ ] `GET /api/portfolios` → 4 portafolios
 - [ ] `GET /api/accounts` → 7 cuentas
-- [ ] `GET /api/transactions` → ≥6 registros
+- [ ] `GET /api/transactions` → ≥13 registros
 
 ### 6. Project Hub (Módulo 08)
 - [ ] Login Hub: `andres@finsys.io / admin123`
-- [ ] TaskBoard carga con 20 tareas y 6 usuarios
+- [ ] TaskBoard carga con 21 tareas y 6 usuarios
 - [ ] La app principal NO queda bloqueada al navegar entre vistas
 
 ### 7. RRHH / Empresas (Módulo 08c)
@@ -70,17 +70,17 @@ Esperar: `VITE v8.x ready → http://localhost:5173`
 
 ---
 
-## Estado Esperado de la BD (Verificado 20 Jun 2026 — 19:57 COT)
+## Estado Esperado de la BD (Verificado 05 Jul 2026 — 19:09 COT)
 
 | Tabla | Registros |
 |---|---|
 | `portfolios` | 4 |
 | `user_accounts` | 7 |
-| `transactions` | ≥6 |
+| `transactions` | ≥13 |
 | `entities` (CT) | 7 |
 | `workspace_users` (CT) | 5 |
 | `hub_workspaces` | 1 |
 | `hub_users` | 6 |
-| `hub_tasks` | 20 |
+| `hub_tasks` | 21 |
 | `hr_members` | N/A |
 | `hr_payment_records` | 13 |

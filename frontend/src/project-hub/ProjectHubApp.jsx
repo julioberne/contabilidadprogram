@@ -13,25 +13,47 @@ import RRHHView             from './features/members/RRHHView';
 
 const MOBILE_BREAKPOINT = 768;
 
-export default function ProjectHubApp({ onExit }) {
+export default function ProjectHubApp({ onExit, user: shellUser }) {
   const hub = useProjectHub();
   const [activeView,    setActiveView]    = useState('tasks');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileOpen,    setMobileOpen]    = useState(false);
   const [isMobile,      setIsMobile]      = useState(window.innerWidth < MOBILE_BREAKPOINT);
 
+  // ── SSO: Effective user (shell fallback when hub.user is null) ──────
+  // Prefer the real Hub user object (from API login via shell) over synthetic
+  const ssoUser = shellUser ? (
+    shellUser.raw?.user || {
+      id: shellUser.id || 1,
+      email: shellUser.email || 'andres@finsys.os',
+      name: shellUser.name || 'Usuario',
+      is_superuser: shellUser.role === 'ADMIN',
+      color: '#0EA5E9',
+    }
+  ) : null;
+
+  // The active user is hub's own user OR the synthetic SSO user
+  const activeUser = hub.user || ssoUser;
+
+  // ── SSO: Auto-load workspaces when user active but no workspace ──
+  useEffect(() => {
+    if (activeUser && !hub.workspace && !hub.loading) {
+      hub.loadWorkspaces(activeUser.id, activeUser.is_superuser)
+        .catch(err => console.error('[SSO] Workspace load failed:', err));
+    }
+  }, [activeUser, hub.workspace, hub.loading]);
+
   // Detectar cambio de tamaño de ventana
   useEffect(() => {
     const handler = () => {
       const mobile = window.innerWidth < MOBILE_BREAKPOINT;
       setIsMobile(mobile);
-      if (!mobile) setMobileOpen(false); // cerrar drawer al volver a desktop
+      if (!mobile) setMobileOpen(false);
     };
     window.addEventListener('resize', handler);
     return () => window.removeEventListener('resize', handler);
   }, []);
 
-  // En mobile, el sidebar siempre está "colapsado" (oculto) a menos que mobileOpen
   const effectiveCollapsed = isMobile ? !mobileOpen : sidebarCollapsed;
 
   const handleAuth = async (mode, form) => {
@@ -51,7 +73,13 @@ export default function ProjectHubApp({ onExit }) {
     }
   };
 
-  if (!hub.user) {
+  // ── SSO: Override logout — when embedded, just go home ──────────────
+  const handleLogout = shellUser
+    ? () => { if (onExit) onExit(); }  // Navigate home, don't destroy session
+    : hub.logout;
+
+  // Only show login screen if NO user at all (no shell, no hub)
+  if (!activeUser) {
     return (
       <HubLoginRegister
         onSuccess={handleAuth}
@@ -63,35 +91,33 @@ export default function ProjectHubApp({ onExit }) {
 
   const renderView = () => {
     switch (activeView) {
-      case 'tasks':    return <TaskBoard project={hub.activeProject} workspace={hub.workspace} user={hub.user} />;
-      case 'notes':    return <NotesApp workspace={hub.workspace} user={hub.user} />;
-      case 'calendar': return <CalendarApp workspace={hub.workspace} user={hub.user} />;
-      case 'members':  return <MembersList workspace={hub.workspace} user={hub.user} />;
-      case 'rrhh':     return <RRHHView workspace={hub.workspace} user={hub.user} />;
-      case 'settings': return <WorkspaceSettings workspace={hub.workspace} user={hub.user} />;
+      case 'tasks':    return <TaskBoard project={hub.activeProject} workspace={hub.workspace} user={activeUser} />;
+      case 'notes':    return <NotesApp workspace={hub.workspace} user={activeUser} />;
+      case 'calendar': return <CalendarApp workspace={hub.workspace} user={activeUser} />;
+      case 'members':  return <MembersList workspace={hub.workspace} user={activeUser} />;
+      case 'rrhh':     return <RRHHView workspace={hub.workspace} user={activeUser} />;
+      case 'settings': return <WorkspaceSettings workspace={hub.workspace} user={activeUser} />;
       default:         return null;
     }
   };
 
   return (
     <div className='hub-root' style={styles.app}>
-      {/* Top bar — pasa handler para hamburguesa en mobile */}
       <HubTopBar
-        user={hub.user}
+        user={activeUser}
         workspace={hub.workspace}
         activeView={activeView}
         activeProject={hub.activeProject}
-        onLogout={hub.logout}
+        onLogout={handleLogout}
         onExit={onExit}
         isMobile={isMobile}
         onMenuToggle={() => isMobile ? setMobileOpen(v => !v) : setSidebarCollapsed(v => !v)}
         sidebarCollapsed={effectiveCollapsed}
       />
 
-      {/* Body: sidebar + contenido */}
       <div style={styles.body}>
         <HubSidebar
-          user={hub.user}
+          user={activeUser}
           workspace={hub.workspace}
           workspaces={hub.workspaces}
           onSwitchWorkspace={hub.switchWorkspace}
@@ -106,7 +132,6 @@ export default function ProjectHubApp({ onExit }) {
           onCloseMobile={() => setMobileOpen(false)}
         />
 
-        {/* Contenido principal */}
         <main style={styles.main}>
           {renderView()}
         </main>

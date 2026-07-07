@@ -1,22 +1,23 @@
 /* ============================================================
    main.jsx — FIN-SYS OS v2.0 · Shell Unificado
-   Zero-Impact Policy: App.jsx, ControlTowerApp, ProjectHubApp
-   no se modifican. Solo se envuelven en el nuevo shell.
+   Módulos definidos en registry/moduleRegistry.js (SSOT).
    ============================================================ */
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect, Suspense, useCallback } from 'react';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import './shell/shell.css';
-
-// SOL-06: Módulos cargados bajo demanda (code splitting)
-const App             = lazy(() => import('./App.jsx'));
-const ControlTowerApp = lazy(() => import('./control-tower/ControlTowerApp.jsx'));
-const ProjectHubApp   = lazy(() => import('./project-hub/ProjectHubApp.jsx'));
+import { getModuleLabels, getNoScrollIds, getRenderableModules, applyFlags } from './registry/moduleRegistry';
+import { API } from './config';
+import ModuleSettingsPanel from './shell/ModuleSettingsPanel.jsx';
 
 // Shell nuevo (siempre cargado — es ligero)
 import GlobalLogin    from './shell/GlobalLogin.jsx';
 import Sidebar        from './shell/Sidebar.jsx';
 import HomeDashboard  from './shell/HomeDashboard.jsx';
+import GlobalHeader   from './shell/GlobalHeader.jsx';
+import { UserProvider }         from './shell/providers/UserProvider.jsx';
+import { NotificationProvider } from './shell/providers/NotificationProvider.jsx';
 import { useGlobalSession } from './shell/hooks/useGlobalSession.js';
 
 const MOBILE_BP = 900;
@@ -27,6 +28,23 @@ function FINSYSShell() {
   const [collapsed,   setCollapsed]   = useState(false);
   const [mobileOpen,  setMobileOpen]  = useState(false);
   const [isMobile,    setIsMobile]    = useState(window.innerWidth < MOBILE_BP);
+  const [enabledIds,  setEnabledIds]  = useState(null); // Feature flags resueltos
+
+  // ── Fetch Feature Flags ──────────────────────────────────
+  const loadFlags = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/module-flags`);
+      if (res.ok) {
+        const data = await res.json();
+        setEnabledIds(applyFlags(data.flags || []));
+      }
+    } catch {
+      // Si no hay BD o falla, usar defaults del registry
+      setEnabledIds(null);
+    }
+  }, []);
+
+  useEffect(() => { if (user) loadFlags(); }, [user, loadFlags]);
 
   useEffect(() => {
     const handler = () => {
@@ -49,38 +67,14 @@ function FINSYSShell() {
     );
   }
 
-  // ── Etiqueta del módulo activo (breadcrumb) ───────────────
-  const MODULE_LABELS = {
-    home:         'Dashboard Ejecutivo',
-    contabilidad: 'Contabilidad',
-    rrhh:         'Recursos Humanos',
-    tower:        'Control Tower',
-    tesoreria:    'Tesorería',
-    facturacion:  'Facturación',
-    organigrama:  'Organigrama',
-    ventas:       'Ventas & CRM',
-    compras:      'Compras',
-    logistica:    'Logística',
-    bot:          'Bot IA',
-    config:       'Configuración',
-    auditoria:    'Auditoría',
-  };
-
-  // Módulos que usan pantalla completa (sin topbar del shell)
-  const FULLSCREEN = ['tower', 'rrhh'];
-  const isFullscreen = FULLSCREEN.includes(view);
-
-  // Módulos que necesitan overflow: hidden en el contenedor
-  // NOTA: 'contabilidad' necesita scroll propio — NO incluir aquí
-  const NO_SCROLL = ['tower', 'rrhh'];
-  const noScroll  = NO_SCROLL.includes(view);
-
-  const now = new Date();
-  const dateLabel = now.toLocaleDateString('es-CO', {
-    day: '2-digit', month: 'short', year: 'numeric',
-  }) + ' · ' + now.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+  // ── Datos derivados del Module Registry (flag-aware) ────
+  const MODULE_LABELS = getModuleLabels();
+  const noScroll = getNoScrollIds().includes(view);
+  const renderableModules = getRenderableModules(enabledIds);
 
   return (
+    <UserProvider user={user} logout={logout}>
+    <NotificationProvider>
     <div className="shell-root">
       {/* ── Sidebar ─────────────────────────────── */}
       <Sidebar
@@ -90,6 +84,7 @@ function FINSYSShell() {
         collapsed={isMobile ? false : collapsed}
         onToggle={() => isMobile ? setMobileOpen(v => !v) : setCollapsed(v => !v)}
         mobileOpen={mobileOpen}
+        enabledIds={enabledIds}
       />
 
       {/* Mobile overlay */}
@@ -106,47 +101,14 @@ function FINSYSShell() {
 
       {/* ── Main area ───────────────────────────── */}
       <div className="shell-main">
-        {/* Topbar — siempre visible excepto en fullscreen puro */}
-        <div className="shell-topbar" id="shell-topbar">
-          {/* Hamburger en mobile */}
-          {isMobile && (
-            <button
-              id="shell-hamburger"
-              onClick={() => setMobileOpen(v => !v)}
-              style={{
-                background: 'transparent', border: 'none',
-                color: 'var(--shell-text)', fontSize: 18,
-                cursor: 'pointer', marginRight: 12,
-                fontFamily: 'var(--shell-font)',
-              }}
-            >☰</button>
-          )}
-
-          <div className="shell-breadcrumb">
-            HOME <span>› {MODULE_LABELS[view] || view.toUpperCase()}</span>
-          </div>
-
-          <div className="shell-topbar-right">
-            <span className="shell-datetime">{dateLabel}</span>
-            <button
-              id="shell-logout-btn"
-              onClick={logout}
-              style={{
-                background: 'transparent',
-                border: '1px solid var(--shell-border-hi)',
-                color: 'var(--shell-dim)',
-                fontFamily: 'var(--shell-font)',
-                fontSize: 9,
-                letterSpacing: 1,
-                padding: '4px 8px',
-                cursor: 'pointer',
-                textTransform: 'uppercase',
-              }}
-            >
-              → SALIR
-            </button>
-          </div>
-        </div>
+        {/* Global Header — reemplaza el viejo topbar inline */}
+        <GlobalHeader
+          activeView={view}
+          moduleLabels={MODULE_LABELS}
+          onLogout={logout}
+          isMobile={isMobile}
+          onHamburger={() => setMobileOpen(v => !v)}
+        />
 
         {/* ── Contenido del módulo activo ─────────── */}
         <div
@@ -154,7 +116,11 @@ function FINSYSShell() {
           id="shell-content"
         >
           {view === 'home' && (
-            <HomeDashboard user={user} onNavigate={setView} />
+            <HomeDashboard user={user} onNavigate={setView} enabledIds={enabledIds} />
+          )}
+
+          {view === 'module-settings' && (
+            <ModuleSettingsPanel onFlagsChanged={loadFlags} />
           )}
 
           <Suspense fallback={
@@ -167,33 +133,30 @@ function FINSYSShell() {
               ▓ CARGANDO MÓDULO...
             </div>
           }>
-            {view === 'contabilidad' && (
-              <div style={{ minHeight: '100%', width: '100%' }}>
-                <App />
-              </div>
-            )}
-
-            {view === 'rrhh' && (
-              <div style={{ height: '100%', position: 'relative', overflow: 'hidden' }}>
-                <ProjectHubApp
-                  onExit={() => setView('home')}
-                  embeddedMode
-                />
-              </div>
-            )}
-
-            {view === 'tower' && (
-              <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                <ControlTowerApp
-                  onGoBack={() => setView('home')}
-                  embeddedMode
-                />
-              </div>
-            )}
+            {renderableModules.map(mod => {
+              if (view !== mod.id) return null;
+              const Comp = mod.component;
+              const props = { user };
+              // Resolver callbacks especiales del registry
+              if (mod.extraProps) {
+                Object.entries(mod.extraProps).forEach(([k, v]) => {
+                  props[k] = v === '__SET_HOME__' ? () => setView('home') : v;
+                });
+              }
+              return (
+                <div style={mod.wrapStyle || {}} key={mod.id}>
+                  <ErrorBoundary module={mod.label}>
+                    <Comp {...props} />
+                  </ErrorBoundary>
+                </div>
+              );
+            })}
           </Suspense>
         </div>
       </div>
     </div>
+    </NotificationProvider>
+    </UserProvider>
   );
 }
 

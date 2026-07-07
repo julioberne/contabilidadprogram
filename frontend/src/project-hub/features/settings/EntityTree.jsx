@@ -3,8 +3,9 @@
    FASE 5: Permite agregar/eliminar nodos en cualquier nivel
    ============================================================ */
 import { useState, useEffect } from 'react';
+import { API_HUB } from '../../../config';
 
-const API = 'http://localhost:8000/api/hub';
+const API = API_HUB;
 
 function TreeNode({ node, allNodes, depth = 0, onDelete, onAdd, expandedIds, toggleExpand }) {
   const children = allNodes.filter(n => n.parent_id === node.id);

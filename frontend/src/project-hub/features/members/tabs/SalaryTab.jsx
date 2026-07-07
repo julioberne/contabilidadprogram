@@ -14,6 +14,7 @@
    ============================================================ */
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../../lib/supabaseClient';
+import { API_HR as API_HR_BASE } from '../../../../config';
 
 // ── Constantes Colombia 2025 ──────────────────────────────────────────────────
 const SMLV_2025    = 1_423_500;
@@ -114,7 +115,7 @@ function calcLiquidacion(f) {
 // ── Componente principal ──────────────────────────────────────────────────────
 export default function SalaryTab({ member, workspace, currentUser }) {
   const canEdit = currentUser?.role === 'owner' || currentUser?.role === 'admin' || currentUser?.is_superuser;
-  const API_HR  = 'http://localhost:8000/api/hr';
+  const API_HR  = API_HR_BASE;
   const SB_URL  = 'https://sciorfjvdqxvcwgvnmbv.supabase.co';
 
   const [mode,   setMode]   = useState('nomina');

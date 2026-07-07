@@ -10,126 +10,149 @@
 ### 1. Arquitectura Desacoplada en 3 Capas
 **Decisión**: Separar estrictamente lógica de negocio, API y UI.
 - `fin_sys_core/` → Python puro. Sin imports de FastAPI ni de red.
-- `server.py` → Solo enruta y valida con Pydantic. Cero lógica de negocio.
+- `routers/*.py` → Endpoints agrupados por dominio con APIRouter. Cero lógica de negocio.
+- `server.py` → Solo bootstrap: CORS, include_router(), lifespan. **103 líneas.**
 - `frontend/src/` → Solo visualiza. Cero cálculos financieros.
 
 **Por qué**: Permite testear el núcleo matemático sin levantar servidores. Facilita el reemplazo de la UI o la API sin tocar la lógica.
 
-### 2. Zero-Impact Policy para Módulos Nuevos
+### 2. Backend: APIRouter por Dominio (Strangler Fig Pattern)
+**Decisión**: Migrar endpoints de server.py monolítico a `routers/` con FastAPI APIRouter.
+```
+server.py (103 ln) → solo bootstrap
+routers/contabilidad.py   (28 ep)
+routers/control_tower.py  (16 ep)
+routers/hub.py             (15 ep)
+routers/hr.py              (16 ep)
+routers/cartera.py         (8 ep)
+routers/zero_coa.py        (4 ep)
+routers/org.py             (5 ep)
+routers/inventory.py       (7 ep)
+shared/helpers.py          → emit_journal_entry, resolve_bank_code
+```
+**Por qué**: Cada desarrollador trabaja en su dominio sin conflictos de merge. URLs idénticas → cero impacto frontend. Swagger auto-agrupa por tags.
+
+### 3. Frontend: Module Registry (SSOT)
+**Decisión**: Un solo archivo `registry/moduleRegistry.js` define TODOS los módulos del ERP.
+- Sidebar, HomeDashboard y main.jsx **consumen** del registry
+- Agregar módulo nuevo = **1 entrada** en el registry (antes eran 3 archivos)
+- Cada módulo define: id, label, icon, group, accent, active, order, component (lazy), wrapStyle, extraProps
+
+**Por qué**: Elimina triplicación de metadata. Patrón usado por SAP Fiori (manifest.json), Odoo (__manifest__.py), ERPNext (hooks.py).
+
+### 4. Frontend: Custom Hooks para Estado de Negocio
+**Decisión**: Extraer lógica de estado de App.jsx a hooks reutilizables en `hooks/`.
+```
+hooks/useTransactionForm.js   40+ estados  ← formulario completo + handleRegister
+hooks/useVoiceRecorder.js     5 + 3 refs   ← grabación → transcripción → IA
+hooks/useAccounts.js          9 estados    ← CRUD cuentas financieras
+hooks/useProfile.js           6 estados    ← perfil de usuario
+hooks/useCalculator.js        5 estados    ← calculadora inline
+```
+
+**Patrón fetchDataRef** (dependencia circular):
+```javascript
+// Problema: hooks necesitan fetchData, pero fetchData usa setters de los hooks
+// Solución: ref estable que siempre apunta al closure más reciente
+const fetchDataRef = useRef(null);
+const stableFetchData = useRef((...args) => fetchDataRef.current?.(...args)).current;
+// hooks reciben stableFetchData
+fetchDataRef.current = fetchData; // se asigna después de definir fetchData
+```
+
+**Por qué**: App.jsx pasa de 2,514 → 1,884 líneas (−25%). Los hooks son testables independientemente. Patrón usado por Netflix (micro-hooks), Uber (domain hooks), Airbnb (custom hooks).
+
+### 5. Zero-Impact Policy para Módulos Nuevos
 **Decisión**: Cada módulo nuevo vive en archivos/carpetas nuevas.
-- Nuevos endpoints → bloque separado al final de `server.py`
-- Nueva UI → nueva carpeta en `frontend/src/` (ej: `control-tower/`, `trading/`)
-- Nuevas tablas BD → CREATE TABLE nuevas, nunca ALTER TABLE en tablas existentes
-- Nuevo driver → nuevo archivo en `fin_sys_core/` (ej: `control_tower_driver.py`)
+- Nuevo módulo → 1 entrada en `registry/moduleRegistry.js`
+- Nuevos endpoints → nuevo router en `routers/`
+- Nuevo driver → nuevo archivo en `fin_sys_core/`
+- Nuevas tablas BD → CREATE TABLE nuevas, nunca ALTER TABLE
 
 **Por qué**: Elimina el riesgo de regresiones en módulos ya funcionales.
 
-### 3. Bandeja de Borradores para IA
+### 6. Bandeja de Borradores para IA
 **Decisión**: La IA nunca escribe directamente al libro contable oficial.
 - Voz → JSON → estado `BORRADOR` → revisión humana → `COMPLETO`
-- Los borradores se muestran en ámbar con indicadores de campos faltantes
 
 **Por qué**: El error de IA tiene impacto cero en datos contables reales.
 
-### 4. Árbol Recursivo con CTE para Control Tower
-**Decisión**: La tabla `entities` usa auto-referencia (`parent_id`) y los KPIs se calculan con CTE recursivo.
-- Un solo query consolida toda la jerarquía descendiente de una entidad
-- El árbol puede crecer hasta N niveles sin cambiar el schema
+### 7. Árbol Recursivo con CTE para Control Tower
+**Decisión**: La tabla `entities` usa auto-referencia (`parent_id`) y CTE recursivo.
 
 **Por qué**: Flexibilidad máxima sin complejidad adicional en el frontend.
 
-### 5. IDs de Cuentas Fijos (1–7)
-**Decisión**: Los IDs de `user_accounts` en Supabase son fijos y el frontend los conoce.
-- Al reiniciar la BD, se usa `RESTART IDENTITY CASCADE` + re-seed con IDs explícitos
-- La secuencia se fija con `SELECT setval('user_accounts_id_seq', 7)`
+### 8. Lazy Loading por Módulo (Code Splitting)
+**Decisión**: Los módulos pesados (App.jsx, ControlTowerApp, ProjectHubApp) se cargan con `lazy(() => import(...))` definido en el Module Registry.
 
-**Por qué**: Evita el problema de FK mismatch cuando se reinicia la BD en desarrollo.
+**Por qué**: Reducción de bundle inicial. Solo se carga el módulo activo.
 
 ---
 
 ## Patrones de Código
 
-### Backend (FastAPI)
+### Backend (FastAPI + APIRouter)
 ```python
-# Patrón: función en fin_sys_core/ → llamada limpia desde server.py
-# NO hacer esto en server.py:
-result = psycopg2.connect(...).execute(...)  # ❌
+# routers/contabilidad.py
+from fastapi import APIRouter
+router = APIRouter(tags=["Contabilidad"])
 
-# SÍ hacer esto:
-from fin_sys_core.database_driver import registrar_transaccion
-result = registrar_transaccion(tx_data)  # ✅
+@router.post("/api/transactions")
+async def create_transaction(tx: TransactionCreate):
+    from fin_sys_core.database_driver import registrar_transaccion
+    result = registrar_transaccion(tx.dict())
+    return result
 ```
 
-### Frontend (React)
+### Frontend (React + Custom Hooks)
 ```jsx
-// Patrón: estado local por componente, fetch con useEffect
-// No usar Context API ni Redux — el proyecto no lo requiere aún
+// App.jsx — orquestación con hooks
+const { amount, setAmount, handleRegister } = useTransactionForm({
+  activePortfolio, accounts, fetchData: stableFetchData, setDrafts
+});
 
-// Patrón: edición inline con doble clic
-onDoubleClick={() => setEditingCell({row: id, col: field})}
-onKeyDown={(e) => e.key === 'Enter' && guardarEdicion()}
+const { isRecording, startRecording, stopRecording } = useVoiceRecorder({
+  activePortfolio, setDrafts
+});
 ```
 
-### Control Tower (Módulo 07)
+### Module Registry
+```javascript
+// Agregar módulo = 1 entrada:
+{ id: 'bot', label: 'Bot IA', icon: '◉', group: 'OPERACIONES',
+  accent: 'green', active: true, order: 11,
+  component: lazy(() => import('../bot/BotApp.jsx')),
+  wrapStyle: { minHeight: '100%', width: '100%' } },
+```
+
+---
+
+### 9. Error Boundaries por Módulo
+**Decisión**: Cada módulo lazy-loaded se envuelve en un `<ErrorBoundary>`.
 ```jsx
-// Patrón: estado global del CT en un solo hook
-const { session, entities, kpis, approvals } = useControlTower();
-// No mezclar estado del CT con estado de App.jsx
+// main.jsx — cada módulo aislado
+<ErrorBoundary module={mod.label}>
+  <Comp {...props} />
+</ErrorBoundary>
 ```
+- Si un módulo crashea, solo ESE módulo muestra el fallback
+- El Shell, Sidebar y GlobalHeader siguen intactos
+- Botón "Reintentar" resetea el error sin recargar la página
+- Stack trace visible en `<details>` colapsable (para debugging)
 
-### RRHH / Empresas (Módulo 08c)
+**Por qué**: Patrón estándar en SAP Fiori, Netflix, Uber. Evita que un bug en un módulo tumbe toda la aplicación.
 
-#### Patrón: Almacenamiento de Documentos HTML (resuelto 18 Jun 2026)
-
-| | |
-|---|---|
-| **Problema** | Supabase Storage bucket `hr-docs` bloquea `text/html` Y `application/octet-stream` — el upload devuelve 415 Unsupported Media Type |
-| **Solución** | Guardar el HTML codificado como data URL base64 directamente en la columna `hr_documents.file_url` (no usar Storage) |
-| **Lección** | Siempre verificar las restricciones MIME del bucket antes de implementar un flujo de upload |
-
-**Flujo Completo**:
+### 10. Tests Frontend con Vitest
+**Decisión**: Tests automáticos para hooks con Vitest + React Testing Library.
+```bash
+npm test          # 22 tests, 3 archivos (hooks)
+npm run test:watch  # Modo watch (re-corre al guardar)
 ```
-Generación (HistorialTab):   HTML string
-  → btoa(unescape(encodeURIComponent(html)))
-  → 'data:text/html;base64,' + b64
-  → POST /api/hr/documents (file_url = data URL)
-  → PUT /api/hr/payments/{user}/{rec}/voucher?doc_id={id}
+- Tests en `hooks/__tests__/*.test.js`
+- Config en `vite.config.js` → `test: { environment: 'jsdom' }`
+- Setup en `src/test-setup.js` (jest-dom matchers)
 
-Preview (DocumentsTab):       file_url detectado como data: URL
-  → b64 = url.split(',')[1]
-  → html = atob(b64)
-  → Renderizar sin fetch() (iframe srcDoc o dangerouslySetInnerHTML)
-
-Descarga (downloadFile):      b64 → Uint8Array
-  → new Blob([bytes], { type: 'text/html' })
-  → URL.createObjectURL(blob) → <a> temporal .click()
-```
-
-```jsx
-// Patrón: comprobante vía data URL (Supabase Storage bloquea text/html)
-// 1. Generar HTML → btoa() → data:text/html;base64,...
-// 2. Guardar string en hr_documents.file_url (no usar Storage bucket)
-// 3. Vincular comprobante: PUT /api/hr/payments/{user}/{rec}/voucher?doc_id={id}
-
-// HtmlPreview: detecta data: URL y decodifica sin fetch
-function HtmlPreview({ url }) {
-  if (url.startsWith('data:')) {
-    const b64 = url.split(',')[1];
-    const html = atob(b64);
-    // Renderizar con dangerouslySetInnerHTML o iframe srcDoc
-  }
-}
-
-// downloadFile: maneja data: URLs con Uint8Array
-function downloadFile(url, filename) {
-  if (url.startsWith('data:')) {
-    const b64 = url.split(',')[1];
-    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-    const blob = new Blob([bytes], { type: 'text/html' });
-    // Crear <a> temporal con blob URL y click
-  }
-}
-```
+**Por qué**: Detecta regresiones inmediatamente al modificar hooks. Vitest es nativo de Vite (zero config extra).
 
 ---
 
@@ -139,17 +162,52 @@ function downloadFile(url, filename) {
 |---|---|---|
 | Archivos Python | snake_case | `tax_motor.py`, `database_driver.py` |
 | Archivos React | PascalCase | `ControlTowerApp.jsx`, `CTKpiCards.jsx` |
+| Hooks React | camelCase con `use` | `useTransactionForm.js` |
+| Tests React | `*.test.js` en `__tests__/` | `hooks/__tests__/useCalculator.test.js` |
+| Routers FastAPI | snake_case | `routers/control_tower.py` |
 | Endpoints API | kebab-case | `/api/ct/quick-transaction` |
 | Tablas BD | snake_case | `workspace_users`, `entity_members` |
 | Variables JS | camelCase | `portfolioName`, `entityId` |
-| Constantes | UPPER_SNAKE | `IS_POSTGRES_ACTIVE`, `GROQ_API_KEY` |
+| Constantes | UPPER_SNAKE | `IS_POSTGRES_ACTIVE`, `API_BASE_URL` |
 
 ---
 
 ## Restricciones Conocidas (No Cambiar Sin Discusión)
 
-1. **No usar React Router** — navegación manual en `main.jsx` es intencional (evita complejidad innecesaria)
-2. **No usar ORM** — `psycopg2` directo es suficiente y más predecible para contabilidad
-3. **No usar Redux / Zustand** — estado local es suficiente por ahora; CT usa hook propio
-4. **No floating point en contabilidad** — todos los cálculos usan `DECIMAL(15,2)` en BD y Python native float solo para visualización
-5. **No JWT en demo** — `workspace_users` usa MD5 (DT-04) y `hub_users` usa SHA-256 (DT-05) para demo local; migrar a bcrypt+JWT antes de producción
+1. **No usar React Router** — navegación manual con Module Registry es intencional
+2. **No usar ORM** — `psycopg2` directo es más predecible para contabilidad
+3. **No usar Redux / Zustand** — custom hooks + estado local es suficiente
+4. **No floating point en contabilidad** — `DECIMAL(15,2)` en BD
+5. **No JWT en demo** — migrar a bcrypt+JWT antes de producción
+
+---
+
+## Scope Map — Contexto por Módulo (para el agente IA)
+
+> **Regla**: Cuando el usuario mencione un módulo, el agente IA debe leer SOLO los archivos listados.
+> Esto reduce el contexto de ~25,000 líneas a ~300-800 líneas por tarea.
+
+| Cuando el usuario dice... | Lee SOLO estos archivos | NO toques |
+|---|---|---|
+| "Formulario" / "TransactionForm" | `components/TransactionForm.jsx`, `hooks/useTransactionForm.js` | App.jsx, ContextPanel |
+| "Cartera" / "CXC" / "CXP" | `components/tabs/CarteraTab.jsx`, `routers/cartera.py` | App.jsx |
+| "Libro Diario" / "tabla transacciones" | `components/LibroDiario.jsx` | TransactionForm |
+| "Inventario" | `components/inventory/*.jsx`, `routers/inventory.py` | ContextPanel |
+| "Panel derecho" / "ContextPanel" | `components/ContextPanel.jsx` + `components/tabs/*.jsx` | App.jsx |
+| "Control Tower" | `control-tower/*.jsx`, `hooks/useControlTower.js`, `routers/control_tower.py` | Todo lo demás |
+| "RRHH" / "Hub" / "Miembros" | `project-hub/**`, `routers/hub.py`, `routers/hr.py` | Todo lo demás |
+| "Documentos" / "archivos" | `project-hub/features/members/tabs/docs/*` | Todo lo demás |
+| "Impuestos" / "IVA" | `components/tabs/ImpuestosTab.jsx`, `fin_sys_core/tax_motor.py` | App.jsx |
+| "Terceros" | `components/tabs/TercerosTab.jsx` | App.jsx |
+| "Evidencia" / "comprobante" | `components/EvidenceModal.jsx` | App.jsx |
+| "Voz" / "IA" / "Whisper" | `components/VoiceIngestWidget.jsx`, `hooks/useVoiceRecorder.js`, `fin_sys_core/ai_engine.py` | Todo lo demás |
+| "COA" / "PUC" / "cuentas contables" | `components/CoaSelector.jsx`, `hooks/useCoaData.js`, `kernel/`, `routers/coa.py` | App.jsx |
+| "Feature Flags" / "Módulos" | `shell/ModuleSettingsPanel.jsx`, `registry/moduleRegistry.js`, `routers/module_flags.py` | Todo lo demás |
+| "Shell" / "Sidebar" / "Home" | `shell/*.jsx`, `registry/moduleRegistry.js` | Módulos internos |
+| \"Backend contabilidad\" | `routers/transactions.py`, `routers/portfolios.py`, `routers/schemas.py` | Otros routers |
+| \"Dashboard\" / \"KPIs\" | `shell/HomeDashboard.jsx`, `components/DashboardPanel.jsx`, `routers/dashboard_data.py` | App.jsx |
+
+### Regla de Archivo Máximo
+- **Ningún archivo nuevo debe superar 400 líneas.** Si crece más, dividir de inmediato.
+- **1 componente React = 1 archivo .jsx** (para que Vite HMR funcione por módulo).
+- **Hooks en archivos .js separados** (no inline en componentes).

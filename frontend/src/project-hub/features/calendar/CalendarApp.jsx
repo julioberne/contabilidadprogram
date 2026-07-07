@@ -9,11 +9,12 @@ import moment from 'moment';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import './calendar-overrides.css';
 import EventModal from './EventModal';
+import { API_HUB } from '../../../config';
 
 moment.locale('es');
 const localizer = momentLocalizer(moment);
 
-const API = 'http://localhost:8000/api/hub';
+const API = API_HUB;
 
 const VIEW_LABELS = {
   [Views.MONTH]:  'MES',

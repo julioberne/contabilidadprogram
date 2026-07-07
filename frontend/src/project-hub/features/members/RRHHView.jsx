@@ -9,8 +9,9 @@
    ============================================================ */
 import { useState, useEffect, useCallback } from 'react';
 import CompanyMapTab from './CompanyMapTab';
+import { API_HUB } from '../../../config';
 
-const API = 'http://localhost:8000/api/hub';
+const API = API_HUB;
 const FF  = '"IBM Plex Mono", monospace';
 const C   = { bg: '#0a0a0a', border: '#1e1e1e', text: '#e2e8f0', dim: '#64748b', accent: '#0EA5E9' };
 

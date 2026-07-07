@@ -1,4 +1,4 @@
-﻿/* ============================================================
+/* ============================================================
    DocumentsTab.jsx — HR Drive v2 (fixes + UX mejorada)
    ============================================================
    FIX 1: URLs usan /storage/v1/object/public/hr-docs/
@@ -9,67 +9,21 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../../../lib/supabaseClient';
 
-const API    = 'http://localhost:8000/api/hr';
-const MAX_MB = 50;
-const MAX_B  = MAX_MB * 1024 * 1024;
-const SB_URL = 'https://sciorfjvdqxvcwgvnmbv.supabase.co';
-
-// Genera URL pública correcta (bucket público)
-const publicUrl = (path) => `${SB_URL}/storage/v1/object/public/hr-docs/${path}`;
-
-// Descarga forzada via blob (evita el 404 de open-in-tab en Supabase)
-const downloadFile = async (url, fileName) => {
-  try {
-    let blobUrl;
-    if (url?.startsWith('data:')) {
-      const comma = url.indexOf(',');
-      const b64   = url.slice(comma + 1);
-      const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-      const blob  = new Blob([bytes], { type: 'text/html' });
-      blobUrl = URL.createObjectURL(blob);
-    } else {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('No se pudo descargar el archivo');
-      const blob = await res.blob();
-      blobUrl = URL.createObjectURL(blob);
-    }
-    const a    = document.createElement('a');
-    a.href     = blobUrl;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => { URL.revokeObjectURL(blobUrl); a.remove(); }, 1000);
-  } catch (e) {
-    window.open(url, '_blank');
-  }
-};
-
-// Categorías por defecto (usadas como fallback si no hay BD)
-const DEFAULT_CATEGORIES = [
-  { id: 'contrato',     label: 'Contrato laboral',    color: '#0EA5E9' },
-  { id: 'cedula',       label: 'Cédula / ID',          color: '#10B981' },
-  { id: 'hoja_vida',    label: 'Hoja de vida',         color: '#8B5CF6' },
-  { id: 'fotos',        label: 'Fotos',                color: '#F59E0B' },
-  { id: 'clinico',      label: 'Historial clínico',    color: '#EF4444' },
-  { id: 'certificados', label: 'Certificados',         color: '#06B6D4' },
-  { id: 'nomina',       label: 'Desprendibles nómina', color: '#84CC16' },
-  { id: 'financiero',   label: 'Info financiera',      color: '#F97316' },
-  { id: 'paz_salvo',    label: 'Paz y salvos',         color: '#EC4899' },
-  { id: 'cartas',       label: 'Cartas / Notas',       color: '#A78BFA' },
-  { id: 'general',      label: 'General',              color: '#64748b' },
-];
-const FOLDER_COLORS = ['#0EA5E9','#10B981','#F59E0B','#EF4444','#8B5CF6','#F97316','#06B6D4','#64748b'];
-const FILE_ICONS  = { 'application/pdf':'📄', 'image/jpeg':'🖼','image/jpg':'🖼','image/png':'🖼', 'application/vnd.ms-excel':'📊', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':'📊', 'text/html':'📄', 'application/octet-stream':'📄', 'application/msword':'📝', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':'📝' };
-const FILE_EXT    = { 'application/pdf':'PDF','image/jpeg':'JPG','image/jpg':'JPG','image/png':'PNG','application/vnd.ms-excel':'XLS','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':'XLSX','text/html':'HTML','application/octet-stream':'FILE','application/msword':'DOC','application/vnd.openxmlformats-officedocument.wordprocessingml.document':'DOCX' };
-
-// Estas funciones usan el array dinámico de categorías (reciben el array como parámetro)
-const catLabelFrom = (cats, id) => cats.find(c => c.id === id)?.label || id;
-const catColorFrom = (cats, id) => cats.find(c => c.id === id)?.color || '#64748b';
-// Compatibilidad hacia atrás con funciones sin parámetro (usan DEFAULT)
-const catLabel = id => DEFAULT_CATEGORIES.find(c => c.id === id)?.label || id;
-const catColor = id => DEFAULT_CATEGORIES.find(c => c.id === id)?.color || '#64748b';
-const fmtSize  = b => !b ? '—' : b < 1048576 ? `${(b/1024).toFixed(0)} KB` : `${(b/1048576).toFixed(1)} MB`;
-const fmtDate  = s => s ? new Date(s).toLocaleDateString('es-CO',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+// ── Extracted modules ──────────────────────────────────────────────────────────
+import {
+  API, MAX_MB, MAX_B,
+  publicUrl, downloadFile,
+  DEFAULT_CATEGORIES, FOLDER_COLORS, FILE_ICONS, FILE_EXT,
+  catLabelFrom, catColorFrom,
+  fmtSize, fmtDate,
+} from './docs/constants';
+import { C, FF, S, M, FC, FR } from './docs/styles';
+import { FolderCard, NewFolderCard } from './docs/FolderCard';
+import { FileCard, FileRow } from './docs/FileCard';
+import HtmlPreview from './docs/HtmlPreview';
+import UploadModal from './docs/UploadModal';
+import PreviewModal from './docs/PreviewModal';
+import CategoryConfigModal from './docs/CategoryConfigModal';
 
 // ── Componente principal ───────────────────────────────────────────────────────
 export default function DocumentsTab({ member, workspace, currentUser }) {
@@ -79,7 +33,6 @@ export default function DocumentsTab({ member, workspace, currentUser }) {
   // CATEGORÍAS DINÁMICAS
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
   const [showCatConfig, setShowCatConfig] = useState(false);
-  const [editingCat,    setEditingCat]    = useState(null); // {id, name, color, sort_order, isNew}
   const catLabel = id => categories.find(c => c.id === id)?.label || catLabelFrom(DEFAULT_CATEGORIES, id);
   const catColor = id => categories.find(c => c.id === id)?.color || catColorFrom(DEFAULT_CATEGORIES, id);
 
@@ -423,68 +376,22 @@ export default function DocumentsTab({ member, workspace, currentUser }) {
           {/* Grid o lista */}
           {docsHere.length > 0 && (
             viewMode === 'grid'
-              ? <div style={S.fileGrid}>{docsHere.map(d => <FileCard key={d.id} doc={d} canEdit={canEdit} onPreview={() => setPreview(d)} onDelete={() => handleDelete(d)} />)}</div>
-              : <div style={S.fileList}>{docsHere.map(d => <FileRow  key={d.id} doc={d} canEdit={canEdit} onPreview={() => setPreview(d)} onDelete={() => handleDelete(d)} />)}</div>
+              ? <div style={S.fileGrid}>{docsHere.map(d => <FileCard key={d.id} doc={d} canEdit={canEdit} catLabelFn={catLabel} catColorFn={catColor} onPreview={() => setPreview(d)} onDelete={() => handleDelete(d)} />)}</div>
+              : <div style={S.fileList}>{docsHere.map(d => <FileRow  key={d.id} doc={d} canEdit={canEdit} catLabelFn={catLabel} catColorFn={catColor} onPreview={() => setPreview(d)} onDelete={() => handleDelete(d)} />)}</div>
           )}
         </div>
       </div>
 
       {/* ══ MODAL UPLOAD ═════════════════════════════════════════ */}
       {showUpload && (
-        <div style={M.overlay}>
-          <div style={M.box}>
-            <div style={M.hdr}>
-              <span style={M.htitle}>↑ SUBIR {pendingFiles.length} ARCHIVO{pendingFiles.length!==1?'S':''}</span>
-              {!uploading && <button style={M.xbtn} onClick={() => { setShowUpload(false); setPendingFiles([]); }}>✕</button>}
-            </div>
-            <div style={{ padding:'0 0 4px', maxHeight:'120px', overflowY:'auto' }}>
-              {pendingFiles.map((f,i) => (
-                <div key={i} style={M.fileRow}>
-                  <span style={{ fontSize:'16px' }}>{FILE_ICONS[f.type]||'📄'}</span>
-                  <span style={M.fname}>{f.name}</span>
-                  <span style={M.fsize}>{fmtSize(f.size)}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Categoría — prominente */}
-            <div style={M.field}>
-              <label style={M.flabel}>◈ CATEGORÍA DEL DOCUMENTO</label>
-              <div style={M.catGrid}>
-                {categories.map(c => (
-                  <button key={c.id}
-                    style={{ ...M.catPill, ...(uploadCat===c.id ? { background:`${c.color}33`, borderColor:c.color, color:c.color } : {}) }}
-                    onClick={() => setUploadCat(c.id)}>
-                    <span style={{ width:'6px', height:'6px', background:c.color, display:'inline-block', flexShrink:0 }} />
-                    {c.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Carpeta destino */}
-            <div style={M.field}>
-              <label style={M.flabel}>◉ CARPETA DESTINO</label>
-              <select style={M.sel} value={uploadFolder||''} onChange={e => setUploadFolder(e.target.value||null)}>
-                <option value="">◈ Raíz (sin carpeta)</option>
-                {allFolders.map(f => <option key={f.id} value={f.id}>{f.parent_id ? '  └─ ' : '▣ '}{f.name}</option>)}
-              </select>
-            </div>
-
-            {uploadError && <div style={M.err}>{uploadError}</div>}
-            {uploading && (
-              <div style={{ margin:'0 16px 12px', height:'3px', background:'#1a1a1a', position:'relative' }}>
-                <div style={{ height:'100%', background:C.accent, width:`${uploadPct}%`, transition:'width .3s' }} />
-              </div>
-            )}
-            <div style={M.foot}>
-              {!uploading && <button style={M.btnCancel} onClick={() => { setShowUpload(false); setPendingFiles([]); }}>Cancelar</button>}
-              <button style={M.btnOk} onClick={handleUpload} disabled={uploading}>
-                {uploading ? `${uploadPct}% subiendo...` : `↑ CONFIRMAR SUBIDA`}
-              </button>
-            </div>
-          </div>
-        </div>
+        <UploadModal
+          pendingFiles={pendingFiles} uploading={uploading} uploadPct={uploadPct} uploadError={uploadError}
+          uploadCat={uploadCat} setUploadCat={setUploadCat}
+          uploadFolder={uploadFolder} setUploadFolder={setUploadFolder}
+          allFolders={allFolders} categories={categories}
+          onUpload={handleUpload}
+          onClose={() => { setShowUpload(false); setPendingFiles([]); }}
+        />
       )}
 
       {/* ══ MODAL EDITAR CARPETA ═══════════════════════════════════ */}
@@ -527,405 +434,23 @@ export default function DocumentsTab({ member, workspace, currentUser }) {
 
       {/* ══ MODAL PREVIEW ══════════════════════════════════════════ */}
       {preview && (
-        <div style={M.overlay} onClick={() => setPreview(null)}>
-          <div style={{ ...M.box, maxWidth:'960px', maxHeight:'92vh', overflow:'hidden' }} onClick={e => e.stopPropagation()}>
-            <div style={M.hdr}>
-              <div style={{ display:'flex', flexDirection:'column', gap:'2px', overflow:'hidden', flex:1 }}>
-                <span style={M.htitle}>{preview.file_name}</span>
-                <span style={{ color: catColor(preview.category), fontSize:'10px', fontFamily:FF }}>◈ {catLabel(preview.category)} · {fmtSize(preview.file_size)}</span>
-              </div>
-              <div style={{ display:'flex', gap:'6px', flexShrink:0 }}>
-                <button
-                  style={{ ...M.btnOk, padding:'6px 14px', fontSize:'12px', cursor:'pointer' }}
-                  onClick={() => downloadFile(preview.file_url, preview.file_name)}
-                >↓ Descargar</button>
-                <button style={M.xbtn} onClick={() => setPreview(null)}>✕</button>
-              </div>
-            </div>
-            <div style={{ flex:1, overflow:'auto', display:'flex', alignItems:'center', justifyContent:'center', minHeight:'300px', padding:'16px' }}>
-              {preview.mime_type?.startsWith('image/') ? (
-                <img src={preview.file_url} alt={preview.file_name}
-                  style={{ maxWidth:'100%', maxHeight:'75vh', objectFit:'contain' }} />
-              ) : preview.mime_type === 'application/pdf' ? (
-                <iframe src={preview.file_url} style={{ width:'100%', height:'75vh', border:'none' }} title={preview.file_name} />
-              ) : (preview.mime_type === 'text/html' || preview.mime_type === 'application/octet-stream') ? (
-                <HtmlPreview url={preview.file_url} fileName={preview.file_name} onDownload={downloadFile} />
-              ) : (
-                <div style={{ textAlign:'center' }}>
-                  <div style={{ fontSize:'56px', marginBottom:'16px' }}>📄</div>
-                  <div style={{ color:'#94a3b8', fontFamily:FF, fontSize:'13px', marginBottom:'20px' }}>Vista previa no disponible para este tipo</div>
-                  <button onClick={() => downloadFile(preview.file_url, preview.file_name)}
-                    style={{ ...M.btnOk, border:'none', cursor:'pointer', padding:'10px 24px' }}>↓ DESCARGAR</button>
-                </div>
-              )}
-
-            </div>
-          </div>
-        </div>
+        <PreviewModal
+          preview={preview}
+          catLabel={catLabel}
+          catColor={catColor}
+          onClose={() => setPreview(null)}
+        />
       )}
 
       {/* ══ MODAL CONFIGURAR CATEGORÍAS ═════════════════════════ */}
       {showCatConfig && (
-        <div style={M.overlay}>
-          <div style={{ ...M.box, maxWidth:'520px' }}>
-            <div style={M.hdr}>
-              <span style={M.htitle}>⚙️ CONFIGURAR CATEGORÍAS</span>
-              <button style={M.xbtn} onClick={() => { setShowCatConfig(false); setEditingCat(null); }}>✕</button>
-            </div>
-            <div style={{ overflowY:'auto', maxHeight:'50vh' }}>
-              {categories.map(cat => (
-                <div key={cat.id} style={{ display:'flex', alignItems:'center', gap:'8px', padding:'8px 16px', borderBottom:'1px solid #111' }}>
-                  <span style={{ width:'10px', height:'10px', background:cat.color, flexShrink:0, display:'inline-block' }} />
-                  {editingCat?.id === cat.id ? (
-                    <>
-                      <input style={{ ...M.inp, flex:1, padding:'4px 6px', fontSize:'11px' }}
-                        value={editingCat.name}
-                        onChange={e => setEditingCat(c => ({ ...c, name: e.target.value }))}
-                        onKeyDown={e => e.key==='Enter' && handleSaveCat()} />
-                      <div style={{ display:'flex', gap:'4px' }}>
-                        {FOLDER_COLORS.map(col => (
-                          <button key={col} onClick={() => setEditingCat(c => ({ ...c, color: col }))}
-                            style={{ width:'16px', height:'16px', background:col, border: editingCat.color===col ? '2px solid #fff':'2px solid transparent', cursor:'pointer' }} />
-                        ))}
-                      </div>
-                      <button style={{ ...M.btnOk, padding:'4px 10px', fontSize:'10px' }} onClick={handleSaveCat}>✓</button>
-                      <button style={{ ...M.btnCancel, padding:'4px 8px', fontSize:'10px' }} onClick={() => setEditingCat(null)}>✕</button>
-                    </>
-                  ) : (
-                    <>
-                      <span style={{ flex:1, color:'#e2e8f0', fontSize:'12px', fontFamily:FF }}>{cat.label}</span>
-                      {!cat.is_default && (
-                        <span style={{ color:'#334155', fontSize:'9px', marginRight:'4px' }}>PERSONALIZADA</span>
-                      )}
-                      <button style={{ background:'transparent', border:'none', color:'#94a3b8', cursor:'pointer', fontSize:'12px', padding:'2px 6px' }}
-                        onClick={() => setEditingCat({ id: cat.id, name: cat.label, color: cat.color, sort_order: cat.sort_order || 99, isNew: false })}>✎</button>
-                      {!cat.is_default && (
-                        <button style={{ background:'transparent', border:'none', color:'#ef4444', cursor:'pointer', fontSize:'12px', padding:'2px 6px' }}
-                          onClick={() => handleDeleteCat(cat.id)}>✕</button>
-                      )}
-                    </>
-                  )}
-                </div>
-              ))}
-            </div>
-            <div style={{ ...M.field, borderTop:'1px solid #1a1a1a' }}>
-              <div style={{ color:C.dim, fontSize:'9px', letterSpacing:'2px', marginBottom:'6px' }}>+ NUEVA CATEGORÍA</div>
-              <div style={{ display:'flex', gap:'6px' }}>
-                <input style={{ ...M.inp, flex:1, padding:'6px 8px', fontSize:'11px' }} placeholder="Nombre..."
-                  value={editingCat?.isNew ? editingCat.name : ''}
-                  onFocus={() => !editingCat?.isNew && setEditingCat({ id: null, name:'', color:'#0EA5E9', sort_order:99, isNew:true })}
-                  onChange={e => setEditingCat(c => ({ ...c, name: e.target.value }))}
-                  onKeyDown={e => e.key==='Enter' && editingCat?.isNew && handleSaveCat()} />
-                {editingCat?.isNew && (
-                  <>
-                    <div style={{ display:'flex', gap:'3px', alignItems:'center' }}>
-                      {FOLDER_COLORS.map(col => (
-                        <button key={col} onClick={() => setEditingCat(c => ({ ...c, color: col }))}
-                          style={{ width:'16px', height:'16px', background:col, border: editingCat.color===col ? '2px solid #fff':'2px solid transparent', cursor:'pointer' }} />
-                      ))}
-                    </div>
-                    <button style={{ ...M.btnOk, padding:'6px 12px', fontSize:'10px' }} onClick={handleSaveCat}>+ CREAR</button>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-
-  // ── CRUD categorías ────────────────────────────────────────────────
-  async function handleSaveCat() {
-    if (!editingCat?.name?.trim()) return;
-    if (editingCat.isNew) {
-      await fetch(`${API}/categories/${workspace.id}`, {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ name: editingCat.name.trim(), color: editingCat.color, sort_order: editingCat.sort_order }),
-      });
-    } else {
-      await fetch(`${API}/categories/${workspace.id}/${editingCat.id}`, {
-        method:'PUT', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ name: editingCat.name.trim(), color: editingCat.color, sort_order: editingCat.sort_order }),
-      });
-    }
-    setEditingCat(null);
-    loadCategories();
-  }
-
-  async function handleDeleteCat(catId) {
-    if (!confirm('¿Eliminar esta categoría?')) return;
-    await fetch(`${API}/categories/${workspace.id}/${catId}`, { method:'DELETE' });
-    loadCategories();
-  }
-}
-
-// ── HtmlPreview ────────────────────────────────────────────────────────────────
-// Carga el HTML del comprobante y lo muestra en un iframe sandboxed
-function HtmlPreview({ url, fileName, onDownload }) {
-  const [srcdoc, setSrcdoc]   = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
-  const FF = '"IBM Plex Mono", monospace';
-
-  useEffect(() => {
-    setLoading(true); setError(null); setSrcdoc(null);
-
-    // Data URL (data:text/html;base64,...) — decodificar sin fetch
-    if (url?.startsWith('data:')) {
-      try {
-        const comma = url.indexOf(',');
-        const b64   = url.slice(comma + 1);
-        const decoded = decodeURIComponent(escape(atob(b64)));
-        setSrcdoc(decoded);
-        setLoading(false);
-      } catch (e) {
-        setError('No se pudo decodificar: ' + e.message);
-        setLoading(false);
-      }
-      return;
-    }
-
-    // URL normal — fetch
-    fetch(url)
-      .then(r => {
-        if (!r.ok) throw new Error(`Error ${r.status}: ${r.statusText}`);
-        return r.text();
-      })
-      .then(html => { setSrcdoc(html); setLoading(false); })
-      .catch(e  => { setError(e.message); setLoading(false); });
-  }, [url]);
-
-  if (loading) return (
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', width:'100%', height:'300px', color:'#64748b', fontFamily:FF, fontSize:'11px', gap:'8px' }}>
-      <span style={{ animation:'spin 1s linear infinite', display:'inline-block' }}>◈</span> Cargando comprobante...
-    </div>
-  );
-
-  if (error) return (
-    <div style={{ textAlign:'center' }}>
-      <div style={{ fontSize:'40px', marginBottom:'12px' }}>⚠</div>
-      <div style={{ color:'#94a3b8', fontFamily:FF, fontSize:'12px', marginBottom:'8px' }}>No se pudo cargar la vista previa</div>
-      <div style={{ color:'#475569', fontFamily:FF, fontSize:'10px', marginBottom:'16px' }}>{error}</div>
-      <button onClick={() => onDownload(url, fileName)}
-        style={{ background:'#0EA5E9', border:'none', color:'#fff', padding:'8px 20px', cursor:'pointer', fontFamily:FF, fontSize:'11px', letterSpacing:'1px' }}>
-        ↓ DESCARGAR COMPROBANTE
-      </button>
-    </div>
-  );
-
-  return (
-    <iframe
-      srcDoc={srcdoc}
-      sandbox="allow-same-origin"
-      style={{ width:'100%', height:'75vh', border:'none', background:'#fff' }}
-      title={fileName}
-    />
-  );
-}
-
-// ── FolderCard ─────────────────────────────────────────────────────────────────
-function FolderCard({ folder, docCount, canEdit, onOpen, onEdit, onDelete }) {
-  const [h, setH] = useState(false);
-  return (
-    <div style={{ ...FC.card, ...(h?FC.cardH:{}) }} onMouseEnter={()=>setH(true)} onMouseLeave={()=>setH(false)}>
-      <div style={FC.inner} onClick={onOpen}>
-        <span style={{ fontSize:'26px', color: folder.color||'#64748b', lineHeight:1, flexShrink:0 }}>▣</span>
-        <div style={{ flex:1, minWidth:0 }}>
-          <div style={FC.name}>{folder.name}</div>
-          <div style={FC.meta}>{docCount} archivo{docCount!==1?'s':''} · clic para entrar</div>
-        </div>
-      </div>
-      {canEdit && h && (
-        <div style={FC.acts}>
-          <button style={FC.actBtn} title="Editar carpeta" onClick={e=>{e.stopPropagation();onEdit();}}>✎</button>
-          <button style={{...FC.actBtn,color:'#ef4444'}} title="Eliminar carpeta" onClick={e=>{e.stopPropagation();onDelete();}}>✕</button>
-        </div>
+        <CategoryConfigModal
+          categories={categories}
+          workspaceId={workspace.id}
+          onClose={() => setShowCatConfig(false)}
+          onReload={loadCategories}
+        />
       )}
     </div>
   );
 }
-
-// ── NewFolderCard ──────────────────────────────────────────────────────────────
-function NewFolderCard({ value, onChange, onCreate, onCancel }) {
-  return (
-    <div style={{ ...FC.card, border:`1px dashed ${value.color}` }}>
-      <div style={{ padding:'10px', display:'flex', flexDirection:'column', gap:'8px' }}>
-        <input autoFocus style={FC.inp} placeholder="Nombre de la carpeta..."
-          value={value.name} onChange={e=>onChange({...value,name:e.target.value})}
-          onKeyDown={e=>{if(e.key==='Enter')onCreate();if(e.key==='Escape')onCancel();}} />
-        <div style={{display:'flex',gap:'5px',flexWrap:'wrap'}}>
-          {['#0EA5E9','#10B981','#F59E0B','#EF4444','#8B5CF6','#F97316','#64748b'].map(c=>(
-            <button key={c} style={{width:'18px',height:'18px',background:c,border:value.color===c?'2px solid #fff':'2px solid transparent',cursor:'pointer'}}
-              onClick={()=>onChange({...value,color:c})} />
-          ))}
-        </div>
-        <div style={{display:'flex',gap:'6px'}}>
-          <button style={FC.btnCreate} onClick={onCreate}>✓ Crear</button>
-          <button style={{...FC.btnCreate,background:'transparent',border:'1px solid #333',color:'#94a3b8'}} onClick={onCancel}>✕</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── FileCard (grid) ────────────────────────────────────────────────────────────
-function FileCard({ doc, canEdit, onPreview, onDelete }) {
-  const [h, setH] = useState(false);
-  const isImg     = doc.mime_type?.startsWith('image/');
-  const isVoucher = doc.mime_type === 'application/octet-stream' || doc.mime_type === 'text/html';
-  const cc = catColor(doc.category);
-  return (
-    <div style={{...FC.file,...(h?FC.fileH:{})}} onMouseEnter={()=>setH(true)} onMouseLeave={()=>setH(false)}>
-      <div style={FC.thumb} onClick={onPreview}>
-        {isImg ? (
-          <img src={doc.file_url} alt={doc.file_name}
-            style={{width:'100%',height:'100%',objectFit:'cover',cursor:'pointer'}}
-            onError={e => { e.target.style.display='none'; e.target.nextSibling.style.display='flex'; }}
-          />
-        ) : null}
-        <div style={{...FC.ico,...(isImg?{display:'none'}:{}),
-          ...(isVoucher ? { flexDirection:'column', gap:'4px' } : {})
-        }}>
-          {isVoucher ? (
-            <>
-              <span style={{ fontSize:'26px', lineHeight:1 }}>🧾</span>
-              <span style={{ fontSize:'8px', color:'#84CC16', letterSpacing:'1px', fontFamily:'"IBM Plex Mono",monospace' }}>COMPROBANTE</span>
-            </>
-          ) : FILE_ICONS[doc.mime_type] || '📄'}
-        </div>
-        <div style={FC.extTag}>{FILE_EXT[doc.mime_type]||'FILE'}</div>
-      </div>
-      <div style={FC.info}>
-        <div style={FC.fname} title={doc.file_name}>{doc.file_name}</div>
-        <div style={{...FC.ctag,background:`${cc}22`,color:cc}}>{catLabel(doc.category)}</div>
-        <div style={FC.fmeta}>{fmtSize(doc.file_size)} · {fmtDate(doc.created_at)}</div>
-      </div>
-      {h && (
-        <div style={FC.hover}>
-          <button style={FC.hBtn} onClick={onPreview} title="Ver">👁</button>
-          <button style={FC.hBtn} onClick={() => downloadFile(doc.file_url, doc.file_name)} title="Descargar">↓</button>
-          {canEdit && <button style={{...FC.hBtn,color:'#ef4444'}} onClick={onDelete} title="Eliminar">✕</button>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── FileRow (list) ─────────────────────────────────────────────────────────────
-function FileRow({ doc, canEdit, onPreview, onDelete }) {
-  const [h, setH] = useState(false);
-  const cc = catColor(doc.category);
-  const isVoucher = doc.mime_type === 'application/octet-stream' || doc.mime_type === 'text/html';
-  return (
-    <div style={{...FR.row,...(h?FR.rowH:{})}} onMouseEnter={()=>setH(true)} onMouseLeave={()=>setH(false)}>
-      <span style={{fontSize:'18px',flexShrink:0,width:'28px'}}>{isVoucher ? '🧾' : FILE_ICONS[doc.mime_type]||'📄'}</span>
-      <span style={FR.ext}>{FILE_EXT[doc.mime_type]||'FILE'}</span>
-      <span style={FR.name}>{doc.file_name}</span>
-      <span style={{...FR.cat,background:`${cc}22`,color:cc}}>{catLabel(doc.category)}</span>
-      <span style={FR.size}>{fmtSize(doc.file_size)}</span>
-      <span style={FR.date}>{fmtDate(doc.created_at)}</span>
-      <div style={FR.acts}>
-        <button style={FR.act} onClick={onPreview} title="Ver">👁</button>
-        <button style={FR.act} onClick={() => downloadFile(doc.file_url, doc.file_name)} title="Descargar">↓</button>
-        {canEdit && <button style={{...FR.act,color:'#ef4444'}} onClick={onDelete} title="Eliminar">✕</button>}
-      </div>
-    </div>
-  );
-}
-
-// ── Estilos ────────────────────────────────────────────────────────────────────
-const C  = { bg:'#0a0a0a', card:'#0f0f0f', border:'#1e1e1e', text:'#e2e8f0', dim:'#64748b', accent:'#0EA5E9' };
-const FF = '"IBM Plex Mono", monospace';
-
-const S = {
-  root:        { display:'flex', flexDirection:'column', flex:1, overflow:'hidden', fontFamily:FF, background:C.bg },
-  topbar:      { display:'flex', alignItems:'center', gap:'8px', padding:'8px 14px', borderBottom:`2px solid ${C.border}`, flexShrink:0, flexWrap:'wrap' },
-  breadcrumb:  { display:'flex', alignItems:'center', gap:'2px', flex:1, minWidth:0, flexWrap:'wrap' },
-  breadBtn:    { background:'transparent', border:'none', color:C.accent, cursor:'pointer', fontSize:'13px', fontFamily:FF, padding:'2px 6px' },
-  searchWrap:  { display:'flex', alignItems:'center', background:'#111', border:`1px solid #2a2a2a`, height:'30px', minWidth:'180px' },
-  searchInput: { background:'transparent', border:'none', color:C.text, fontSize:'11px', fontFamily:FF, outline:'none', flex:1, padding:'0 6px' },
-  clearSearch: { background:'transparent', border:'none', color:C.dim, cursor:'pointer', padding:'0 6px', fontSize:'11px' },
-  viewBtn:     { background:'transparent', border:`1px solid #2a2a2a`, color:C.dim, width:'30px', height:'30px', cursor:'pointer', fontSize:'15px', display:'flex', alignItems:'center', justifyContent:'center' },
-  viewBtnActive:{ borderColor:C.accent, color:C.accent },
-  btnPrimary:  { background:C.accent, border:'none', color:'#000', padding:'6px 14px', cursor:'pointer', fontSize:'11px', fontWeight:700, letterSpacing:'0.5px', fontFamily:FF, flexShrink:0 },
-  btnSecondary:{ background:'transparent', border:`1px solid #2a2a2a`, color:C.dim, padding:'6px 10px', cursor:'pointer', fontSize:'11px', fontFamily:FF, flexShrink:0 },
-  body:        { flex:1, display:'flex', overflow:'hidden' },
-  sidebar:     { width:'176px', minWidth:'160px', borderRight:`2px solid ${C.border}`, overflowY:'auto', padding:'10px 6px', display:'flex', flexDirection:'column', gap:'1px', background:'#0a0a0a', flexShrink:0 },
-  sideTitle:   { color:C.dim, fontSize:'9px', letterSpacing:'2px', padding:'6px 8px 2px', fontWeight:700 },
-  sideHint:    { color:'#1e2a3a', fontSize:'9px', padding:'0 8px 6px', lineHeight:1.4, letterSpacing:'0.2px' },
-  catBtn:      { display:'flex', alignItems:'center', gap:'6px', width:'100%', background:'transparent', border:'none', borderLeft:'2px solid transparent', padding:'5px 8px', cursor:'pointer', fontSize:'11px', fontFamily:FF, color:'#94a3b8', textAlign:'left' },
-  catBtnActive:{ borderLeft:`2px solid ${C.accent}`, background:'rgba(14,165,233,0.07)', color:C.text },
-  catDot:      col => ({ width:'7px', height:'7px', background:col, display:'inline-block', flexShrink:0 }),
-  catLabel:    { flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
-  catBadge:    { fontSize:'10px', flexShrink:0 },
-  divider:     { height:'1px', background:C.border, margin:'8px 0' },
-  main:        { flex:1, overflowY:'auto', padding:'14px', display:'flex', flexDirection:'column', gap:'10px', minWidth:0 },
-  mainDrag:    { outline:`2px dashed ${C.accent}`, background:'rgba(14,165,233,0.03)' },
-  statsBar:    { display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 },
-  stats:       { color:C.dim, fontSize:'11px' },
-  secLabel:    { color:C.dim, fontSize:'9px', letterSpacing:'2px', fontWeight:700 },
-  folderGrid:  { display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(190px,1fr))', gap:'6px' },
-  fileGrid:    { display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(155px,1fr))', gap:'6px' },
-  fileList:    { display:'flex', flexDirection:'column', gap:'2px' },
-  empty:       { display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', flex:1, gap:'8px', padding:'60px 20px' },
-  emptyMsg:    { color:C.dim, fontSize:'13px', textAlign:'center', maxWidth:'280px', lineHeight:1.5 },
-  emptyHint:   { color:'#1a1a1a', fontSize:'10px', letterSpacing:'0.5px' },
-};
-
-const M = {
-  overlay:  { position:'fixed', inset:0, background:'rgba(0,0,0,.9)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:'20px' },
-  box:      { background:'#111', border:`2px solid #222`, width:'100%', maxWidth:'500px', display:'flex', flexDirection:'column', fontFamily:FF, maxHeight:'90vh' },
-  hdr:      { display:'flex', justifyContent:'space-between', alignItems:'center', padding:'12px 16px', borderBottom:'1px solid #1a1a1a', flexShrink:0 },
-  htitle:   { color:C.accent, fontSize:'12px', fontWeight:700, letterSpacing:'2px', overflow:'hidden', textOverflow:'ellipsis', flex:1 },
-  xbtn:     { background:'transparent', border:'none', color:C.dim, cursor:'pointer', fontSize:'18px', flexShrink:0 },
-  field:    { padding:'10px 16px', display:'flex', flexDirection:'column', gap:'6px' },
-  flabel:   { color:C.dim, fontSize:'9px', letterSpacing:'2px', fontWeight:700 },
-  fileRow:  { display:'flex', alignItems:'center', gap:'8px', padding:'5px 16px', background:'#0f0f0f', borderBottom:'1px solid #111' },
-  fname:    { flex:1, color:C.text, fontSize:'11px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
-  fsize:    { color:C.dim, fontSize:'10px', flexShrink:0 },
-  catGrid:  { display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(140px,1fr))', gap:'4px' },
-  catPill:  { display:'flex', alignItems:'center', gap:'5px', background:'#0f0f0f', border:'1px solid #2a2a2a', color:'#64748b', padding:'5px 8px', cursor:'pointer', fontSize:'10px', fontFamily:FF, textAlign:'left', letterSpacing:'0.3px' },
-  sel:      { background:'#1a1a1a', border:'2px solid #2a2a2a', color:C.text, padding:'8px', fontSize:'12px', fontFamily:FF, outline:'none', width:'100%' },
-  inp:      { background:'#1a1a1a', border:'2px solid #2a2a2a', color:C.text, padding:'8px', fontSize:'13px', fontFamily:FF, outline:'none', width:'100%', boxSizing:'border-box' },
-  err:      { margin:'0 16px 8px', padding:'8px', background:'#1a0a0a', border:'1px solid #ef4444', color:'#ef4444', fontSize:'11px', whiteSpace:'pre-line' },
-  foot:     { display:'flex', justifyContent:'flex-end', gap:'8px', padding:'12px 16px', borderTop:'1px solid #1a1a1a', flexShrink:0 },
-  btnCancel:{ background:'transparent', border:'1px solid #333', color:C.dim, padding:'8px 16px', cursor:'pointer', fontSize:'11px', fontFamily:FF },
-  btnOk:    { background:C.accent, border:'none', color:'#000', padding:'8px 18px', cursor:'pointer', fontSize:'11px', fontWeight:700, fontFamily:FF, letterSpacing:'0.5px' },
-};
-
-const FC = {
-  card:     { background:C.card, border:`1px solid #1e1e1e`, position:'relative', transition:'border-color .15s' },
-  cardH:    { borderColor:'#2a2a2a' },
-  inner:    { display:'flex', alignItems:'center', gap:'10px', padding:'12px', cursor:'pointer' },
-  name:     { color:'#e2e8f0', fontSize:'13px', fontFamily:FF, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
-  meta:     { color:'#64748b', fontSize:'10px', marginTop:'2px' },
-  acts:     { position:'absolute', top:'4px', right:'4px', display:'flex', gap:'2px', background:'rgba(0,0,0,.7)' },
-  actBtn:   { background:'transparent', border:'none', color:'#94a3b8', cursor:'pointer', fontSize:'12px', padding:'3px 6px', fontFamily:FF },
-  inp:      { background:'#1a1a1a', border:'1px solid #333', color:'#e2e8f0', padding:'6px 8px', fontSize:'12px', fontFamily:FF, outline:'none', width:'100%', boxSizing:'border-box' },
-  btnCreate:{ background:C.accent, border:'none', color:'#000', padding:'5px 10px', cursor:'pointer', fontSize:'11px', fontWeight:700, fontFamily:FF },
-  // file card
-  file:     { background:C.card, border:`1px solid #1e1e1e`, display:'flex', flexDirection:'column', overflow:'hidden', position:'relative', transition:'border-color .15s' },
-  fileH:    { borderColor:'#2a2a2a' },
-  thumb:    { height:'95px', background:'#111', display:'flex', alignItems:'center', justifyContent:'center', position:'relative', overflow:'hidden', cursor:'pointer', flexShrink:0 },
-  ico:      { fontSize:'32px', opacity:.7, display:'flex', alignItems:'center', justifyContent:'center', width:'100%', height:'100%' },
-  extTag:   { position:'absolute', bottom:'4px', right:'4px', background:'rgba(0,0,0,.75)', color:'#94a3b8', fontSize:'8px', padding:'2px 5px', fontFamily:FF, letterSpacing:'1px' },
-  info:     { padding:'7px 10px', display:'flex', flexDirection:'column', gap:'3px' },
-  fname:    { color:'#e2e8f0', fontSize:'11px', fontFamily:FF, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
-  ctag:     { fontSize:'9px', padding:'2px 5px', fontFamily:FF, display:'inline-block', alignSelf:'flex-start', letterSpacing:'0.3px' },
-  fmeta:    { color:'#334155', fontSize:'9px' },
-  hover:    { position:'absolute', top:'4px', right:'4px', display:'flex', background:'rgba(0,0,0,.75)', gap:'0' },
-  hBtn:     { background:'transparent', border:'none', color:'#94a3b8', cursor:'pointer', fontSize:'12px', padding:'3px 7px', fontFamily:FF, textDecoration:'none', display:'flex', alignItems:'center' },
-};
-
-const FR = {
-  row:  { display:'flex', alignItems:'center', gap:'10px', padding:'8px 12px', background:C.card, border:`1px solid ${C.border}`, transition:'background .1s' },
-  rowH: { background:'#111' },
-  ext:  { color:C.dim, fontSize:'9px', fontFamily:FF, letterSpacing:'1px', flexShrink:0, width:'32px', textAlign:'right' },
-  name: { flex:1, color:'#e2e8f0', fontSize:'12px', fontFamily:FF, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
-  cat:  { fontSize:'9px', padding:'2px 6px', flexShrink:0, fontFamily:FF },
-  size: { color:C.dim, fontSize:'10px', flexShrink:0, width:'60px', textAlign:'right' },
-  date: { color:'#2a2a2a', fontSize:'10px', flexShrink:0, width:'90px', textAlign:'right' },
-  acts: { display:'flex', gap:'0', flexShrink:0 },
-  act:  { background:'transparent', border:'none', color:C.dim, cursor:'pointer', fontSize:'12px', padding:'2px 7px', fontFamily:FF, textDecoration:'none', display:'flex', alignItems:'center' },
-};

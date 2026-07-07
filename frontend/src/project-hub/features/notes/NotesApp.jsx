@@ -4,8 +4,9 @@
    ============================================================ */
 import { useState, useEffect } from 'react';
 import NoteEditor from './NoteEditor';
+import { API_HUB } from '../../../config';
 
-const API = 'http://localhost:8000/api/hub';
+const API = API_HUB;
 
 export default function NotesApp({ workspace, user }) {
   const [notes, setNotes]           = useState([]);

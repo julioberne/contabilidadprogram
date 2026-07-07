@@ -5,6 +5,12 @@ import react from '@vitejs/plugin-react'
 // SOL-06: Code splitting — separar vendors pesados en chunks independientes
 export default defineConfig({
   plugins: [react()],
+  test: {
+    // Vitest — config para tests de hooks React
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './src/test-setup.js',
+  },
   build: {
     rollupOptions: {
       output: {
@@ -19,3 +25,4 @@ export default defineConfig({
     },
   },
 })
+

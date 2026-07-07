@@ -4,9 +4,9 @@
    Muestra: todos los pagos, totales, generación de comprobantes
    ============================================================ */
 import { useState, useEffect, useCallback } from 'react';
+import { API_HR } from '../../../../config';
 
-
-const API = 'http://localhost:8000/api/hr';
+const API = API_HR;
 const FF  = '"IBM Plex Mono", monospace';
 const C   = { bg:'#0a0a0a', card:'#0f0f0f', border:'#1e1e1e', text:'#e2e8f0', dim:'#64748b', accent:'#0EA5E9', green:'#10B981', red:'#EF4444' };
 

@@ -3,7 +3,6 @@
    Identidad: Retro-Brutalista · IBM Plex Mono · verde #00ff88
    ============================================================ */
 import { useState } from 'react';
-import './shell.css';
 
 export default function GlobalLogin({ onLogin, loading, error: extError }) {
   const [email,    setEmail]    = useState('');

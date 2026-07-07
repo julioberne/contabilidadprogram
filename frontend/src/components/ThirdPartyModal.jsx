@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { API } from '../config';
 
 const ThirdPartyModal = ({ isOpen, onClose, onSelect }) => {
   const [thirdParties, setThirdParties] = useState([]);
@@ -25,7 +26,7 @@ const ThirdPartyModal = ({ isOpen, onClose, onSelect }) => {
   const fetchThirdParties = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/third-parties");
+      const response = await fetch(`${API}/third-parties`);
       const data = await response.json();
       setThirdParties(data);
     } catch (err) {

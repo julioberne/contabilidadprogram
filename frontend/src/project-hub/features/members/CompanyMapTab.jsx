@@ -6,9 +6,10 @@
    ADMIN puede asignar / desvincular desde aquí
    ============================================================ */
 import { useState, useEffect, useCallback } from 'react';
+import { API_HR, API_CT } from '../../../config';
 
-const API = 'http://localhost:8000/api/hr';
-const CT  = 'http://localhost:8000/api/ct';
+const API = API_HR;
+const CT  = API_CT;
 
 const LEVEL_INDENT = { 1: 0, 2: 16, 3: 32, 4: 48 };
 const LEVEL_COLORS = { 1: '#0EA5E9', 2: '#10B981', 3: '#8B5CF6', 4: '#F59E0B' };

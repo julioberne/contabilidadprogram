@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import KanbanView from './KanbanView';
 import ListView   from './ListView';
 import TaskModal  from './TaskModal';
+import { API_HUB } from '../../../config';
 
 const STATUSES = [
   { id: 'todo',        label: 'POR HACER',    color: '#64748b' },
@@ -21,7 +22,7 @@ export default function TaskBoard({ project, workspace, user }) {
   const [loading, setLoading]   = useState(false);
   const [modal, setModal]       = useState(null); // null | 'new' | task-object
 
-  const API = 'http://localhost:8000/api/hub';
+  const API = API_HUB;
 
   const loadTasks = async () => {
     if (!project) return;

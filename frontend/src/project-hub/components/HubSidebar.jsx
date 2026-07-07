@@ -5,6 +5,7 @@
    ============================================================ */
 import { useState, useEffect } from 'react';
 import WorkspaceSwitcher from './WorkspaceSwitcher';
+import { API_HUB } from '../../config';
 
 const NAV = [
   { id: 'tasks',    icon: '◈', label: 'TAREAS' },
@@ -42,9 +43,9 @@ export default function HubSidebar({
   useEffect(() => {
     if (!workspace) return;
     setLoadingProjects(true);
-    fetch(`http://localhost:8000/api/hub/entities?workspace_id=${workspace.id}`)
+    fetch(`${API_HUB}/entities?workspace_id=${workspace.id}`)
       .then(r => r.json()).then(data => setEntities(Array.isArray(data) ? data : [])).catch(() => {});
-    fetch(`http://localhost:8000/api/hub/projects?workspace_id=${workspace.id}`)
+    fetch(`${API_HUB}/projects?workspace_id=${workspace.id}`)
       .then(r => r.json())
       .then(data => {
         const list = Array.isArray(data) ? data : [];
@@ -57,7 +58,7 @@ export default function HubSidebar({
 
   const createProject = async () => {
     if (!newProjectName.trim()) return;
-    const res = await fetch('http://localhost:8000/api/hub/projects', {
+    const res = await fetch(`${API_HUB}/projects`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

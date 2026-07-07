@@ -70,7 +70,8 @@ MOCK_MEMBERS = []
 
 
 def _hash_password(password: str) -> str:
-    """Hash simple MD5 para simulación local."""
+    """Hash MD5 — solo para fallback de simulación local.
+    En producción se usa pgcrypto crypt() directamente en SQL."""
     return hashlib.md5(password.encode()).hexdigest()
 
 
@@ -327,12 +328,12 @@ def registrar_workspace_user(data: Dict[str, Any]) -> Dict[str, Any]:
         perms = data.get("permissions", {"ledger": True, "reports": True, "users": False, "approvals": False})
         cur.execute("""
         INSERT INTO workspace_users (name, email, password_hash, role_label, permissions, parent_user_id)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, crypt(%s, gen_salt('bf')), %s, %s, %s)
         RETURNING id, name, email, role_label;
         """, (
             data["name"],
             data["email"],
-            _hash_password(data["password"]),
+            data["password"],
             data.get("role_label", "Colaborador"),
             json.dumps(perms),
             data.get("parent_user_id")
@@ -347,15 +348,14 @@ def registrar_workspace_user(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def login_workspace_user(email: str, password: str) -> Optional[Dict[str, Any]]:
-    password_hash = _hash_password(password)
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("""
         SELECT id, name, email, role_label, permissions
         FROM workspace_users
-        WHERE email = %s AND password_hash = %s;
-        """, (email, password_hash))
+        WHERE email = %s AND password_hash = crypt(%s, password_hash);
+        """, (email, password))
         row = cur.fetchone()
         cur.close()
         release_db_connection(conn)
@@ -367,6 +367,8 @@ def login_workspace_user(email: str, password: str) -> Optional[Dict[str, Any]]:
                     "role_label": row[3], "permissions": perms}
         return None
     except Exception:
+        # Fallback: mock mode uses MD5
+        password_hash = _hash_password(password)
         for u in MOCK_WORKSPACE_USERS:
             if u["email"] == email and u["password_hash"] == password_hash:
                 return {k: v for k, v in u.items() if k != "password_hash"}

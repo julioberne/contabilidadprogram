@@ -1,0 +1,27 @@
+{
+  "id": "ESTANDAR",
+  "name": "Estándar Contable",
+  "icon": "≡",
+  "labels": {
+    "tercero": "Tercero",
+    "cxc": "Cuenta por Cobrar",
+    "cxp": "Cuenta por Pagar",
+    "ingreso": "Ingreso",
+    "gasto": "Gasto",
+    "activo": "Recurso",
+    "cobro": "Cobro",
+    "pago": "Pago",
+    "factura": "Factura",
+    "inventario": "Inventario"
+  },
+  "contact_types": [
+    { "id": "cliente", "label": "Cliente", "icon": "👤", "fields": [] },
+    { "id": "proveedor", "label": "Proveedor", "icon": "🏢", "fields": [] }
+  ],
+  "categories": {
+    "ingreso": ["Ventas", "Servicios", "Intereses", "Otros Ingresos"],
+    "gasto": ["Servicios", "Alimentación", "Transporte", "Infraestructura", "Nómina", "Suscripciones", "Otros Gastos"]
+  },
+  "kpis": [],
+  "dashboard_layout": []
+}

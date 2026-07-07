@@ -10,19 +10,34 @@ import CTApprovalsCenter from './components/CTApprovalsCenter';
 import CTResourceIds from './components/CTResourceIds';
 import CTCollaborators from './components/CTCollaborators';
 
-export default function ControlTowerApp({ onGoBack }) {
+export default function ControlTowerApp({ onGoBack, user: shellUser }) {
   const ct = useControlTower();
 
   const [showApprovals, setShowApprovals] = useState(false);
   const [showResources, setShowResources] = useState(false);
   const [showCollaborators, setShowCollaborators] = useState(false);
 
+  // ── SSO: Effective session (shell fallback when ct.session is null) ──
+  const ssoSession = shellUser ? {
+    id: shellUser.id || 1,
+    email: shellUser.email || 'andres@finsys.os',
+    name: shellUser.name || 'Usuario',
+    role_label: shellUser.role === 'ADMIN' ? 'Super-Contador' : 'Colaborador',
+    is_superuser: shellUser.role === 'ADMIN',
+  } : null;
+
+  const activeSession = ct.session || ssoSession;
+
+  // ── SSO: Override logout — when embedded, just go home ──────────────
+  const handleLogout = shellUser
+    ? () => { if (onGoBack) onGoBack(); }
+    : ct.logout;
+
   const handleSelectEntity = (entity, parentChain) => {
     ct.selectEntity(entity, parentChain);
   };
 
   const handleBreadcrumbNavigate = (entity) => {
-    // Find parent chain up to this entity from the full tree
     ct.selectEntity(entity, ct.breadcrumb.slice(0, ct.breadcrumb.findIndex(e => e.id === entity.id)));
   };
 
@@ -30,8 +45,8 @@ export default function ControlTowerApp({ onGoBack }) {
     ct.selectEntity(null, []);
   };
 
-  // ── Not logged in ──────────────────────────────────────────
-  if (!ct.session) {
+  // ── Not logged in (fallback — no shell user, no ct session) ────────
+  if (!activeSession) {
     return (
       <CTLoginRegister
         onLogin={ct.login}
@@ -46,8 +61,8 @@ export default function ControlTowerApp({ onGoBack }) {
     <div className="h-screen flex flex-col bg-black font-mono overflow-hidden">
       {/* Top Bar */}
       <CTTopBar
-        session={ct.session}
-        onLogout={ct.logout}
+        session={activeSession}
+        onLogout={handleLogout}
         onGoBack={onGoBack}
         activeEntity={ct.activeEntity}
         entities={ct.entities}
@@ -83,7 +98,7 @@ export default function ControlTowerApp({ onGoBack }) {
         <div className="w-64 flex-shrink-0 bg-black">
           <CTSidePanel
             activeEntity={ct.activeEntity}
-            session={ct.session}
+            session={activeSession}
             onOpenApprovals={() => setShowApprovals(true)}
             onOpenResources={() => setShowResources(true)}
             onOpenCollaborators={() => setShowCollaborators(true)}

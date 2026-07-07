@@ -4,9 +4,9 @@
    Sección 2: Launchpad de módulos
    ============================================================ */
 import { useState, useEffect } from 'react';
-import './shell.css';
+import { getLaunchpadModules } from '../registry/moduleRegistry';
+import { API } from '../config';
 
-const API = 'http://127.0.0.1:8000/api';
 
 /* ── Formateadores ───────────────────────────────────────── */
 const fmt = (n) =>
@@ -16,58 +16,6 @@ const fmt = (n) =>
   }).format(n);
 
 const fmtNum = (n) => n == null ? '—' : Number(n).toLocaleString('es-CO');
-
-/* ── Módulos del launchpad ───────────────────────────────── */
-const MODULES = [
-  {
-    id:     'contabilidad',
-    icon:   '≡',
-    name:   'Contabilidad',
-    desc:   'Transacciones · CoA · Balances\nPortafolios · Activos · IVA · GMF',
-    accent: 'green',
-    active: true,
-  },
-  {
-    id:     'rrhh',
-    icon:   '⊙',
-    name:   'RRHH',
-    desc:   'Empleados · Nómina · Documentos\nHistorial · Perfiles · Empresas',
-    accent: 'blue',
-    active: true,
-  },
-  {
-    id:     'tower',
-    icon:   '⬡',
-    name:   'Control Tower',
-    desc:   'Holding · Empresas · Balance\nConsolidado · Árbol Corporativo',
-    accent: 'amber',
-    active: true,
-  },
-  {
-    id:     'ventas',
-    icon:   '◈',
-    name:   'Ventas & CRM',
-    desc:   'CRM · Cotizaciones · Facturas\nPipeline · Comisiones · Metas',
-    accent: 'green',
-    active: false,
-  },
-  {
-    id:     'compras',
-    icon:   '⊡',
-    name:   'Compras',
-    desc:   'Proveedores · POs · CxP\nRecepciones · Evaluaciones',
-    accent: 'green',
-    active: false,
-  },
-  {
-    id:     'bot',
-    icon:   '◉',
-    name:   'Bot IA',
-    desc:   'Consultas · Análisis · Reportes\nVoz · Estructuración · Insights',
-    accent: 'green',
-    active: false,
-  },
-];
 
 /* ── Componente KPI card ─────────────────────────────────── */
 function KpiCard({ label, value, sub, color = 'white', id }) {
@@ -105,7 +53,7 @@ function ModuleCard({ mod, onNavigate }) {
 }
 
 /* ── Componente principal ────────────────────────────────── */
-export default function HomeDashboard({ user, onNavigate }) {
+export default function HomeDashboard({ user, onNavigate, enabledIds }) {
   const [kpis,    setKpis]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [clock,   setClock]   = useState(new Date());
@@ -235,7 +183,7 @@ export default function HomeDashboard({ user, onNavigate }) {
           </span>
         </div>
         <div className="home-modules">
-          {MODULES.map(mod => (
+          {getLaunchpadModules(enabledIds).map(mod => (
             <ModuleCard key={mod.id} mod={mod} onNavigate={onNavigate} />
           ))}
         </div>

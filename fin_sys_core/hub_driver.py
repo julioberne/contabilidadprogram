@@ -25,6 +25,8 @@ def _put_conn(conn):
     put_conn(conn)
 
 def _hash_password(password: str) -> str:
+    """SHA-256 fallback — solo para modo local sin pgcrypto.
+    En producción se usa pgcrypto crypt() directamente en SQL."""
     return hashlib.sha256(password.encode()).hexdigest()
 
 
@@ -111,10 +113,10 @@ def register_user(email: str, password: str, name: str, cedula: str = None,
             cur.execute("""
                 INSERT INTO hub_users
                   (email, password_hash, name, cedula, description, color, role)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, crypt(%s, gen_salt('bf')), %s, %s, %s, %s, %s)
                 RETURNING id, email, name, cedula, color, role, description,
                           is_superuser, avatar_url, created_at
-            """, (email, _hash_password(password), name, cedula, description, color, role))
+            """, (email, password, name, cedula, description, color, role))
             user = dict(cur.fetchone())
 
             # Unir al workspace si se proporcionó
@@ -132,7 +134,7 @@ def register_user(email: str, password: str, name: str, cedula: str = None,
 
 
 def login_user(email: str, password: str) -> dict | None:
-    """Autentica un usuario. Devuelve los datos del usuario o None."""
+    """Autentica un usuario con bcrypt via pgcrypto. Devuelve los datos del usuario o None."""
     conn = _get_conn()
     try:
         with conn.cursor() as cur:
@@ -140,8 +142,8 @@ def login_user(email: str, password: str) -> dict | None:
                 SELECT id, email, name, cedula, color, role, description,
                        is_superuser, avatar_url, created_at
                 FROM hub_users
-                WHERE email = %s AND password_hash = %s
-            """, (email, _hash_password(password)))
+                WHERE email = %s AND password_hash = crypt(%s, password_hash)
+            """, (email, password))
             row = cur.fetchone()
             return dict(row) if row else None
     finally:

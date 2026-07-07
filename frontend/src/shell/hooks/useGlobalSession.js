@@ -1,7 +1,8 @@
 /* useGlobalSession.js — Estado de sesión global del shell FIN-SYS OS */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { API } from '../../config';
 
-const API = 'http://127.0.0.1:8000/api';
+const SESSION_KEY = 'finsys_session';
 
 const DEMO_USER = {
   id:       1,
@@ -12,16 +13,31 @@ const DEMO_USER = {
 };
 
 export function useGlobalSession() {
-  const [user,    setUser]    = useState(null);
+  // Restore session from localStorage on mount
+  const [user, setUser] = useState(() => {
+    try {
+      const stored = localStorage.getItem(SESSION_KEY);
+      return stored ? JSON.parse(stored) : null;
+    } catch { return null; }
+  });
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState('');
+
+  // Persist session to localStorage whenever user changes
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem(SESSION_KEY, JSON.stringify(user));
+    } else {
+      localStorage.removeItem(SESSION_KEY);
+    }
+  }, [user]);
 
   const login = useCallback(async (email, password) => {
     setLoading(true);
     setError('');
     try {
-      // Intentar autenticar contra la API del Hub (workspace_users)
-      const res = await fetch(`${API}/hub/auth/login`, {
+      // Intentar autenticar contra la API del Hub (hub_users)
+      const res = await fetch(`${API}/hub/users/login`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ email, password }),
@@ -29,14 +45,19 @@ export function useGlobalSession() {
 
       if (res.ok) {
         const data = await res.json();
+        const hubUser = data.user;
         setUser({
-          id:       data.user?.id || data.id,
-          email:    data.user?.email || data.email || email,
-          name:     data.user?.name || data.name || email.split('@')[0],
-          role:     data.user?.is_superuser ? 'ADMIN' : 'USER',
-          initials: (data.user?.name || email)[0].toUpperCase(),
+          id:       hubUser?.id || data.id,
+          email:    hubUser?.email || data.email || email,
+          name:     hubUser?.name || data.name || email.split('@')[0],
+          role:     hubUser?.is_superuser ? 'ADMIN' : 'USER',
+          initials: (hubUser?.name || email)[0].toUpperCase(),
           raw:      data,
         });
+        // ── SSO: Propagate Hub session so ProjectHub finds its user ──
+        if (hubUser) {
+          localStorage.setItem('hub_user', JSON.stringify(hubUser));
+        }
         return;
       }
 
@@ -59,7 +80,14 @@ export function useGlobalSession() {
     }
   }, []);
 
-  const logout = useCallback(() => setUser(null), []);
+  const logout = useCallback(() => {
+    setUser(null);
+    // Clear all module sessions too (SSO cleanup)
+    localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem('ct_session');
+    localStorage.removeItem('hub_user');
+    localStorage.removeItem('hub_workspace');
+  }, []);
 
   return { user, loading, error, login, logout };
 }

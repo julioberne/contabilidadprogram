@@ -7,8 +7,9 @@ import { useState, useCallback, useRef } from 'react';
 import { useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView }       from '@blocknote/mantine';
 import '@blocknote/mantine/style.css';
+import { API_HUB } from '../../../config';
 
-const API = 'http://localhost:8000/api/hub';
+const API = API_HUB;
 
 export default function NoteEditor({ note, canEdit, onSave }) {
   const [title, setTitle]         = useState(note?.title || 'Sin título');

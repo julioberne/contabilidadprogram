@@ -2,7 +2,9 @@
 // Hook de estado global para el módulo Control Tower
 import { useState, useEffect, useCallback } from 'react';
 
-const CT_API = 'http://127.0.0.1:8000/api/ct';
+import { API_CT } from '../../config';
+
+const CT_API = API_CT;
 const SESSION_KEY = 'ct_session';
 
 export function useControlTower() {

@@ -1,0 +1,52 @@
+# ==============================================================
+# FIN-SYS OS v2.0 — Docker Compose (Producción)
+# 2 servicios independientes: frontend (Nginx) + backend (FastAPI)
+# ==============================================================
+
+services:
+  # ─────────────────────────────────────────────────────────────
+  # BACKEND: FastAPI + Gunicorn
+  # ─────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: finsys-backend
+    restart: unless-stopped
+    # Variables de entorno: inyectadas por Dokploy (Environment tab)
+    # NO usar env_file — Dokploy las pasa directamente al contenedor
+    expose:
+      - "8000"
+    volumes:
+      - uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - finsys-net
+
+  # ─────────────────────────────────────────────────────────────
+  # FRONTEND: Vite build + Nginx (proxy reverso)
+  # ─────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: finsys-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - finsys-net
+
+volumes:
+  uploads:
+
+networks:
+  finsys-net:
+    driver: bridge

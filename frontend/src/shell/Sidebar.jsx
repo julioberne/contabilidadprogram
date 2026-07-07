@@ -3,49 +3,8 @@
    Grupos: INICIO · FINANCIERO · GESTIÓN · OPERACIONES · SISTEMA
    ============================================================ */
 import { useState, useEffect } from 'react';
-import './shell.css';
+import { getNavGroups } from '../registry/moduleRegistry';
 
-/* ── Definición de la navegación ──────────────────────────── */
-const NAV = [
-  {
-    group: 'INICIO',
-    items: [
-      { id: 'home',          icon: '⌂',  label: 'Home',            accent: 'green' },
-    ],
-  },
-  {
-    group: 'FINANCIERO',
-    items: [
-      { id: 'contabilidad',  icon: '≡',  label: 'Contabilidad',    accent: 'green' },
-      { id: 'tesoreria',     icon: '⊕',  label: 'Tesorería',       accent: 'green', soon: true },
-      { id: 'facturacion',   icon: '▦',  label: 'Facturación',     accent: 'green', soon: true },
-    ],
-  },
-  {
-    group: 'GESTIÓN',
-    items: [
-      { id: 'rrhh',          icon: '⊙',  label: 'RRHH',            accent: 'blue'  },
-      { id: 'tower',         icon: '⬡',  label: 'Control Tower',   accent: 'amber' },
-      { id: 'organigrama',   icon: '⊞',  label: 'Organigrama',     accent: 'green', soon: true },
-    ],
-  },
-  {
-    group: 'OPERACIONES',
-    items: [
-      { id: 'ventas',        icon: '◈',  label: 'Ventas & CRM',    accent: 'green', soon: true },
-      { id: 'compras',       icon: '⊡',  label: 'Compras',         accent: 'green', soon: true },
-      { id: 'logistica',     icon: '⊜',  label: 'Logística',       accent: 'green', soon: true },
-      { id: 'bot',           icon: '◉',  label: 'Bot IA',          accent: 'green', soon: true },
-    ],
-  },
-  {
-    group: 'SISTEMA',
-    items: [
-      { id: 'config',        icon: '⚙',  label: 'Configuración',   accent: 'green', soon: true },
-      { id: 'auditoria',     icon: '◎',  label: 'Auditoría',       accent: 'green', soon: true },
-    ],
-  },
-];
 
 /* ── Mapa de acento → clase CSS activa ───────────────────── */
 const ACTIVE_CLASS = {
@@ -55,7 +14,7 @@ const ACTIVE_CLASS = {
 };
 
 /* ── Componente ──────────────────────────────────────────── */
-export default function Sidebar({ user, activeView, onNavigate, collapsed, onToggle, mobileOpen }) {
+export default function Sidebar({ user, activeView, onNavigate, collapsed, onToggle, mobileOpen, enabledIds }) {
   const [clock, setClock] = useState(new Date());
 
   useEffect(() => {
@@ -101,7 +60,7 @@ export default function Sidebar({ user, activeView, onNavigate, collapsed, onTog
 
       {/* ── Navigation ───────────────────────────── */}
       <nav className="shell-nav" id="shell-nav">
-        {NAV.map(({ group, items }) => (
+        {getNavGroups(enabledIds).map(({ group, items }) => (
           <div className="shell-nav-group" key={group}>
             <div className="shell-nav-label">{group}</div>
             {items.map(item => {
@@ -131,6 +90,25 @@ export default function Sidebar({ user, activeView, onNavigate, collapsed, onTog
           </div>
         ))}
       </nav>
+
+      {/* ── Settings (solo OWNER/ADMIN) — fijo en el footer ── */}
+      {user && (user.role === 'OWNER' || user.role === 'ADMIN') && (
+        <div style={{
+          padding: '4px 8px',
+          borderTop: '1px solid var(--shell-border, #222)',
+        }}>
+          <button
+            id="shell-nav-module-settings"
+            className={`shell-nav-item${activeView === 'module-settings' ? ' active' : ''}`}
+            onClick={() => onNavigate('module-settings')}
+            title={collapsed ? 'Módulos' : undefined}
+            style={{ width: '100%' }}
+          >
+            <span className="shell-nav-icon">⚙</span>
+            <span className="shell-nav-text">Módulos</span>
+          </button>
+        </div>
+      )}
 
       {/* ── User footer ──────────────────────────── */}
       {user && (

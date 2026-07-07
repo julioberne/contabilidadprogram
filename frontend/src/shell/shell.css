@@ -3,8 +3,6 @@
    Identidad: Retro-Brutalista · IBM Plex Mono · 0px radius
    ============================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&display=swap');
-
 /* ── Tokens ─────────────────────────────────────────────── */
 :root {
   --shell-bg:        #0a0a0a;

@@ -1,0 +1,145 @@
+{
+  "id": "EDUCACION",
+  "name": "Educación (Jardín Infantil / Colegio)",
+  "icon": "🏫",
+  "labels": {
+    "tercero": "Acudiente / Estudiante",
+    "cxc": "Pensión por Cobrar",
+    "cxp": "Factura de Proveedor",
+    "ingreso": "Recaudo",
+    "gasto": "Gasto Operativo",
+    "activo": "Recurso / Uniforme",
+    "cobro": "Cobro de Pensión",
+    "pago": "Pago a Proveedor",
+    "factura": "Recibo de Pensión",
+    "inventario": "Uniformes y Útiles"
+  },
+  "contact_types": [
+    {
+      "id": "estudiante",
+      "label": "Estudiante",
+      "icon": "🎒",
+      "fields": ["grado", "acudiente_nombre", "acudiente_documento", "acudiente_telefono"]
+    },
+    {
+      "id": "acudiente",
+      "label": "Acudiente",
+      "icon": "👨‍👩‍👧",
+      "fields": []
+    },
+    {
+      "id": "proveedor",
+      "label": "Proveedor",
+      "icon": "🏢",
+      "fields": []
+    },
+    {
+      "id": "docente",
+      "label": "Docente",
+      "icon": "👩‍🏫",
+      "fields": ["area", "horario"]
+    }
+  ],
+  "categories": {
+    "ingreso": [
+      "Matrículas",
+      "Pensiones",
+      "Uniformes",
+      "Útiles Escolares",
+      "Eventos",
+      "Transporte Escolar",
+      "Alimentación (Loncheras)",
+      "Otros Ingresos"
+    ],
+    "gasto": [
+      "Alimentación (Mercado)",
+      "Material Didáctico",
+      "Nómina Docente",
+      "Nómina Administrativa",
+      "Arriendo Local",
+      "Servicios Públicos",
+      "Transporte",
+      "Mantenimiento",
+      "Publicidad y Marketing",
+      "Seguros",
+      "Otros Gastos"
+    ]
+  },
+  "widgets": [
+    {
+      "id": "recaudos_mes",
+      "component": "RecaudosWidget",
+      "title": "Tablero de Recaudos del Mes",
+      "description": "Estado de pago de pensiones por estudiante",
+      "data_source": "terceros:estudiante + cxc",
+      "size": "full"
+    },
+    {
+      "id": "generador_pensiones",
+      "component": "PensionesWidget",
+      "title": "Generador Masivo de Pensiones",
+      "description": "Crear CXC mensuales para todos los estudiantes",
+      "data_source": "terceros:estudiante",
+      "size": "half"
+    },
+    {
+      "id": "caja_uniformes",
+      "component": "UniformesWidget",
+      "title": "Caja Rápida de Uniformes",
+      "description": "Despacho rápido de uniformes y útiles",
+      "data_source": "inventario + terceros:estudiante",
+      "size": "half"
+    }
+  ],
+  "kpis": [
+    {
+      "id": "recaudos_ratio",
+      "label": "Recaudos Mes",
+      "formula": "cxc_pagadas / cxc_total",
+      "format": "ratio",
+      "icon": "📊"
+    },
+    {
+      "id": "morosidad",
+      "label": "Tasa de Morosidad",
+      "formula": "cxc_vencidas / cxc_total * 100",
+      "format": "percent",
+      "icon": "⚠️",
+      "threshold_warning": 15,
+      "threshold_critical": 30
+    },
+    {
+      "id": "margen_alumno",
+      "label": "Margen / Alumno",
+      "formula": "(ingresos_mes - gastos_mes) / total_estudiantes",
+      "format": "currency",
+      "icon": "📈"
+    },
+    {
+      "id": "ltv_estudiante",
+      "label": "LTV Estudiante",
+      "formula": "matricula + (pension_mensual * 10) + promedio_uniformes",
+      "format": "currency",
+      "icon": "💎"
+    },
+    {
+      "id": "costo_alumno",
+      "label": "Costo / Alumno",
+      "formula": "gastos_mes / total_estudiantes",
+      "format": "currency",
+      "icon": "📉"
+    }
+  ],
+  "dashboard_layout": [
+    "kpis",
+    "recaudos_mes",
+    "generador_pensiones",
+    "caja_uniformes"
+  ],
+  "pension_config": {
+    "default_amount": 450000,
+    "due_day": 5,
+    "grace_days": 10,
+    "overdue_alert_days": 15
+  }
+}
