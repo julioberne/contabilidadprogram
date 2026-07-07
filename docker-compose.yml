@@ -13,10 +13,17 @@ services:
       dockerfile: Dockerfile
     container_name: finsys-backend
     restart: unless-stopped
-    # Variables de entorno: Dokploy escribe el Environment tab en un archivo .env
-    # junto al compose — env_file lo inyecta al contenedor
-    env_file:
-      - .env
+    # Variables inyectadas por Dokploy (Environment tab) vía interpolación ${VAR}
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - SENTRY_DSN=${SENTRY_DSN}
+      - CORS_ORIGINS=${CORS_ORIGINS}
     expose:
       - "8000"
     volumes:
