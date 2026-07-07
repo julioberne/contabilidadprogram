@@ -7,7 +7,8 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci
+# npm install (no ci): el lockfile generado en Windows omite optionalDeps de linux
+RUN npm install --no-audit --no-fund
 COPY . .
 RUN npm run build
 
