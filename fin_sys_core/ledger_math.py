@@ -6,7 +6,7 @@ Este módulo calcula agregaciones financieras en tiempo real y valida límites
 de capital aislado para bolsillos virtuales ("Pockets").
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 
 class ExcedeLimitePocketError(Exception):
