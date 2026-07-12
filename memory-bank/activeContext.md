@@ -5,7 +5,7 @@
 
 ---
 
-## Estado: 05 Jul 2026 — 19:09 COT
+## Estado: 12 Jul 2026 — 16:52 COT
 
 ## Módulos Activos
 
@@ -82,7 +82,7 @@ Tablas de BD existentes                 ← NO alterar schema sin aprobación ex
 
 ---
 
-## Estado de Salud del Sistema (Verificado 05 Jul 2026 — 19:09 COT)
+## Estado de Salud del Sistema (Verificado 05 Jul 2026 — 19:09 COT | Revisión arquitectura: 12 Jul 2026)
 
 ```
 ✅ Frontend (React/Vite)    → :5173 OK
@@ -127,6 +127,18 @@ Tablas de BD existentes                 ← NO alterar schema sin aprobación ex
 | DT-07 | Fuentes Kanban/TaskModal pendientes (CSS classes no aplicadas) | Baja |
 | DT-08 | Integración contabilidad-nómina (totalizar gasto nómina en CoA) | Media |
 | DT-09 | Comprobante nómina: integrar con tablas contables al generarse | Baja |
+
+---
+
+## Orden de Trabajo — Sesión 12 Jul 2026
+
+> Análisis completo realizado. Ver `estado_proyecto_12jul2026.md` para documento completo.
+
+### Opciones priorizadas (elegir una):
+1. **Opción A** — Módulo 09 Bot IA (WhatsApp + Groq Whisper) — ALTO VALOR
+2. **Opción B** — Módulo 10 Trading NASDAQ (posiciones + PnL) — ALTO VALOR  
+3. **Opción C** — Kernel Partida Doble (K1–K6, cierra gap contable crítico)
+4. **Opción D** — Limpieza técnica (bcrypt, DT-01 balance, DT-02 lifespan)
 
 ---
 

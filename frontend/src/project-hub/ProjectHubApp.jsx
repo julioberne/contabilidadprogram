@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import './hub-typography.css';
 import { useProjectHub }    from './hooks/useProjectHub';
 import HubLoginRegister     from './components/HubLoginRegister';
 import HubTopBar            from './components/HubTopBar';
 import HubSidebar           from './components/HubSidebar';
 import TaskBoard            from './features/tasks/TaskBoard';
-import NotesApp             from './features/notes/NotesApp';
+const NotesApp = lazy(() => import('./features/notes/NotesApp'));
 import CalendarApp          from './features/calendar/CalendarApp';
 import MembersList          from './features/members/MembersList';
 import WorkspaceSettings    from './features/settings/WorkspaceSettings';
@@ -92,7 +92,7 @@ export default function ProjectHubApp({ onExit, user: shellUser }) {
   const renderView = () => {
     switch (activeView) {
       case 'tasks':    return <TaskBoard project={hub.activeProject} workspace={hub.workspace} user={activeUser} />;
-      case 'notes':    return <NotesApp workspace={hub.workspace} user={activeUser} />;
+      case 'notes':    return <Suspense fallback={<div style={{color:'#555',padding:40,textAlign:'center',fontFamily:'IBM Plex Mono'}}>CARGANDO EDITOR...</div>}><NotesApp workspace={hub.workspace} user={activeUser} /></Suspense>;
       case 'calendar': return <CalendarApp workspace={hub.workspace} user={activeUser} />;
       case 'members':  return <MembersList workspace={hub.workspace} user={activeUser} />;
       case 'rrhh':     return <RRHHView workspace={hub.workspace} user={activeUser} />;
