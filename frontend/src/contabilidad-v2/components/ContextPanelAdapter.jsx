@@ -7,8 +7,8 @@
    setters no-op de taxes (type/customRate) que v1 pasa así.
    ============================================================ */
 import { useEffect } from 'react';
-import ContextPanel from '../../components/ContextPanel.jsx';
-import useProfile from '../../hooks/useProfile.js';
+import ContextPanel from './ContextPanel.jsx';
+import useProfile from '../modules/perfil/useProfile.js';
 import { useEmpresa } from '../engine/EmpresaProvider.jsx';
 import { useTransactionDraft } from '../engine/TransactionDraftProvider.jsx';
 

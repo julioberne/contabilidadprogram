@@ -57,10 +57,9 @@ python kernel/test_e2e.py
 |---|---|---|---|
 | **Shell Unificado** | `frontend/src/main.jsx`, `frontend/src/shell/*` | ✅ ACTIVO | main.jsx consume del registry; no editar switch manual |
 | **Registry (SSOT)** | `frontend/src/registry/moduleRegistry.js` | ✅ ACTIVO | Agregar módulos aquí — Sidebar/Home/main.jsx leen automáticamente |
-| App Principal (01–06) | `frontend/src/App.jsx`, `server.py` | ✅ COMPLETO | NO refactorizar sin permiso |
-| Contabilidad v2 | `frontend/src/contabilidad-v2/ContabilidadApp.jsx` | ✅ ACTIVO | Motor v2 con hooks modulares |
+| **Contabilidad (01–06, unificado)** | `frontend/src/contabilidad-v2/` (ContabilidadApp + engine/ + modules/ + components/) | ✅ ACTIVO | UI v1 sobre providers modulares. App.jsx monolítico ELIMINADO (19 Jul 2026) — rollback vía git revert |
 | fin_sys_core | `database_driver.py`, `tax_motor.py`, `ledger_math.py`, `ai_engine.py` | ✅ ESTABLE | Solo con aprobación explícita |
-| Control Tower (07) | `frontend/src/control-tower/*`, `fin_sys_core/control_tower_driver.py` | ✅ COMPLETO | NO mezclar con App.jsx |
+| Control Tower (07) | `frontend/src/control-tower/*`, `fin_sys_core/control_tower_driver.py` | ✅ COMPLETO | NO mezclar con el módulo Contabilidad |
 | Project Hub (08) | `frontend/src/project-hub/*`, `fin_sys_core/hub_driver.py` | ✅ COMPLETO | NO refactorizar sin permiso |
 | RRHH / Empresas (08c) | `project-hub/features/members/tabs/`, `fin_sys_core/hr_driver.py`, `fin_sys_core/hr_documents_driver.py` | ✅ EN USO | Solo agregar, no modificar existentes |
 | **Zero-COA** | `server.py` (bloque final), `kernel/`, `scripts/seed_puc.py`, `posting_rules` (BD) | ✅ FASE 1+2 | Emit automático de partida doble |
@@ -74,14 +73,14 @@ python kernel/test_e2e.py
 ### ZERO-IMPACT POLICY
 - **NUNCA** modificar archivos de módulos COMPLETOS para agregar funcionalidad nueva
 - Módulos nuevos → nuevas rutas, nuevos archivos, nuevas carpetas
-- Endpoints nuevos → bloque separado al **final** de `server.py`
-- Antes de tocar `App.jsx`, proponer extracción a componente independiente en `frontend/src/modules/`
+- Endpoints nuevos → crear/editar un router en `routers/*.py` (uno por dominio) y registrarlo en `server.py` con `include_router`. Nunca reescribir endpoints existentes
+- Contabilidad: la lógica de formulario/registro vive en `contabilidad-v2/engine/` (providers); UI en `modules/<dominio>/` y `components/`. Nuevas features contables = nuevo module + adapter
 
 ### AGREGAR UN MÓDULO NUEVO (flujo correcto)
 1. Crear carpeta + componente en `frontend/src/<modulo>/`
 2. Agregar **una entrada** al array `modules` en `frontend/src/registry/moduleRegistry.js` (id, label, icon, group, component lazy, `active`)
 3. Sidebar, HomeDashboard y main.jsx lo consumen automáticamente — **no editar main.jsx**
-4. Si necesita endpoints → bloque al final de `server.py`
+4. Si necesita endpoints → router nuevo en `routers/` + `include_router` en `server.py`
 5. Feature flags remotos (`/module-flags` en BD) pueden override del campo `active`
 
 ### PERMISOS EXPLÍCITOS POR ARCHIVO
@@ -90,8 +89,9 @@ python kernel/test_e2e.py
 |---|---|
 | `fin_sys_core/database_driver.py` | 🔴 Solo con aprobación explícita del usuario |
 | `fin_sys_core/control_tower_driver.py` | 🔴 Solo con aprobación explícita del usuario |
-| `server.py` | 🟡 Solo agregar al final. Nunca modificar endpoints existentes |
-| `frontend/src/App.jsx` | 🟡 Preferir extraer componente. Nunca reescribir secciones existentes |
+| `server.py` | 🟡 Solo bootstrap + registrar routers. Endpoints viven en `routers/*.py` |
+| `frontend/src/contabilidad-v2/engine/*` | 🟡 Motor del módulo contable (providers + payload). Cambios con tests (`npm test`) |
+| `frontend/src/contabilidad-v2/modules/*` | 🟢 ACTIVO — UI por dominio + adapters, libre modificación |
 | `.env` | 🔴 NUNCA tocar bajo ninguna circunstancia |
 | Tablas de BD existentes | 🔴 NUNCA alterar schema sin aprobación explícita |
 | `frontend/src/control-tower/*` | 🟡 No mezclar paleta ámbar con paleta brutalista del módulo principal |
@@ -103,7 +103,7 @@ python kernel/test_e2e.py
 | `frontend/src/shell/HomeDashboard.jsx` | 🟢 ACTIVO — Lee del registry; no hardcodear módulos |
 | `frontend/src/registry/moduleRegistry.js` | 🟢 ACTIVO — SSOT de módulos, agregar entradas aquí |
 | `frontend/src/main.jsx` | 🟡 No editar el switch — consume del registry. Solo tocar si hay bug del shell |
-| `frontend/src/components/ContextPanel.jsx` | 🟢 ACTIVO — Libre modificación (Cartera + Zero-COA toggle) |
+| `frontend/src/contabilidad-v2/components/*` | 🟢 ACTIVO — ContextPanel, tabs, modales, inventario (Cartera + Zero-COA toggle) |
 | `kernel/*` | 🟢 ACTIVO — Motor contable, event bus, accounting |
 | `scripts/seed_puc.py` | 🟢 ACTIVO — Seed PUC + posting rules |
 
@@ -166,7 +166,7 @@ npm run build                                 # build producción
 - Color de acento: ámbar `#fbbf24` (Tailwind `amber-400`)
 - Fondo: `bg-black`
 - Sombras duras en ámbar: `shadow-[8px_8px_0px_#fbbf24]`
-- Esta paleta NO se usa en App.jsx ni viceversa
+- Esta paleta NO se usa en el módulo Contabilidad ni viceversa
 
 ---
 

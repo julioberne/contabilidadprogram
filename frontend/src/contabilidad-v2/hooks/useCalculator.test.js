@@ -4,7 +4,7 @@
    ============================================================ */
 import { describe, it, expect } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import useCalculator from '../useCalculator';
+import useCalculator from './useCalculator';
 
 describe('useCalculator', () => {
   it('inicia con display "0" y cerrada', () => {

@@ -7,8 +7,8 @@
    El import transitorio se vuelve interno en la Fase 7 (mudanza).
    ============================================================ */
 import { useState, useEffect } from 'react';
-import TransactionForm from '../../../components/TransactionForm.jsx';
-import useCalculator from '../../../hooks/useCalculator.js';
+import TransactionForm from './TransactionForm.jsx';
+import useCalculator from '../../hooks/useCalculator.js';
 import { API } from '../../../config';
 import { useEmpresa } from '../../engine/EmpresaProvider.jsx';
 import { useTransactionDraft } from '../../engine/TransactionDraftProvider.jsx';

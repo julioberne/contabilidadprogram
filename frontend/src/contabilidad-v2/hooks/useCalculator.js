@@ -1,77 +1,64 @@
-import { useState, useCallback } from 'react';
+/* ============================================================
+   useCalculator.js — Calculadora rápida inline.
+   Extraído de App.jsx (estados L132-136)
+   ============================================================ */
+import { useState } from 'react';
 
-export function useCalculator() {
-  const [open, setOpen] = useState(false);
-  const [display, setDisplay] = useState('0');
-  const [prev, setPrev] = useState(null);
-  const [op, setOp] = useState(null);
-  const [shouldReset, setShouldReset] = useState(false);
+export default function useCalculator() {
+  const [calcOpen, setCalcOpen] = useState(false);
+  const [calcDisplay, setCalcDisplay] = useState("0");
+  const [calcPrev, setCalcPrev] = useState(null);
+  const [calcOp, setCalcOp] = useState(null);
+  const [calcReset, setCalcReset] = useState(false);
 
-  const input = useCallback((digit) => {
-    setDisplay((cur) => {
-      if (shouldReset || cur === '0') {
-        setShouldReset(false);
-        return String(digit);
-      }
-      return cur + String(digit);
-    });
-  }, [shouldReset]);
+  const calcInput = (val) => {
+    if (calcReset) {
+      setCalcDisplay(val);
+      setCalcReset(false);
+    } else {
+      setCalcDisplay(prev => (prev === "0" ? val : prev + val));
+    }
+  };
 
-  const setOperation = useCallback((nextOp) => {
-    setDisplay((cur) => {
-      setPrev(parseFloat(cur) || 0);
-      setOp(nextOp);
-      setShouldReset(true);
-      return cur;
-    });
-  }, []);
+  const calcSetOp = (op) => {
+    setCalcPrev(parseFloat(calcDisplay));
+    setCalcOp(op);
+    setCalcReset(true);
+  };
 
-  const calculate = useCallback(() => {
-    setDisplay((cur) => {
-      const current = parseFloat(cur) || 0;
-      if (prev == null || op == null) return cur;
+  const calcExecute = () => {
+    if (calcPrev === null || !calcOp) return;
+    const current = parseFloat(calcDisplay);
+    let result;
+    switch (calcOp) {
+      case '+': result = calcPrev + current; break;
+      case '-': result = calcPrev - current; break;
+      case '×': result = calcPrev * current; break;
+      case '÷': result = current !== 0 ? calcPrev / current : 0; break;
+      default: result = current;
+    }
+    setCalcDisplay(String(result));
+    setCalcPrev(null);
+    setCalcOp(null);
+    setCalcReset(true);
+  };
 
-      let result = 0;
-      switch (op) {
-        case '+': result = prev + current; break;
-        case '-': result = prev - current; break;
-        case '*': result = prev * current; break;
-        case '/': result = current !== 0 ? prev / current : 0; break;
-        default: result = current;
-      }
-
-      setPrev(null);
-      setOp(null);
-      setShouldReset(true);
-      return String(result);
-    });
-  }, [prev, op]);
-
-  const clear = useCallback(() => {
-    setDisplay('0');
-    setPrev(null);
-    setOp(null);
-    setShouldReset(false);
-  }, []);
-
-  const toggle = useCallback(() => {
-    setOpen((v) => !v);
-  }, []);
-
-  const transferToAmount = useCallback(() => {
-    return parseFloat(display) || 0;
-  }, [display]);
+  const calcClear = () => {
+    setCalcDisplay("0");
+    setCalcPrev(null);
+    setCalcOp(null);
+    setCalcReset(false);
+  };
 
   return {
-    open,
-    display,
-    input,
-    setOperation,
-    calculate,
-    clear,
-    toggle,
-    transferToAmount,
+    calcOpen, setCalcOpen,
+    calcDisplay, setCalcDisplay,
+    calcPrev, setCalcPrev,
+    calcOp, setCalcOp,
+    calcReset, setCalcReset,
+    calcInput,
+    calcSetOp,
+    calcExecute,
+    calcClear,
   };
 }
-
-export default useCalculator;

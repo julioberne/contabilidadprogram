@@ -15,12 +15,7 @@ const modules = [
   { id: 'contabilidad', label: 'Contabilidad', icon: '≡', group: 'FINANCIERO',
     accent: 'green', active: true, order: 1,
     desc: 'Transacciones · CoA · Balances\nPortafolios · Activos · IVA · GMF',
-    component: lazy(() => import('../App.jsx')),
-    wrapStyle: { minHeight: '100%', width: '100%' } },
-
-  { id: 'contabilidadv2', label: 'Contabilidad v2', icon: '⚡', group: 'FINANCIERO',
-    accent: 'green', active: true, order: 2,
-    desc: 'Motor v2 con hooks modulares',
+    // Módulo unificado: UI v1 sobre arquitectura modular (providers + adapters)
     component: lazy(() => import('../contabilidad-v2/ContabilidadApp.jsx')),
     wrapStyle: { minHeight: '100%', width: '100%' } },
 

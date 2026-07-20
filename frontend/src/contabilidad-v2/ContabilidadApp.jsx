@@ -22,10 +22,10 @@ import DiarioModule from './modules/diario/DiarioModule.jsx';
 import ContextPanelAdapter from './components/ContextPanelAdapter.jsx';
 
 // Componentes v1 (imports transitorios — se mudan en Fase 7)
-import CompanySelector from '../components/CompanySelector.jsx';
-import DashboardPanel from '../components/DashboardPanel.jsx';
-import ThirdPartyModal from '../components/ThirdPartyModal.jsx';
-import EvidenceModal from '../components/EvidenceModal.jsx';
+import CompanySelector from './modules/empresas/CompanySelector.jsx';
+import DashboardPanel from './modules/empresas/DashboardPanel.jsx';
+import ThirdPartyModal from './components/ThirdPartyModal.jsx';
+import EvidenceModal from './components/EvidenceModal.jsx';
 
 function ContabilidadInner() {
   const [activeTab, setActiveTab] = useState('terceros');

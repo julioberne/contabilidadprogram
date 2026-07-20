@@ -5,7 +5,7 @@
 // A Crédito → POST /api/cartera (CXC)
 // ============================================================
 import React, { useState, useEffect, useCallback } from 'react';
-import { API } from '../../config';
+import { API } from '../../../../config';
 
 // Colores del widget — acento cyan
 const C = {

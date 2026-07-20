@@ -4,7 +4,7 @@
    Extraído de App.jsx (estados L146-156, funciones L742-861)
    ============================================================ */
 import { useState, useRef } from 'react';
-import { API } from '../config';
+import { API } from '../../../config';
 
 const API_BASE_URL = API;
 

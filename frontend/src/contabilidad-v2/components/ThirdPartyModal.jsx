@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { API } from '../config';
+import { API } from '../../config';
 
 const ThirdPartyModal = ({ isOpen, onClose, onSelect }) => {
   const [thirdParties, setThirdParties] = useState([]);

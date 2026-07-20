@@ -19,7 +19,7 @@ export const COLORS = {
 export const CATEGORIAS = ['General', 'Uniformes', 'Útiles', 'Alimentos', 'Material Didáctico'];
 export const UNIDADES = ['unidad', 'kg', 'litro', 'caja'];
 
-import { API as API_BASE_URL } from '../../config';
+import { API as API_BASE_URL } from '../../../config';
 export { API_BASE_URL };
 
 // ── Formato moneda COP ─────────────────────────────────────
