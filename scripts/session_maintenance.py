@@ -728,9 +728,10 @@ def section_update_docs(results):
     checklist_path = os.path.join(ROOT, "CHECKLIST.md")
     hr_members = results.get('hr_members', '?')
     hr_payments = results.get('hr_payments', '?')
-    hub_tasks   = results.get('hub_tasks', '?')
-    hub_users   = results.get('hub_users', '?')
-    tx_count    = results.get('tx_count', '?')
+    hub_tasks     = results.get('hub_tasks', '?')
+    hub_users     = results.get('hub_users', '?')
+    tx_count      = results.get('tx_count', '?')
+    account_count = results.get('account_count', '?')
 
     checklist_content = f"""# Checklist de Inicio de Sesión — FIN-SYS OS v2.0
 
@@ -786,7 +787,7 @@ Esperar: `VITE v8.x ready → http://localhost:5173`
 
 ### 5. Módulo Principal (01–06)
 - [ ] `GET /api/portfolios` → 4 portafolios
-- [ ] `GET /api/accounts` → 7 cuentas
+- [ ] `GET /api/accounts` → {account_count} cuentas (dinámicas, creadas por el usuario)
 - [ ] `GET /api/transactions` → ≥{tx_count} registros
 
 ### 6. Project Hub (Módulo 08)
@@ -809,7 +810,7 @@ Esperar: `VITE v8.x ready → http://localhost:5173`
 | Tabla | Registros |
 |---|---|
 | `portfolios` | 4 |
-| `user_accounts` | 7 |
+| `user_accounts` | {account_count} (dinámico) |
 | `transactions` | ≥{tx_count} |
 | `entities` (CT) | 7 |
 | `workspace_users` (CT) | 5 |

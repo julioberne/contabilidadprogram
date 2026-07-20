@@ -158,7 +158,7 @@ features = [
     ("Bus de Eventos (K5)",              "OPERATIVO",   "kernel_event_bus.py"),
     ("Plan de Cuentas NIIF",             "OPERATIVO",   "chart_of_accounts"),
     ("4 Portafolios activos",            "OPERATIVO",   "portfolios"),
-    ("7 Cuentas bancarias",              "OPERATIVO",   "user_accounts"),
+    ("Cuentas bancarias (dinamicas)",    "OPERATIVO",   "user_accounts"),
     ("Paginacion TX (limit/offset)",     "OPERATIVO",   "GET /api/transactions"),
     ("Edicion de TX",                    "OPERATIVO",   "PUT /api/transactions/{id}"),
     ("Cuentas por Cobrar/Pagar",         "PARCIAL",     "cxp_cxc_ledger (sin UI completa)"),

@@ -307,11 +307,11 @@ def check_data_integrity(results):
         if p_count < 4:
             issues.append(f"Solo {p_count} portafolios (esperado: 4)")
 
-        # Verificar cuentas bancarias
+        # Verificar cuentas bancarias (dinámicas: las crea el usuario, no hay número fijo)
         cur.execute("SELECT COUNT(*) FROM user_accounts;")
         a_count = cur.fetchone()[0]
-        if a_count < 7:
-            issues.append(f"Solo {a_count} cuentas bancarias (esperado: 7)")
+        if a_count == 0:
+            issues.append("No hay cuentas bancarias — el usuario debe crear al menos una")
 
         conn.close()
 
