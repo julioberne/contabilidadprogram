@@ -114,28 +114,11 @@ def startup_event():
 
 
 # ==============================================================================
-# 📦 Producción: Servir frontend build (solo si frontend/dist existe)
-# ==============================================================================
-
-import pathlib
-_frontend_dist = pathlib.Path(__file__).parent / "frontend" / "dist"
-if _frontend_dist.exists():
-    from fastapi.responses import FileResponse
-    # Servir assets estáticos del frontend build
-    app.mount("/assets", StaticFiles(directory=str(_frontend_dist / "assets")), name="frontend-assets")
-
-    @app.get("/{full_path:path}")
-    def serve_frontend(full_path: str):
-        """Catch-all: sirve index.html para rutas SPA del frontend."""
-        file_path = _frontend_dist / full_path
-        if file_path.exists() and file_path.is_file():
-            return FileResponse(str(file_path))
-        return FileResponse(str(_frontend_dist / "index.html"))
-
-
-# ==============================================================================
 # 🏥 Health check (para Docker healthcheck + monitoreo)
 # ==============================================================================
+# IMPORTANTE: debe declararse ANTES del catch-all del frontend. FastAPI resuelve
+# las rutas por orden de registro, y "/{full_path:path}" captura cualquier GET
+# —incluido /api/health— si se registra primero.
 
 @app.get("/api/health", tags=["system"])
 def health_check():
@@ -155,6 +138,28 @@ def health_check():
         "db": db_status,
         "version": "2.0"
     }
+
+
+# ==============================================================================
+# 📦 Producción: Servir frontend build (solo si frontend/dist existe)
+# ==============================================================================
+# Va al FINAL a propósito: el catch-all sólo debe actuar sobre rutas que ningún
+# endpoint previo reclamó.
+
+import pathlib
+_frontend_dist = pathlib.Path(__file__).parent / "frontend" / "dist"
+if _frontend_dist.exists():
+    from fastapi.responses import FileResponse
+    # Servir assets estáticos del frontend build
+    app.mount("/assets", StaticFiles(directory=str(_frontend_dist / "assets")), name="frontend-assets")
+
+    @app.get("/{full_path:path}")
+    def serve_frontend(full_path: str):
+        """Catch-all: sirve index.html para rutas SPA del frontend."""
+        file_path = _frontend_dist / full_path
+        if file_path.exists() and file_path.is_file():
+            return FileResponse(str(file_path))
+        return FileResponse(str(_frontend_dist / "index.html"))
 
 
 if __name__ == "__main__":
