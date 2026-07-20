@@ -9,7 +9,7 @@
 | Capa | Tecnología | Archivo / Ruta | Puerto |
 |---|---|---|---|
 | Backend | FastAPI (Python 3.10+) | `server.py` | `:8000` |
-| Frontend | Vite + React | `frontend/src/` | `:5173` |
+| Frontend | Vite + React 19 | `frontend/` (`src/` = código) | `:5173` |
 | Base de Datos | PostgreSQL 17 (Supabase) | Cloud · us-east-2 | — |
 | IA Voz | Groq (Whisper + Llama 3.3) | `fin_sys_core/ai_engine.py` | — |
 | IA Fallback | Gemini API | `fin_sys_core/ai_engine.py` | — |
@@ -17,19 +17,55 @@
 
 ---
 
+## Cómo evaluar el estado del proyecto (EJECUTAR AL INICIO Y AL FINAL)
+
+Las fuentes ejecutables son la verdad. Los conteos hardcodeados (tablas, endpoints, TXs) **siempre derivan** — no confiar en números fijos; leerlos del output en vivo.
+
+```bash
+# 1. Salud completa del sistema (7 checks): frontend, backend, BD, motor, CT, Hub, integridad
+python scripts/health_check.py
+
+# 2. Mantenimiento de sesión (borradores, logs, cache)
+python scripts/session_maintenance.py
+
+# 3. Tests del motor matemático (deben pasar 5/5)
+python fin_sys_core/test_core.py
+
+# 4. Tests del kernel contable (partida doble Zero-COA)
+python kernel/test_kernel.py
+python kernel/test_e2e.py
+```
+
+**Checks del health_check.py (7)** — el orden importa, los posteriores se omiten si fallan los críticos:
+1. Frontend Vite `:5173` (si cae, prueba `:5174` → hay proceso Node zombie)
+2. Backend FastAPI `:8000`
+3. PostgreSQL (TXs, entidades CT, cuentas, TXs sin `account_id` → alerta DT-01)
+4. Motor matemático (IVA=19000, GMF=400 sobre 100000)
+5. Control Tower API (`/api/ct/entities`, KPIs holding)
+6. Project Hub API (workspaces, usuarios, tareas, notas)
+7. Integridad de datos (workspaces sin nombre, portafolios <4, cuentas bancarias = 0)
+
+**Contexto vivo de la sesión**: leer `memory-bank/activeContext.md` para saber en qué módulo se trabaja HOY y qué archivos están permitidos/prohibidos. Ese archivo se actualiza cada sesión; los conteos ahí son más frescos que los de este `AGENTS.md`.
+
+**Deuda técnica**: ver tabla DT-01..DT-09 en `memory-bank/activeContext.md` (DT-01 = balance -$11.2M por TXs legacy sin `account_id`; DT-04/DT-05 = MD5/SHA-256 pendientes de migrar a bcrypt).
+
+---
+
 ## Estado de Módulos
 
 | Módulo | Archivos Clave | Estado | Regla |
 |---|---|---|---|
-| **Shell Unificado** | `frontend/src/main.jsx`, `frontend/src/shell/*` | ✅ NUEVO (18 Jun 2026) | Solo agregar módulos nuevos al switch en main.jsx |
+| **Shell Unificado** | `frontend/src/main.jsx`, `frontend/src/shell/*` | ✅ ACTIVO | main.jsx consume del registry; no editar switch manual |
+| **Registry (SSOT)** | `frontend/src/registry/moduleRegistry.js` | ✅ ACTIVO | Agregar módulos aquí — Sidebar/Home/main.jsx leen automáticamente |
 | App Principal (01–06) | `frontend/src/App.jsx`, `server.py` | ✅ COMPLETO | NO refactorizar sin permiso |
+| Contabilidad v2 | `frontend/src/contabilidad-v2/ContabilidadApp.jsx` | ✅ ACTIVO | Motor v2 con hooks modulares |
 | fin_sys_core | `database_driver.py`, `tax_motor.py`, `ledger_math.py`, `ai_engine.py` | ✅ ESTABLE | Solo con aprobación explícita |
 | Control Tower (07) | `frontend/src/control-tower/*`, `fin_sys_core/control_tower_driver.py` | ✅ COMPLETO | NO mezclar con App.jsx |
 | Project Hub (08) | `frontend/src/project-hub/*`, `fin_sys_core/hub_driver.py` | ✅ COMPLETO | NO refactorizar sin permiso |
 | RRHH / Empresas (08c) | `project-hub/features/members/tabs/`, `fin_sys_core/hr_driver.py`, `fin_sys_core/hr_documents_driver.py` | ✅ EN USO | Solo agregar, no modificar existentes |
 | **Zero-COA** | `server.py` (bloque final), `kernel/`, `scripts/seed_puc.py`, `posting_rules` (BD) | ✅ FASE 1+2 | Emit automático de partida doble |
-| Módulo 09 (Bot IA) | `frontend/src/bot/*` (por crear) | 🔵 PLANIFICADO | Crear en carpeta nueva, registrar en shell |
-| Módulo 10 (Trading NASDAQ) | `frontend/src/trading/*` (por crear) | 🔵 PLANIFICADO | Crear en carpeta nueva, registrar en shell |
+| Módulo 09 (Bot IA) | `frontend/src/bot/*` (por crear) | 🔵 PLANIFICADO | Crear en carpeta nueva, registrar en registry |
+| Módulo 10 (Trading NASDAQ) | `frontend/src/trading/*` (por crear) | 🔵 PLANIFICADO | Crear en carpeta nueva, registrar en registry |
 
 ---
 
@@ -40,6 +76,13 @@
 - Módulos nuevos → nuevas rutas, nuevos archivos, nuevas carpetas
 - Endpoints nuevos → bloque separado al **final** de `server.py`
 - Antes de tocar `App.jsx`, proponer extracción a componente independiente en `frontend/src/modules/`
+
+### AGREGAR UN MÓDULO NUEVO (flujo correcto)
+1. Crear carpeta + componente en `frontend/src/<modulo>/`
+2. Agregar **una entrada** al array `modules` en `frontend/src/registry/moduleRegistry.js` (id, label, icon, group, component lazy, `active`)
+3. Sidebar, HomeDashboard y main.jsx lo consumen automáticamente — **no editar main.jsx**
+4. Si necesita endpoints → bloque al final de `server.py`
+5. Feature flags remotos (`/module-flags` en BD) pueden override del campo `active`
 
 ### PERMISOS EXPLÍCITOS POR ARCHIVO
 
@@ -56,21 +99,22 @@
 | `fin_sys_core/hr_documents_driver.py` | 🟢 ACTIVO — Solo agregar endpoints/funciones, no modificar existentes |
 | `project-hub/features/members/tabs/` | 🟢 ACTIVO — Libre modificación dentro de la carpeta |
 | `frontend/src/shell/shell.css` | 🟢 ACTIVO — Design tokens del shell, libre modificación |
-| `frontend/src/shell/Sidebar.jsx` | 🟢 ACTIVO — Solo agregar items al array NAV |
-| `frontend/src/shell/HomeDashboard.jsx` | 🟢 ACTIVO — Solo agregar módulos al array MODULES |
-| `frontend/src/main.jsx` | 🟡 Solo agregar nuevos `{view === 'x' && <ModuloX />}` al switch |
+| `frontend/src/shell/Sidebar.jsx` | 🟢 ACTIVO — Lee del registry; no hardcodear items |
+| `frontend/src/shell/HomeDashboard.jsx` | 🟢 ACTIVO — Lee del registry; no hardcodear módulos |
+| `frontend/src/registry/moduleRegistry.js` | 🟢 ACTIVO — SSOT de módulos, agregar entradas aquí |
+| `frontend/src/main.jsx` | 🟡 No editar el switch — consume del registry. Solo tocar si hay bug del shell |
 | `frontend/src/components/ContextPanel.jsx` | 🟢 ACTIVO — Libre modificación (Cartera + Zero-COA toggle) |
 | `kernel/*` | 🟢 ACTIVO — Motor contable, event bus, accounting |
 | `scripts/seed_puc.py` | 🟢 ACTIVO — Seed PUC + posting rules |
 
 ### ⚠️ ENDPOINTS HUÉRFANOS (documentar, NO borrar)
-Estos endpoints existen en `server.py` pero **no tienen consumidor activo** en el frontend:
+Existen en `server.py` pero **no tienen consumidor activo** en el frontend:
 - `POST /api/hr/storage/sign-upload` — Sustituido por data URL base64 (bucket bloquea MIME)
 - `POST /api/hr/salary/calculate` — Cálculo ocurre localmente en `SalaryTab.jsx`
 - `PUT /api/hr/salary/v2/{user_id}` — Versión beta sin uso
 - `PUT /api/hr/profile/v2/{user_id}` — Versión beta sin uso
 
-> **Regla**: Mantenerlos en código hasta la sesión de limpieza técnica (ver `docs/implementaciones_futuras.md` → ENDPOINTS_HUERFANOS).
+> **Regla**: Mantenerlos hasta la sesión de limpieza técnica (ver `docs/implementaciones_futuras.md` → ENDPOINTS_HUERFANOS).
 
 ### PROTOCOLO OBLIGATORIO ANTES DE CUALQUIER CAMBIO
 1. **Listar** exactamente qué archivos se van a modificar y por qué
@@ -80,9 +124,38 @@ Estos endpoints existen en `server.py` pero **no tienen consumidor activo** en e
 
 ---
 
+## Comandos de Desarrollo
+
+```bash
+# ── Backend (desde la raíz del proyecto) ──
+python server.py                              # arrancar FastAPI :8000
+python scripts/health_check.py                # health check (7 checks)
+python fin_sys_core/test_core.py              # tests motor matemático (5/5)
+python kernel/test_kernel.py                  # tests kernel Zero-COA
+python kernel/test_e2e.py                     # tests end-to-end kernel
+
+# ── Frontend (desde frontend/) ──
+npm run dev                                   # Vite dev server :5173
+npm run lint                                  # ESLint
+npm test                                      # Vitest (run once, jsdom)
+npm run test:watch                            # Vitest watch mode
+npm run build                                 # build producción
+
+# ── Si Vite arranca en :5174 (proceso Node zombie) ──
+#   Get-Process -Name node | Stop-Process -Force
+#   cd frontend && npm run dev
+
+# ── Si puerto 8000 ocupado ──
+#   Get-Process python | Stop-Process -Force
+```
+
+> **Orden de verificación recomendado**: `lint` → `typecheck` (no configurado actualmente) → `test` → `health_check`.
+
+---
+
 ## Identidad Visual
 
-### Módulo Principal (App 01–06)
+### Módulo Principal (App 01–06) — paleta brutalista
 - Fuente: `IBM Plex Mono` (monospaced en todo el texto)
 - Bordes: `2px solid #000000`
 - Border-radius: `0px` — absolutamente cuadrado
@@ -97,37 +170,14 @@ Estos endpoints existen en `server.py` pero **no tienen consumidor activo** en e
 
 ---
 
-## Comandos de Verificación
+## Arquitectura de Datos (Referencia Rápida — los conteos DERIVAN, verificar con health_check)
 
-```bash
-# Ejecutar al INICIO y al FINAL de cada sesión
-python scripts/health_check.py
-
-# Mantenimiento de sesión (limpieza de borradores, logs, cache)
-python scripts/session_maintenance.py
-
-# Tests unitarios del motor matemático (deben pasar 5/5)
-python fin_sys_core/test_core.py
-
-# Resultado esperado del health check:
-# ✅ Frontend  → :5173 OK
-# ✅ Backend   → :8000 OK
-# ✅ PostgreSQL → 18 TXs | 13 Entidades CT | 31 tablas
-# ✅ Motor     → IVA=19.000 | GMF=400
-# ✅ CT API    → Balance Holding $42,222,500
-# ✅ HR API    → Endpoints = 28 | Módulo 08c activo
-```
-
----
-
-## Arquitectura de Datos (Referencia Rápida)
-
-- **Portafolios activos**: 4 (IDs 1–4: Negocio A, Pegasus, Personal, Principal)
-- **Cuentas bancarias**: 7 (IDs 1–7, fijos — no reasignar)
-- **Entidades CT**: 13 en árbol de 4 niveles (Holding → Empresa → Sub → Proyecto)
-- **workspace_users CT**: 5 (admin: `andres@finsys.os / admin123`)
-- **Tablas Supabase**: 36 (actualizado 22 Jun 2026)
-- **Endpoints totales**: 94 (`/api/hr/` = 28, `/api/cartera` = 7, Zero-COA = 4)
+- **Portafolios**: 4 (IDs 1–4: Negocio A, Pegasus, Personal, Principal) — health_check alerta si <4
+- **Cuentas bancarias**: DINÁMICAS — las crea el usuario con su balance inicial (no hay número fijo). El seed por defecto inserta 5 si la tabla está vacía. health_check solo alerta si hay 0 cuentas
+- **Entidades CT**: árbol de 4 niveles (Holding → Empresa → Sub → Proyecto)
+- **workspace_users CT**: admin `andres@finsys.os / admin123`
+- **Storage Bucket**: `hr-docs` (público, MIME `application/octet-stream` para HTML)
+- Conteos de TXs, tablas y endpoints: **leer del output de `health_check.py`**, no hardcodear
 
 ---
 
@@ -135,3 +185,4 @@ python fin_sys_core/test_core.py
 
 > Leer `memory-bank/activeContext.md` para saber en qué módulo se está trabajando HOY
 > y cuáles archivos están permitidos/prohibidos en la sesión actual.
+> Ese archivo se actualiza cada sesión — es más fresco que este `AGENTS.md` para conteos y deuda técnica.

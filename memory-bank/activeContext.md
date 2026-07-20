@@ -5,51 +5,80 @@
 
 ---
 
-## Estado: 12 Jul 2026 — 16:52 COT
+## Estado: 13 Jul 2026 — 02:43 COT
+
+**Documento de estado completo:** `docs/estado_proyecto_13jul2026.md`
+
+## Módulo en foco: Contabilidad v2 (WIP local sin commit)
+
+| Archivo | Estado |
+|---|---|
+| `TransactionDraftProvider.jsx` | Nuevo — borrador global TX |
+| `RegistroForm.jsx` | Nuevo — formulario Módulo 01 |
+| `ContabilidadApp.jsx` | Integra provider + refresh post-registro |
+| `TercerosPanel.jsx` | Vinculación tercero ↔ draft (botón 🔗) |
+| `contabilidad-v2.css` | Estilos utilitarios cv2-* |
+
+---
 
 ## Módulos Activos
 
 | # | Módulo | Estado | Archivos clave |
 |---|---|---|---|
-| 01–06 | Contabilidad (TXs, Diario, KPIs, Voz, Perfil, Evidencia) | ✅ COMPLETO | `App.jsx`, `server.py` |
+| 01–06 | Contabilidad v1 (TXs, Diario, KPIs, Voz, Perfil, Evidencia) | ✅ COMPLETO | `App.jsx`, `server.py` |
+| — | **Contabilidad v2** | 🟡 EN DESARROLLO | `contabilidad-v2/ContabilidadApp.jsx` |
 | 07 | Control Tower | ✅ COMPLETO | `control-tower/`, `control_tower_driver.py` |
 | 08 | Project Hub | ✅ COMPLETO | `project-hub/`, `hub_driver.py` |
-| 08c | RRHH / Empresas / Documentos / Historial | ✅ EN USO | `project-hub/features/members/`, `hr_driver.py`, `hr_documents_driver.py` |
+| 08c | RRHH / Empresas / Documentos / Historial | ✅ EN USO | `project-hub/features/members/`, `hr_driver.py` |
+| — | Zero-COA Kernel | ✅ Fase 1+2 | `kernel/`, `routers/zero_coa.py` |
 | 09 | Bot IA (WhatsApp/Telegram + Groq) | 🔵 PLANIFICADO | — |
 | 10 | Trading NASDAQ (PnL, velas, heatmap) | 🔵 PLANIFICADO | — |
 
 ---
 
-## Trabajo Realizado en Sesión (2026-07-05)
+## Estado de Salud del Sistema (Verificado 13 Jul 2026 — 02:43 COT)
 
-### Módulo 08c — RRHH/Empresas: FIXES CRÍTICOS
+```
+❌ Frontend (React/Vite)    → :5173 y :5174 CAÍDOS
+❌ Backend (FastAPI)         → :8000 CAÍDO
+✅ PostgreSQL (Supabase)     → 15 TXs | 13 entidades CT | 5 cuentas (dinámicas, creadas por usuario)
+✅ Motor Matemático           → IVA=19.000 | GMF=400
+⚠️  Control Tower API          → OMITIDO (backend caído)
+⚠️  Project Hub API            → OMITIDO (backend caído)
+✅ Integridad de datos        → Sin anomalías (cuentas dinámicas: las crea el usuario)
+```
 
-| Archivo | Cambio |
-|---|---|
-| `frontend/src/project-hub/features/members/tabs/DocumentsTab.jsx` | Fix descarga blob, ícono 🧾 comprobante, FileCard voucher preview |
-| `frontend/src/project-hub/features/members/tabs/HistorialTab.jsx` | Upload comprobante vía `supabase.storage.from('hr-docs').upload()` directo (sin backend), fix closing brace parse error |
-| `server.py` | Endpoint `POST /api/hr/storage/sign-upload` actualizado a requests HTTP (sin SDK supabase Python) |
-
-### Bugs Corregidos Esta Sesión:
-1. **Parse error** en HistorialTab.jsx — llave de cierre `};` faltante por merge corrupto
-2. **`mime type text/html is not supported`** — Supabase Storage bloquea text/html; cambiado a `application/octet-stream`
-3. **`No module named 'supabase'`** — SDK Python no instalado; reemplazado por llamadas HTTP directas con `requests`
-4. **Descarga 404** — `<a href download>` → `downloadFile()` blob-based en FileCard y FileRow
-5. **Miniaturas** — FileCard ahora detecta `isVoucher` y muestra ícono 🧾 + label COMPROBANTE
+**Arrancar servicios:**
+```bash
+python server.py                    # Terminal 1
+cd frontend && npm run dev          # Terminal 2
+python scripts/health_check.py      # Re-verificar
+```
 
 ---
 
 ## Archivos Permitidos en Próxima Sesión
 
+### Si se continúa Contabilidad v2 (prioridad actual):
+```
+frontend/src/contabilidad-v2/**                              ← Activo
+frontend/src/registry/moduleRegistry.js                      ← Solo si se registra módulo nuevo
+```
+
+**Pendiente v2 antes de commit:**
+- Unificar API base URL (`config.js` vs `localhost:8000` hardcodeado)
+- Completar campos faltantes en RegistroForm (categoría, método pago, TRM)
+- Decidir estrategia v1 vs v2 (convivencia o migración)
+
 ### Si se trabaja en RRHH (módulo 08c):
 ```
-frontend/src/project-hub/features/members/tabs/DocumentsTab.jsx   ← Activo
-frontend/src/project-hub/features/members/tabs/HistorialTab.jsx    ← Activo
-frontend/src/project-hub/features/members/MemberProfile.jsx        ← Activo
-frontend/src/project-hub/features/members/CompanyMapTab.jsx        ← Activo
-frontend/src/project-hub/features/members/RRHHView.jsx             ← Activo
-fin_sys_core/hr_driver.py                                          ← Solo agregar, no modificar existentes
-fin_sys_core/hr_documents_driver.py                                ← Solo agregar, no modificar existentes
+frontend/src/project-hub/features/members/tabs/DocumentsTab.jsx
+frontend/src/project-hub/features/members/tabs/HistorialTab.jsx
+frontend/src/project-hub/features/members/MemberProfile.jsx
+frontend/src/project-hub/features/members/CompanyMapTab.jsx
+frontend/src/project-hub/features/members/RRHHView.jsx
+fin_sys_core/hr_driver.py                                          ← Solo agregar
+fin_sys_core/hr_documents_driver.py                                ← Solo agregar
 server.py                                                          ← Solo agregar al FINAL
 ```
 
@@ -59,7 +88,7 @@ server.py                    (solo agregar al FINAL)
 fin_sys_core/bot_driver.py   (NUEVO)
 frontend/src/bot/BotApp.jsx  (NUEVO)
 frontend/src/bot/components/ (NUEVO)
-main.jsx                     (solo añadir pestaña Bot al router)
+frontend/src/registry/moduleRegistry.js  (entrada bot)
 ```
 
 ### Si se trabaja en Módulo 10 (Trading):
@@ -67,7 +96,7 @@ main.jsx                     (solo añadir pestaña Bot al router)
 server.py                        (solo agregar al FINAL)
 fin_sys_core/trading_driver.py   (NUEVO)
 frontend/src/trading/TradingApp.jsx (NUEVO)
-main.jsx                         (solo añadir pestaña Trading al router)
+frontend/src/registry/moduleRegistry.js  (entrada trading)
 ```
 
 ## Archivos PROHIBIDOS (Zero-Impact Policy)
@@ -82,17 +111,42 @@ Tablas de BD existentes                 ← NO alterar schema sin aprobación ex
 
 ---
 
-## Estado de Salud del Sistema (Verificado 05 Jul 2026 — 19:09 COT | Revisión arquitectura: 12 Jul 2026)
+## Deuda Técnica Pendiente
 
-```
-✅ Frontend (React/Vite)    → :5173 OK
-✅  Backend (FastAPI)         → :8000 OK
-✅ PostgreSQL (Supabase)     → 13 TXs | 37 tablas | 13 entidades CT
-✅  Motor Matemático           → IVA=19.000 | GMF=400
-✅  Control Tower API          → Balance Holding $8,550,656
-✅  RRHH/Empresas              → N/A miembros | 13 pagos | 6 docs
-   Project Hub                  → 6 usuarios | 21 tareas | 7 notas
-```
+| ID | Problema | Prioridad |
+|---|---|---|
+| DT-01 | Balance Efectivo -$11.2M (legacy sin account_id) | Media |
+| DT-02 | `on_event` deprecation → migrar a `lifespan` FastAPI | Baja |
+| DT-03 | CT: CXP/CXC en KPIs parcial | Media |
+| DT-04 | MD5 en workspace_users → bcrypt | Alta |
+| DT-05 | SHA-256 en hub_users → bcrypt | Alta |
+| DT-06 | Bundle ~1.7MB sin code splitting | Media |
+| DT-07 | Fuentes Kanban/TaskModal pendientes (CSS classes no aplicadas) | Baja |
+| DT-08 | Integración contabilidad-nómina (totalizar gasto nómina en CoA) | Media |
+| DT-09 | Comprobante nómina: integrar con tablas contables al generarse | Baja |
+
+---
+
+## Orden de Trabajo — Sesión 13 Jul 2026
+
+### Opciones priorizadas (elegir una):
+1. **Opción E** — Cerrar Contabilidad v2 Fase 2 (paridad registro, unificar API, commit WIP) — **FOCO ACTUAL**
+2. **Opción A** — Módulo 09 Bot IA (WhatsApp + Groq Whisper) — ALTO VALOR
+3. **Opción B** — Módulo 10 Trading NASDAQ (posiciones + PnL) — ALTO VALOR
+4. **Opción C** — Kernel Partida Doble (K1–K6, cierra gap contable crítico)
+5. **Opción D** — Limpieza técnica (bcrypt, DT-01 balance, DT-02 lifespan)
+
+---
+
+## Instrucción al Agente al Inicio de Próxima Sesión
+
+1. Leer este archivo completo
+2. Leer `docs/estado_proyecto_13jul2026.md` para panorama completo
+3. Correr `python scripts/health_check.py`
+4. Correr `python scripts/session_maintenance.py --check` para estado actual
+5. **ANTES** de cualquier cambio: listar archivos a modificar y esperar aprobación
+6. Nunca modificar módulos COMPLETOS (01–08) sin aprobación explícita
+7. Zero-Impact Policy: módulos nuevos = nuevas carpetas
 
 ---
 
@@ -114,44 +168,7 @@ Tablas de BD existentes                 ← NO alterar schema sin aprobación ex
 
 ---
 
-## Deuda Técnica Pendiente
-
-| ID | Problema | Prioridad |
-|---|---|---|
-| DT-01 | Balance Efectivo -$11.2M (legacy sin account_id) | Media |
-| DT-02 | `on_event` deprecation → migrar a `lifespan` FastAPI | Baja |
-| DT-03 | CT: CXP/CXC en KPIs parcial | Media |
-| DT-04 | MD5 en workspace_users → bcrypt | Alta |
-| DT-05 | SHA-256 en hub_users → bcrypt | Alta |
-| DT-06 | Bundle ~1.7MB sin code splitting | Media |
-| DT-07 | Fuentes Kanban/TaskModal pendientes (CSS classes no aplicadas) | Baja |
-| DT-08 | Integración contabilidad-nómina (totalizar gasto nómina en CoA) | Media |
-| DT-09 | Comprobante nómina: integrar con tablas contables al generarse | Baja |
-
----
-
-## Orden de Trabajo — Sesión 12 Jul 2026
-
-> Análisis completo realizado. Ver `estado_proyecto_12jul2026.md` para documento completo.
-
-### Opciones priorizadas (elegir una):
-1. **Opción A** — Módulo 09 Bot IA (WhatsApp + Groq Whisper) — ALTO VALOR
-2. **Opción B** — Módulo 10 Trading NASDAQ (posiciones + PnL) — ALTO VALOR  
-3. **Opción C** — Kernel Partida Doble (K1–K6, cierra gap contable crítico)
-4. **Opción D** — Limpieza técnica (bcrypt, DT-01 balance, DT-02 lifespan)
-
----
-
-## Instrucción al Agente al Inicio de Próxima Sesión
-
-1. Leer este archivo completo
-2. Correr `python scripts/health_check.py`
-3. Correr `python scripts/session_maintenance.py --check` para estado actual
-4. **ANTES** de cualquier cambio: listar archivos a modificar y esperar aprobación
-5. Nunca modificar módulos COMPLETOS (01–08) sin aprobación explícita
-6. Zero-Impact Policy: módulos nuevos = nuevas carpetas
-
-## Contexto RRHH para Próxima Sesión
+## Contexto RRHH (referencia)
 
 El módulo 08c (RRHH/Empresas) incluye:
 - `CompanyMapTab.jsx` — árbol jerárquico Holding→Empresa→Subsidiaria→Proyecto
@@ -166,3 +183,11 @@ El módulo 08c (RRHH/Empresas) incluye:
 3. Guarda metadata en `hr_documents` via `POST /api/hr/documents/{user_id}`
 4. Vincula via `PUT /api/hr/payments/{user_id}/{rec_id}/voucher?doc_id={id}`
 5. DocumentsTab recarga y muestra tarjeta 🧾 COMPROBANTE
+
+---
+
+## Trabajo previo documentado
+
+- **Sesión 2026-07-05:** Fixes críticos RRHH (comprobantes, storage, parse error) — ver `docs/checkpoints.md`
+- **Sesión 2026-07-12:** Análisis arquitectura completo
+- **Sesión 2026-07-13:** Documentación de estado + foco Contabilidad v2

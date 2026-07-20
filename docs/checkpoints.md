@@ -2,6 +2,39 @@
 
 ---
 
+## Checkpoint 2026-07-13 — Sesión 02:43 COT
+
+**Estado**: ⚠️ Servicios locales caídos | BD + motor OK | Contabilidad v2 WIP
+
+### Trabajo Completado Esta Sesión:
+- **Documentación de estado** — `docs/estado_proyecto_13jul2026.md` creado (panorama completo)
+- **activeContext.md** actualizado — foco Contabilidad v2, health check en vivo
+- **Health check ejecutado** — 15 TXs, 5 cuentas (alerta: esperado 7), frontend/backend caídos
+
+### WIP sin commit (Contabilidad v2):
+- `TransactionDraftProvider.jsx` — borrador global de transacciones
+- `RegistroForm.jsx` — formulario Módulo 01 desacoplado
+- `ContabilidadApp.jsx`, `TercerosPanel.jsx`, `contabilidad-v2.css`
+
+### Estado BD al Cierre (health_check en vivo):
+- Transacciones: **15** (antes documentado: 13)
+- Entidades CT: 13
+- Cuentas bancarias: **5** (alerta integridad — esperado: 7)
+- Frontend/Backend: caídos en momento del check
+
+### Próxima Sesión — Opciones:
+1. **Opción E** — Cerrar Contabilidad v2 Fase 2 (unificar API, paridad form, commit)
+2. Arrancar servicios y re-ejecutar health_check completo (CT + Hub)
+3. Investigar cuentas bancarias faltantes (5 vs 7)
+4. Módulo 09 Bot IA / Módulo 10 Trading / Limpieza técnica
+
+### Archivos NO tocados esta sesión:
+- App.jsx, control-tower/*, database_driver.py, control_tower_driver.py, .env
+
+**Referencia:** `docs/estado_proyecto_13jul2026.md`
+
+---
+
 ## Checkpoint 2026-07-05 — Sesión 19:09 COT
 
 **Estado**: ✅ Sistema operativo | Módulo 08c RRHH activo
