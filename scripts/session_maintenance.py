@@ -355,7 +355,15 @@ def section_cleanup(results):
 # SECCIÓN 3 — ACTUALIZAR memory-bank/*.md
 # ══════════════════════════════════════════════════════════════════════════════
 def section_update_memory_bank(results):
-    header("📝 SECCIÓN 3/5 — ACTUALIZAR memory-bank/*.md")
+    header("📝 SECCIÓN 3/5 — memory-bank/*.md (mantenimiento MANUAL)")
+
+    # DESACTIVADO 20 Jul 2026: la regeneración por plantilla hardcodeada
+    # resucitaba contexto obsoleto (App.jsx, sesiones viejas) y pisaba las
+    # actualizaciones hechas al cierre de sesión. activeContext.md y
+    # progress.md se mantienen a mano (WORKFLOW.md FASE 5).
+    warn("Regeneración por plantilla DESACTIVADA — los .md se mantienen a mano")
+    info("Ver checkpoint 20 Jul 2026 en docs/checkpoints.md")
+    return
 
     mb_dir = os.path.join(ROOT, "memory-bank")
 
@@ -663,7 +671,13 @@ El módulo 08c (RRHH/Empresas) incluye:
 # SECCIÓN 4 — ACTUALIZAR docs/*.md
 # ══════════════════════════════════════════════════════════════════════════════
 def section_update_docs(results):
-    header("📊 SECCIÓN 4/5 — ACTUALIZAR docs/*.md")
+    header("📊 SECCIÓN 4/5 — docs/*.md (mantenimiento MANUAL)")
+
+    # DESACTIVADO 20 Jul 2026: igual que memory-bank — la plantilla
+    # hardcodeada agregaba checkpoints obsoletos y pisaba CHECKLIST.md.
+    warn("Regeneración por plantilla DESACTIVADA — los .md se mantienen a mano")
+    return
+
     docs_dir = os.path.join(ROOT, "docs")
 
     # ── checkpoints.md ────────────────────────────────────────────────────────
