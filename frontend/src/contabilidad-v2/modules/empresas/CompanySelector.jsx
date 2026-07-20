@@ -5,7 +5,7 @@
    Zero-Impact: Reemplaza el selector de portfolios en App.jsx
    ============================================================ */
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { API } from '../config';
+import { API } from '../../../config';
 
 /* ── Mapa de iconos por tipo de entidad ────────────────────── */
 const TYPE_ICONS = {

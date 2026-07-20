@@ -6,8 +6,8 @@
    TransactionDraftProvider (compartidos voz ↔ registro).
    ============================================================ */
 import { useState } from 'react';
-import VoiceIngestWidget from '../../../components/VoiceIngestWidget.jsx';
-import useVoiceRecorder from '../../../hooks/useVoiceRecorder.js';
+import VoiceIngestWidget from './VoiceIngestWidget.jsx';
+import useVoiceRecorder from './useVoiceRecorder.js';
 import { useEmpresa } from '../../engine/EmpresaProvider.jsx';
 import { useTransactionDraft } from '../../engine/TransactionDraftProvider.jsx';
 

@@ -4,7 +4,7 @@
    donde cada empresa muestra su balance. Sumatoria al final.
    ============================================================ */
 import { useState, useEffect, useCallback } from 'react';
-import { API } from '../config';
+import { API } from '../../../config';
 const LS_KEY = 'finsys_dashboard_collapsed';
 
 const fmt = (val) => {

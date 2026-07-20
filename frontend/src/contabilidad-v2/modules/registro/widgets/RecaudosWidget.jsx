@@ -4,7 +4,7 @@
 // 🟢 Pagado  🟡 Pendiente  🔴 Vencido
 // ============================================================
 import React, { useState, useEffect, useCallback } from 'react';
-import { API } from '../../config';
+import { API } from '../../../../config';
 
 // Colores del widget
 const C = {

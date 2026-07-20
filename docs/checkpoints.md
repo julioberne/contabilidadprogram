@@ -202,3 +202,29 @@
 - **Fixes**: parse error HistorialTab, upload comprobante, mime type, FileCard voucher
 
 ### Estado BD: 18 TXs | 31 tablas | 13 pagos HR | 4 docs HR
+
+---
+
+## Checkpoint — 19 Jul 2026 · Unificación de Contabilidad
+
+**Qué**: v1 (App.jsx monolítico) + v2 (contabilidad-v2 parcial) → UN solo módulo.
+Estrategia "adapter primero": los componentes v1 REALES montados vía adapters
+sobre providers modulares (Empresa → Tenant → Draft). Paridad por construcción,
+verificada por el usuario antes del flip.
+
+**Fases**: 0 merge fixes · 1 motor (contrato real + draft provider + tests
+payload) · 2 registro+voz+modales · 3 ContextPanel+diario · 4 shell layout v1 ·
+5/7 flip directo + limpieza (bake omitido por decisión del usuario).
+
+**Eliminado**: App.jsx, App.css, useTransactionForm, useAccounts(+test),
+RegistroForm v2, KPIBar v2, ContextPanel v2, paneles v2 duplicados
+(terceros/cartera/cuentas/impuestos/tags/inventarios), engine/index.js.
+Recuperable via git history.
+
+**Movido**: components/ y hooks/ de v1 → contabilidad-v2/{modules,components,hooks}.
+ErrorBoundary → shell/.
+
+**Bugs de paso**: paginación "Cargar más" (v1 leía data.items inexistente),
+KPIs v2 (leía caja_viva en vez de balance), TenantProvider sin industria real.
+
+**Pendiente**: renombrar contabilidad-v2/ → contabilidad/ (Vite lock en Windows).

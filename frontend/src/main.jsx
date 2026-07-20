@@ -3,7 +3,7 @@
    Módulos definidos en registry/moduleRegistry.js (SSOT).
    ============================================================ */
 import { useState, useEffect, Suspense, useCallback } from 'react';
-import ErrorBoundary from './components/ErrorBoundary.jsx';
+import ErrorBoundary from './shell/ErrorBoundary.jsx';
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import './shell/shell.css';

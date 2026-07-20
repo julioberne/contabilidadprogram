@@ -4,7 +4,7 @@
    estado de useLibroDiario + datos del EmpresaProvider.
    onEvidenceClick lo inyecta el shell (abre EvidenceModal).
    ============================================================ */
-import LibroDiario from '../../../components/LibroDiario.jsx';
+import LibroDiario from './LibroDiario.jsx';
 import { useEmpresa } from '../../engine/EmpresaProvider.jsx';
 import { useLibroDiario } from './useLibroDiario.js';
 

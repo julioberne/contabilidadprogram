@@ -3,7 +3,7 @@
    Extraído de App.jsx (estados L43-53, función L600-623)
    ============================================================ */
 import { useState } from 'react';
-import { API } from '../config';
+import { API } from '../../../config';
 
 const API_BASE_URL = API;
 

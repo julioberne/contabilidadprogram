@@ -53,7 +53,7 @@ export default function IndustryWidgets({
       return;
     }
     // Importación dinámica del JSON de templates
-    import(`../contabilidad-v2/engine/templates/${industry.toLowerCase()}.json`)
+    import(`../../engine/templates/${industry.toLowerCase()}.json`)
       .then(mod => setTemplate(mod.default))
       .catch(() => {
         console.warn(`[IndustryWidgets] Template '${industry}' no encontrado`);

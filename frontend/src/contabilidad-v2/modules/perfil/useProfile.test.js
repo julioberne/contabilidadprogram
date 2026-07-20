@@ -4,7 +4,7 @@
    ============================================================ */
 import { describe, it, expect } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import useProfile from '../useProfile';
+import useProfile from './useProfile';
 
 const mockFetchData = () => {};
 

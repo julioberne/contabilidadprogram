@@ -5,19 +5,22 @@
 
 ---
 
-## Estado: 13 Jul 2026 — 02:43 COT
+## Estado: 19 Jul 2026 — UNIFICACIÓN DE CONTABILIDAD COMPLETADA
 
-**Documento de estado completo:** `docs/estado_proyecto_13jul2026.md`
+**Un solo módulo Contabilidad** (UI de v1 + arquitectura modular v2).
+`App.jsx` monolítico ELIMINADO. Paridad verificada por el usuario antes del flip.
 
-## Módulo en foco: Contabilidad v2 (WIP local sin commit)
+## Estructura del módulo unificado (`frontend/src/contabilidad-v2/`)
 
-| Archivo | Estado |
+| Capa | Contenido |
 |---|---|
-| `TransactionDraftProvider.jsx` | Nuevo — borrador global TX |
-| `RegistroForm.jsx` | Nuevo — formulario Módulo 01 |
-| `ContabilidadApp.jsx` | Integra provider + refresh post-registro |
-| `TercerosPanel.jsx` | Vinculación tercero ↔ draft (botón 🔗) |
-| `contabilidad-v2.css` | Estilos utilitarios cv2-* |
+| `ContabilidadApp.jsx` | Shell con layout v1 (header empresas, alertas, dashboard, grid, diario) |
+| `engine/` | EmpresaProvider (portafolio+empresa+datos) · TransactionDraftProvider (form completo) · TenantProvider (labels por industria) · buildTransactionPayload (puro, con tests) |
+| `modules/` | registro/ (TransactionForm+CoA+widgets) · voz/ · diario/ · empresas/ · perfil/ — UI v1 + adapters |
+| `components/` | ContextPanel (7 tabs) + tabs/ + cartera/ + inventory/ + modales |
+| `hooks/` | useDashboardData (contrato real + paginación) · useCalculator · useAdminActions |
+
+Tests: `npm test` → buildTransactionPayload (paridad payload v1) + useCalculator + useProfile.
 
 ---
 
@@ -25,14 +28,16 @@
 
 | # | Módulo | Estado | Archivos clave |
 |---|---|---|---|
-| 01–06 | Contabilidad v1 (TXs, Diario, KPIs, Voz, Perfil, Evidencia) | ✅ COMPLETO | `App.jsx`, `server.py` |
-| — | **Contabilidad v2** | 🟡 EN DESARROLLO | `contabilidad-v2/ContabilidadApp.jsx` |
+| 01–06 | **Contabilidad (unificado)** | ✅ ACTIVO | `contabilidad-v2/` (ver arriba) |
 | 07 | Control Tower | ✅ COMPLETO | `control-tower/`, `control_tower_driver.py` |
 | 08 | Project Hub | ✅ COMPLETO | `project-hub/`, `hub_driver.py` |
 | 08c | RRHH / Empresas / Documentos / Historial | ✅ EN USO | `project-hub/features/members/`, `hr_driver.py` |
 | — | Zero-COA Kernel | ✅ Fase 1+2 | `kernel/`, `routers/zero_coa.py` |
 | 09 | Bot IA (WhatsApp/Telegram + Groq) | 🔵 PLANIFICADO | — |
 | 10 | Trading NASDAQ (PnL, velas, heatmap) | 🔵 PLANIFICADO | — |
+
+**Pendiente menor**: renombrar carpeta `contabilidad-v2/` → `contabilidad/`
+(requiere Vite detenido — el watcher bloquea el rename en Windows).
 
 ---
 
