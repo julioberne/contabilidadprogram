@@ -7,7 +7,7 @@ import './contabilidad-v2.css';
 
 // Engine: providers (Empresa → Tenant → Draft)
 import { EmpresaProvider, useEmpresa } from './engine/EmpresaProvider.jsx';
-import { TenantProvider, useLabel } from './engine/TenantProvider.jsx';
+import { TenantProvider } from './engine/TenantProvider.jsx';
 import { TransactionDraftProvider, useTransactionDraft } from './engine/TransactionDraftProvider.jsx';
 
 // Módulos (adapters sobre componentes v1)
@@ -16,7 +16,8 @@ import VozModule from './modules/voz/VozModule.jsx';
 
 // Componentes propios
 import KPIBar from './components/KPIBar.jsx';
-import ContextPanel from './components/ContextPanel.jsx';
+import ContextPanelAdapter from './components/ContextPanelAdapter.jsx';
+import DiarioModule from './modules/diario/DiarioModule.jsx';
 
 // Modales v1 (imports transitorios — se mudan en Fase 7)
 import ThirdPartyModal from '../components/ThirdPartyModal.jsx';
@@ -32,12 +33,9 @@ function ContabilidadInner() {
   // ── Draft global (para los modales) ────────────────────────
   const draft = useTransactionDraft();
 
-  // ── Modal de comprobante (se cablea al Libro Diario en Fase 3) ──
+  // ── Modal de comprobante (cableado al Libro Diario) ────────
   const [evidenceUrl, setEvidenceUrl] = useState(null);
   const [selectedEvidenceTx, setSelectedEvidenceTx] = useState(null);
-
-  // ── Labels dinámicos ───────────────────────────────────────
-  const lblTercero = useLabel('tercero');
 
   return (
     <div className="cv2-root">
@@ -91,129 +89,25 @@ function ContabilidadInner() {
           </div>
         </div>
 
-        {/* ── COL 2: Panel Derecho (Legos Modulares) ────── */}
+        {/* ── COL 2: Panel Derecho (ContextPanel v1 · 7 tabs) ── */}
         <div style={{
           borderLeft: '2px solid #000', background: '#fff',
           overflow: 'auto', display: 'flex', flexDirection: 'column',
         }}>
-          <ContextPanel
+          <ContextPanelAdapter
             activeTab={activeTab}
             setActiveTab={setActiveTab}
-            activePortfolio={activePortfolio}
-            allThirdParties={dashboard.allThirdParties}
           />
         </div>
       </div>
 
-      {/* ── ROW: Libro Diario Abajo ───────────────── */}
-      <div style={{ overflow: 'auto', background: '#fafaf5', borderTop: '2px solid #000' }}>
-        <div style={{
-          padding: '8px 16px',
-          borderBottom: '2px solid #000',
-          background: '#fff',
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        }}>
-          <span style={{
-            fontSize: 12, fontWeight: 800,
-            fontFamily: "'IBM Plex Mono', monospace",
-            textTransform: 'uppercase', letterSpacing: '0.1em',
-            color: '#000',
-          }}>
-            ≡ Libro Diario · {dashboard.transactions.length} de {dashboard.totalTxCount}
-          </span>
-          <button
-            onClick={dashboard.refreshTransactions}
-            className="cv2-btn cv2-btn-secondary"
-            style={{ fontSize: 10, padding: '4px 12px', fontWeight: 800, color: '#000', border: '2px solid #000' }}
-          >
-            ↻ Refrescar
-          </button>
-        </div>
-
-        {/* Transaction list — placeholder table */}
-          <div style={{ padding: 0 }}>
-            <table style={{
-              width: '100%', borderCollapse: 'collapse',
-              fontFamily: "'IBM Plex Mono', monospace", fontSize: 10,
-            }}>
-              <thead>
-                <tr style={{ background: '#000', color: '#fff', textTransform: 'uppercase', fontSize: 8 }}>
-                  <th style={{ padding: '6px 8px', borderRight: '1px solid #333', textAlign: 'left' }}>Fecha</th>
-                  <th style={{ padding: '6px 8px', borderRight: '1px solid #333', textAlign: 'left' }}>Concepto</th>
-                  <th style={{ padding: '6px 8px', borderRight: '1px solid #333', textAlign: 'left' }}>{lblTercero}</th>
-                  <th style={{ padding: '6px 8px', borderRight: '1px solid #333', textAlign: 'left' }}>Categoría</th>
-                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Monto</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dashboard.transactions.map((tx, i) => (
-                  <tr
-                    key={tx.id || i}
-                    style={{
-                      borderBottom: '1px solid #e0e0d8',
-                      background: i % 2 === 0 ? '#fff' : '#fafaf5',
-                      cursor: 'pointer',
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#e8ffe8'}
-                    onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? '#fff' : '#fafaf5'}
-                  >
-                    <td style={{ padding: '5px 8px', borderRight: '1px solid #f0f0e8' }}>
-                      {tx.transaction_date || '—'}
-                    </td>
-                    <td style={{
-                      padding: '5px 8px', borderRight: '1px solid #f0f0e8',
-                      fontWeight: 700, maxWidth: 200, overflow: 'hidden',
-                      textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    }}>
-                      {tx.concept || '—'}
-                    </td>
-                    <td style={{
-                      padding: '5px 8px', borderRight: '1px solid #f0f0e8',
-                      color: '#666', maxWidth: 120, overflow: 'hidden',
-                      textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    }}>
-                      {tx.third_party_name || '—'}
-                    </td>
-                    <td style={{
-                      padding: '5px 8px', borderRight: '1px solid #f0f0e8',
-                      color: '#999', fontSize: 9,
-                    }}>
-                      {tx.category || '—'}
-                    </td>
-                    <td style={{
-                      padding: '5px 8px', textAlign: 'right', fontWeight: 700,
-                      color: tx.type === 'INGRESO' ? '#00c853' : tx.type === 'GASTO' ? '#c00' : '#000',
-                    }}>
-                      {tx.type === 'GASTO' ? '-' : ''}${Number(tx.amount || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            {dashboard.transactions.length === 0 && (
-              <div style={{
-                padding: 40, textAlign: 'center',
-                fontFamily: "'IBM Plex Mono', monospace",
-                fontSize: 14, color: '#000', fontWeight: 800, textTransform: 'uppercase',
-              }}>
-                ▓ SIN TRANSACCIONES EN "{activePortfolio}"
-              </div>
-            )}
-
-            {dashboard.transactions.length < dashboard.totalTxCount && (
-              <div style={{ padding: 12, textAlign: 'center' }}>
-                <button
-                  onClick={() => dashboard.loadMoreTransactions(dashboard.transactions.length)}
-                  className="cv2-btn cv2-btn-secondary"
-                  style={{ fontSize: 10, fontWeight: 800, color: '#000', border: '2px solid #000' }}
-                >
-                  CARGAR MÁS ({dashboard.totalTxCount - dashboard.transactions.length} RESTANTES)
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+      {/* ── ROW: Libro Diario v1 (edición inline + expandible) ── */}
+      <DiarioModule
+        onEvidenceClick={(tx) => {
+          setSelectedEvidenceTx(tx);
+          setEvidenceUrl(tx.evidence_file_path || "recibo_demo.png");
+        }}
+      />
 
       {/* 🖼️ Modal de comprobante (v1 — se cablea al diario en Fase 3) */}
       <EvidenceModal
