@@ -2,14 +2,14 @@
    ContabilidadApp.jsx — FIN-SYS Contabilidad v2
    Orquestador principal · Arquitectura modular por hooks
    ============================================================ */
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import './contabilidad-v2.css';
 
 // Hooks centrales
-import { useDashboardData } from './hooks/useDashboardData.js';
 import { useCalculator } from './hooks/useCalculator.js';
 
-// Engine de templates
+// Engine: providers (Empresa → Tenant → Draft)
+import { EmpresaProvider, useEmpresa } from './engine/EmpresaProvider.jsx';
 import { TenantProvider, useLabel } from './engine/TenantProvider.jsx';
 import { TransactionDraftProvider } from './engine/TransactionDraftProvider.jsx';
 
@@ -17,7 +17,6 @@ import { TransactionDraftProvider } from './engine/TransactionDraftProvider.jsx'
 import KPIBar from './components/KPIBar.jsx';
 import ContextPanel from './components/ContextPanel.jsx';
 import RegistroForm from './modules/registro/RegistroForm.jsx';
-import { API } from '../config';
 
 // ── Secciones del panel izquierdo ──────────────────────────
 const LEFT_SECTIONS = [
@@ -27,31 +26,18 @@ const LEFT_SECTIONS = [
 ];
 
 function ContabilidadInner() {
-  const [activePortfolio, setActivePortfolio] = useState('Negocio A');
   const [activeSection, setActiveSection] = useState('registro');
   const [activeTab, setActiveTab] = useState('terceros');
 
-  // ── Hook maestro — reemplaza fetchData() ──────────────────
-  const dashboard = useDashboardData(activePortfolio);
+  // ── Datos de empresa/portafolio + dashboard (EmpresaProvider) ──
+  const dashboard = useEmpresa();
+  const { activePortfolio, setActivePortfolio } = dashboard;
 
   // ── Calculadora ────────────────────────────────────────────
   const calc = useCalculator();
 
   // ── Labels dinámicos ───────────────────────────────────────
   const lblTercero = useLabel('tercero');
-  const lblCxc = useLabel('cxc');
-  const lblCxp = useLabel('cxp');
-
-  // ── Tabs del Panel Contextual ──────────────────────────────
-  const PANEL_TABS = [
-    { key: 'terceros',  icon: '👤', label: lblTercero + 's' },
-    { key: 'cartera',   icon: '📄', label: 'Cartera' },
-    { key: 'activos',   icon: '📦', label: 'Recursos' },
-    { key: 'etiquetas', icon: '🏷️', label: 'Tags' },
-    { key: 'impuestos', icon: '📈', label: 'Tasas' },
-    { key: 'cuentas',   icon: '💳', label: 'Cuentas' },
-    { key: 'usuario',   icon: '⚙',  label: 'Config' },
-  ];
 
   return (
     <div className="cv2-root">
@@ -344,13 +330,25 @@ function ContabilidadInner() {
   );
 }
 
-// ── Export con TenantProvider envolviendo todo ──────────────
+// ── Puente: TenantProvider con la industria REAL de la empresa activa ──
+function TenantBridge({ children }) {
+  const { activeCompany } = useEmpresa();
+  return (
+    <TenantProvider industry={activeCompany?.industry}>
+      {children}
+    </TenantProvider>
+  );
+}
+
+// ── Export: jerarquía Empresa → Tenant → Draft ──────────────
 export default function ContabilidadApp() {
   return (
-    <TenantProvider>
-      <TransactionDraftProvider>
-        <ContabilidadInner />
-      </TransactionDraftProvider>
-    </TenantProvider>
+    <EmpresaProvider>
+      <TenantBridge>
+        <TransactionDraftProvider>
+          <ContabilidadInner />
+        </TransactionDraftProvider>
+      </TenantBridge>
+    </EmpresaProvider>
   );
 }
