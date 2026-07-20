@@ -1,6 +1,8 @@
 /* ============================================================
-   ContabilidadApp.jsx — FIN-SYS Contabilidad v2
-   Orquestador principal · Arquitectura modular por hooks
+   ContabilidadApp.jsx — FIN-SYS Contabilidad (unificado)
+   UI de v1 (layout verbatim de App.jsx:423-714) sobre la
+   arquitectura modular v2: providers (Empresa → Tenant → Draft)
+   + módulos adapter que montan los componentes v1 reales.
    ============================================================ */
 import { useState } from 'react';
 import './contabilidad-v2.css';
@@ -10,106 +12,189 @@ import { EmpresaProvider, useEmpresa } from './engine/EmpresaProvider.jsx';
 import { TenantProvider } from './engine/TenantProvider.jsx';
 import { TransactionDraftProvider, useTransactionDraft } from './engine/TransactionDraftProvider.jsx';
 
+// Hooks
+import { useAdminActions } from './hooks/useAdminActions.js';
+
 // Módulos (adapters sobre componentes v1)
 import RegistroModule from './modules/registro/RegistroModule.jsx';
 import VozModule from './modules/voz/VozModule.jsx';
-
-// Componentes propios
-import KPIBar from './components/KPIBar.jsx';
-import ContextPanelAdapter from './components/ContextPanelAdapter.jsx';
 import DiarioModule from './modules/diario/DiarioModule.jsx';
+import ContextPanelAdapter from './components/ContextPanelAdapter.jsx';
 
-// Modales v1 (imports transitorios — se mudan en Fase 7)
+// Componentes v1 (imports transitorios — se mudan en Fase 7)
+import CompanySelector from '../components/CompanySelector.jsx';
+import DashboardPanel from '../components/DashboardPanel.jsx';
 import ThirdPartyModal from '../components/ThirdPartyModal.jsx';
 import EvidenceModal from '../components/EvidenceModal.jsx';
 
 function ContabilidadInner() {
   const [activeTab, setActiveTab] = useState('terceros');
+  const [activeLeftSection, setActiveLeftSection] = useState('registro');
 
   // ── Datos de empresa/portafolio + dashboard (EmpresaProvider) ──
   const dashboard = useEmpresa();
-  const { activePortfolio, setActivePortfolio } = dashboard;
+  const { activePortfolio, activeCompany, handleSelectCompany, cajaViva } = dashboard;
 
   // ── Draft global (para los modales) ────────────────────────
   const draft = useTransactionDraft();
 
-  // ── Modal de comprobante (cableado al Libro Diario) ────────
+  // ── Acciones administrativas (⚡ Semillar / ⚠️ Reiniciar) ───
+  const { handleSeedSynthetic, handleResetDatabase } = useAdminActions();
+
+  // ── Modal de comprobante ───────────────────────────────────
   const [evidenceUrl, setEvidenceUrl] = useState(null);
   const [selectedEvidenceTx, setSelectedEvidenceTx] = useState(null);
 
   return (
-    <div className="cv2-root">
-      {/* ═══ KPI BAR ═══ */}
-      <KPIBar cajaViva={dashboard.cajaViva} />
+    <div className="min-h-screen bg-brutalBg text-black font-mono p-2 flex flex-col antialiased selection:bg-brutalGreen">
 
-      {/* ═══ PORTFOLIO SWITCHER ═══ */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 0,
-        borderBottom: '2px solid #000', background: '#fff',
-      }}>
-        {dashboard.portfolios.map(p => (
-          <button
-            key={p.name}
-            onClick={() => setActivePortfolio(p.name)}
-            style={{
-              padding: '6px 14px',
-              fontFamily: "'IBM Plex Mono', monospace",
-              fontSize: 10,
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-              cursor: 'pointer',
-              border: 'none',
-              borderRight: '2px solid #000',
-              background: activePortfolio === p.name ? '#000' : '#f5f5f0',
-              color: activePortfolio === p.name ? '#fff' : '#666',
-              transition: 'all 0.15s',
-            }}
-          >
-            {p.name}
-          </button>
-        ))}
-        <div style={{
-          marginLeft: 'auto', padding: '4px 12px',
-          fontSize: 9, fontFamily: "'IBM Plex Mono', monospace",
-          color: '#999', textTransform: 'uppercase',
-        }}>
-          v2 · {dashboard.transactions.length}/{dashboard.totalTxCount} TX
+      {/* ============================================================================== */}
+      {/* 🏛️ BARRA DE PORTAFOLIOS — compacta, sin duplicar el título del shell */}
+      {/* ============================================================================== */}
+      <header className="border-2 border-black bg-white px-2 py-1 mb-2 shadow-brutal flex items-center justify-between flex-wrap gap-1">
+        {/* Selector de Empresa (CompanySelector — entities de Control Tower) */}
+        <CompanySelector
+          activeCompanyId={activeCompany?.id}
+          onSelectCompany={handleSelectCompany}
+          onCompaniesLoaded={(entities) => {
+            // Auto-seleccionar la primera empresa si no hay ninguna activa
+            if (!activeCompany && entities.length > 0) {
+              const firstEmpresa = entities.find(e => e.type === 'EMPRESA') || entities[0];
+              handleSelectCompany(firstEmpresa);
+            }
+          }}
+          style={{ flex: 1 }}
+        />
+        {/* Acciones rápidas + estado */}
+        <div className="flex items-center gap-2">
+          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 border ${
+            cajaViva.status === 'NOMINAL' ? 'bg-brutalGreen border-black text-black' :
+            cajaViva.status === 'INSOLVENTE' ? 'bg-brutalCrimson border-black text-white animate-pulse' :
+            'bg-brutalAmber border-black text-black'
+          }`}>{cajaViva.status || 'CARGANDO'}</span>
+          <button onClick={handleSeedSynthetic} className="px-2 py-0.5 text-[10px] font-bold uppercase bg-brutalAmber border border-black text-black hover:bg-black hover:text-white transition-all" type="button" title="Datos sintéticos">⚡ Semillar</button>
+          <button onClick={handleResetDatabase} className="px-2 py-0.5 text-[10px] font-bold uppercase bg-brutalCrimson border border-black text-white hover:bg-black transition-all" type="button" title="Reiniciar BD">⚠️ Reiniciar</button>
         </div>
-      </div>
+      </header>
 
-      {/* ═══ 3-COLUMN GRID ═══ */}
-      <div className="cv2-grid">
-
-        {/* ── COL 1: Panel Izquierdo (Voz IA + Registro v1) ── */}
-        <div style={{ borderRight: '2px solid #000', background: '#fff', overflow: 'auto' }}>
-          <div style={{ padding: 12 }} className="space-y-2">
-            <VozModule />
-            <RegistroModule />
+      {/* Alert Banner for Financial Risk */}
+      {cajaViva.alerts && cajaViva.alerts.length > 0 && (
+        <div className="bg-brutalCrimson border-2 border-black text-white p-2 mb-2 shadow-brutal flex flex-col space-y-1 uppercase animate-pulse">
+          <span className="font-extrabold text-sm tracking-widest flex items-center">
+            🚨 ALERTA DE RIESGO FINANCIERO Y PATRIMONIAL DETECTADA 🚨
+          </span>
+          <div className="text-xs space-y-1 normal-case font-mono font-medium">
+            {cajaViva.alerts.map((alertText, index) => (
+              <p key={index}>• {alertText}</p>
+            ))}
           </div>
         </div>
+      )}
 
-        {/* ── COL 2: Panel Derecho (ContextPanel v1 · 7 tabs) ── */}
-        <div style={{
-          borderLeft: '2px solid #000', background: '#fff',
-          overflow: 'auto', display: 'flex', flexDirection: 'column',
-        }}>
+      {/* ============================================================================== */}
+      {/* 📊 DASHBOARD PANEL COLAPSABLE */}
+      {/* ============================================================================== */}
+      <DashboardPanel
+        cajaViva={cajaViva}
+        activeCompany={activeCompany}
+        activePortfolio={activePortfolio}
+        onQuickAction={(action) => {
+          if (action === 'registro') setActiveLeftSection('registro');
+          if (action === 'tercero') { setActiveTab('terceros'); }
+          if (action === 'recurso') { setActiveTab('activos'); }
+          if (action === 'balance') { /* scroll to libro diario */ }
+        }}
+        onSelectCompany={handleSelectCompany}
+        onCompaniesChanged={() => {
+          // El CompanySelector se refresca solo al montar
+        }}
+        industryKpis={[]}
+        industryData={{}}
+      />
+
+      {/* ============================================================================== */}
+      {/* 💼 SPLIT SCREEN WORKSPACE */}
+      {/* ============================================================================== */}
+      <div className="flex flex-col gap-2 flex-grow">
+
+        {/* ── FILA SUPERIOR ── */}
+        <div className="grid grid-cols-5 gap-2 items-start">
+
+          {/* PANEL IZQUIERDO VERTICAL (col-span-2) */}
+          <div className="lg:col-span-2 col-span-5 space-y-2">
+
+          {/* ═══ NAV SUBSECCIONES ═══ */}
+          <div className="bg-white border-2 border-black p-1.5 shadow-brutal">
+            <div className="flex flex-wrap gap-1">
+              {[
+                { id: 'registro', label: '📝 Registro', icon: '' },
+                { id: 'facturacion', label: '🧾 Facturación', icon: '' },
+              ].map((sec) => (
+                <button
+                  key={sec.id}
+                  type="button"
+                  onClick={() => setActiveLeftSection(sec.id)}
+                  className={`px-2 py-0.5 text-[9px] font-bold uppercase border transition-all ${
+                    activeLeftSection === sec.id
+                      ? 'bg-black text-white border-black'
+                      : 'border-gray-300 hover:border-black hover:bg-brutalNeutral'
+                  }`}
+                >{sec.label}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* ═══ FACTURACIÓN (subsección — placeholder v1) ═══ */}
+          {activeLeftSection === 'facturacion' && (
+            <div className="bg-white border-2 border-black p-2 shadow-brutal">
+              <h2 className="text-sm font-bold uppercase border-b-2 border-black pb-1 mb-2">🧾 Facturación</h2>
+              <div className="space-y-2">
+                <p className="text-[10px] text-gray-500 uppercase">Módulo de facturación electrónica en desarrollo.</p>
+                <div className="grid grid-cols-2 gap-1">
+                  <button type="button" className="border-2 border-black bg-brutalBg p-2 text-[10px] font-bold uppercase hover:bg-brutalNeutral transition-all text-left">
+                    📄 Nueva Factura
+                  </button>
+                  <button type="button" className="border-2 border-black bg-brutalBg p-2 text-[10px] font-bold uppercase hover:bg-brutalNeutral transition-all text-left">
+                    📋 Historial
+                  </button>
+                  <button type="button" className="border-2 border-black bg-brutalBg p-2 text-[10px] font-bold uppercase hover:bg-brutalNeutral transition-all text-left">
+                    📊 Reportes
+                  </button>
+                  <button type="button" className="border-2 border-black bg-brutalBg p-2 text-[10px] font-bold uppercase hover:bg-brutalNeutral transition-all text-left">
+                    ⚙️ Configuración
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Módulo de Voz IA — Widget Colapsable (adapter v1) */}
+          {activeLeftSection === 'registro' && <VozModule />}
+
+          {/* Formulario Manual Módulo 01 (adapter v1) */}
+          {activeLeftSection === 'registro' && <RegistroModule />}
+
+        </div>{/* fin panel izquierdo */}
+
+          {/* PANEL DERECHO — FORM + BD POR TAB (adapter v1) */}
           <ContextPanelAdapter
             activeTab={activeTab}
             setActiveTab={setActiveTab}
           />
-        </div>
-      </div>
 
-      {/* ── ROW: Libro Diario v1 (edición inline + expandible) ── */}
-      <DiarioModule
-        onEvidenceClick={(tx) => {
-          setSelectedEvidenceTx(tx);
-          setEvidenceUrl(tx.evidence_file_path || "recibo_demo.png");
-        }}
-      />
+        </div>{/* fin fila superior */}
 
-      {/* 🖼️ Modal de comprobante (v1 — se cablea al diario en Fase 3) */}
+        {/* ── FILA INFERIOR: Libro Diario ancho completo (adapter v1) ── */}
+        <DiarioModule
+          onEvidenceClick={(tx) => {
+            setSelectedEvidenceTx(tx);
+            setEvidenceUrl(tx.evidence_file_path || "recibo_demo.png");
+          }}
+        />
+
+        </div>{/* fin flex-col workspace */}
+
+      {/* 🖼️ EVIDENCE MODAL POPUP (v1) */}
       <EvidenceModal
         evidenceUrl={evidenceUrl}
         selectedEvidenceTx={selectedEvidenceTx}
@@ -120,7 +205,11 @@ function ContabilidadInner() {
         profile={dashboard.profile}
       />
 
-      {/* 👤 Modal de terceros (v1 — wiring verbatim de App.jsx) */}
+      {/* Footer */}
+      <footer className="mt-8 text-center text-xs text-gray-400 uppercase tracking-widest">
+        FIN-SYS OS v2.0 // NOMINAL OPERATION MODE // LOCALHOST DEPLOY
+      </footer>
+
       <ThirdPartyModal
         isOpen={draft.isThirdPartyModalOpen}
         onClose={() => draft.setIsThirdPartyModalOpen(false)}
