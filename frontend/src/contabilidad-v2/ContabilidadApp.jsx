@@ -5,36 +5,36 @@
 import { useState } from 'react';
 import './contabilidad-v2.css';
 
-// Hooks centrales
-import { useCalculator } from './hooks/useCalculator.js';
-
 // Engine: providers (Empresa → Tenant → Draft)
 import { EmpresaProvider, useEmpresa } from './engine/EmpresaProvider.jsx';
 import { TenantProvider, useLabel } from './engine/TenantProvider.jsx';
-import { TransactionDraftProvider } from './engine/TransactionDraftProvider.jsx';
+import { TransactionDraftProvider, useTransactionDraft } from './engine/TransactionDraftProvider.jsx';
 
-// Componentes
+// Módulos (adapters sobre componentes v1)
+import RegistroModule from './modules/registro/RegistroModule.jsx';
+import VozModule from './modules/voz/VozModule.jsx';
+
+// Componentes propios
 import KPIBar from './components/KPIBar.jsx';
 import ContextPanel from './components/ContextPanel.jsx';
-import RegistroForm from './modules/registro/RegistroForm.jsx';
 
-// ── Secciones del panel izquierdo ──────────────────────────
-const LEFT_SECTIONS = [
-  { id: 'registro',    icon: '✎', label: 'REGISTRO' },
-  { id: 'voz',         icon: '🎙', label: 'VOZ' },
-  { id: 'borradores',  icon: '📋', label: 'BORRADORES' },
-];
+// Modales v1 (imports transitorios — se mudan en Fase 7)
+import ThirdPartyModal from '../components/ThirdPartyModal.jsx';
+import EvidenceModal from '../components/EvidenceModal.jsx';
 
 function ContabilidadInner() {
-  const [activeSection, setActiveSection] = useState('registro');
   const [activeTab, setActiveTab] = useState('terceros');
 
   // ── Datos de empresa/portafolio + dashboard (EmpresaProvider) ──
   const dashboard = useEmpresa();
   const { activePortfolio, setActivePortfolio } = dashboard;
 
-  // ── Calculadora ────────────────────────────────────────────
-  const calc = useCalculator();
+  // ── Draft global (para los modales) ────────────────────────
+  const draft = useTransactionDraft();
+
+  // ── Modal de comprobante (se cablea al Libro Diario en Fase 3) ──
+  const [evidenceUrl, setEvidenceUrl] = useState(null);
+  const [selectedEvidenceTx, setSelectedEvidenceTx] = useState(null);
 
   // ── Labels dinámicos ───────────────────────────────────────
   const lblTercero = useLabel('tercero');
@@ -83,123 +83,11 @@ function ContabilidadInner() {
       {/* ═══ 3-COLUMN GRID ═══ */}
       <div className="cv2-grid">
 
-        {/* ── COL 1: Panel Izquierdo (Registro) ──────────── */}
+        {/* ── COL 1: Panel Izquierdo (Voz IA + Registro v1) ── */}
         <div style={{ borderRight: '2px solid #000', background: '#fff', overflow: 'auto' }}>
-          {/* Section tabs */}
-          <div style={{
-            display: 'flex', borderBottom: '2px solid #000',
-          }}>
-            {LEFT_SECTIONS.map(s => (
-              <button
-                key={s.id}
-                onClick={() => setActiveSection(s.id)}
-                style={{
-                  flex: 1, padding: '8px 4px',
-                  fontFamily: "'IBM Plex Mono', monospace",
-                  fontSize: 9, fontWeight: 700,
-                  textTransform: 'uppercase',
-                  cursor: 'pointer',
-                  border: 'none',
-                  borderRight: '1px solid #000',
-                  background: activeSection === s.id ? '#000' : 'transparent',
-                  color: activeSection === s.id ? '#fff' : '#999',
-                }}
-              >
-                {s.icon} {s.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Section content */}
-          <div style={{ padding: 12 }}>
-            {activeSection === 'registro' && (
-              <div>
-                <RegistroForm 
-                  accounts={dashboard.accounts} 
-                  activePortfolio={activePortfolio}
-                  onRegister={async (draft) => {
-                    const success = await draft.submitTransaction(activePortfolio);
-                    if (success) {
-                      dashboard.refreshTransactions();
-                      dashboard.refreshBalance();
-                    }
-                  }} 
-                />
-
-                {/* Calculator toggle */}
-                <button
-                  onClick={calc.toggle}
-                  className="cv2-btn"
-                  style={{ marginTop: 12, width: '100%' }}
-                >
-                  {calc.open ? '▲ Cerrar Calculadora' : '⊞ Calculadora Rápida'}
-                </button>
-
-                {calc.open && (
-                  <div style={{
-                    border: '2px solid #000', marginTop: 8,
-                    background: '#fff', boxShadow: '3px 3px 0 #000',
-                  }}>
-                    <div style={{
-                      padding: '8px 12px', borderBottom: '2px solid #000',
-                      textAlign: 'right', fontSize: 18,
-                      fontFamily: "'IBM Plex Mono', monospace",
-                      fontWeight: 700, background: '#f5f5f0',
-                    }}>
-                      {calc.display}
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0 }}>
-                      {['7','8','9','÷','4','5','6','×','1','2','3','-','C','0','=','+'].map(key => (
-                        <button
-                          key={key}
-                          onClick={() => {
-                            if (key === 'C') calc.clear();
-                            else if (key === '=') calc.calculate();
-                            else if (['+','-','×','÷'].includes(key)) calc.setOperation(key);
-                            else calc.input(key);
-                          }}
-                          style={{
-                            padding: '10px 0',
-                            fontFamily: "'IBM Plex Mono', monospace",
-                            fontSize: 14, fontWeight: 700,
-                            cursor: 'pointer',
-                            border: '1px solid #000',
-                            background: ['+','-','×','÷'].includes(key) ? '#000' : key === 'C' ? '#c00' : key === '=' ? '#00e676' : '#fff',
-                            color: ['+','-','×','÷'].includes(key) ? '#fff' : key === 'C' ? '#fff' : '#000',
-                          }}
-                        >
-                          {key}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeSection === 'voz' && (
-              <div>
-                <div className="cv2-section-label">Grabador de Voz · Fase 3</div>
-                <p style={{
-                  fontSize: 10, fontFamily: "'IBM Plex Mono', monospace",
-                  color: '#999', textTransform: 'uppercase',
-                }}>
-                  ▓ El grabador de voz se integrará en la Fase 3.
-                </p>
-              </div>
-            )}
-
-            {activeSection === 'borradores' && (
-              <div>
-                <div className="cv2-section-label">Borradores de Voz · Fase 3</div>
-                <p style={{
-                  fontSize: 10, fontFamily: "'IBM Plex Mono', monospace",
-                  color: '#999', textTransform: 'uppercase',
-                }}>
-                  ▓ Los borradores se integrarán en la Fase 3.
-                </p>
-              </div>
-            )}
+          <div style={{ padding: 12 }} className="space-y-2">
+            <VozModule />
+            <RegistroModule />
           </div>
         </div>
 
@@ -326,6 +214,31 @@ function ContabilidadInner() {
             )}
           </div>
         </div>
+
+      {/* 🖼️ Modal de comprobante (v1 — se cablea al diario en Fase 3) */}
+      <EvidenceModal
+        evidenceUrl={evidenceUrl}
+        selectedEvidenceTx={selectedEvidenceTx}
+        onClose={() => {
+          setEvidenceUrl(null);
+          setSelectedEvidenceTx(null);
+        }}
+        profile={dashboard.profile}
+      />
+
+      {/* 👤 Modal de terceros (v1 — wiring verbatim de App.jsx) */}
+      <ThirdPartyModal
+        isOpen={draft.isThirdPartyModalOpen}
+        onClose={() => draft.setIsThirdPartyModalOpen(false)}
+        onSelect={(tp) => {
+          draft.setThirdPartyType(tp.identification_type);
+          draft.setThirdPartyNumber(tp.identification_number);
+          draft.setThirdPartyName(tp.name);
+          draft.setThirdPartyEmail(tp.email);
+          draft.setThirdPartyPhone(tp.phone);
+          draft.setThirdPartyWebsite(tp.website);
+        }}
+      />
     </div>
   );
 }
