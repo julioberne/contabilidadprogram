@@ -228,3 +228,12 @@ ErrorBoundary → shell/.
 KPIs v2 (leía caja_viva en vez de balance), TenantProvider sin industria real.
 
 **Pendiente**: renombrar contabilidad-v2/ → contabilidad/ (Vite lock en Windows).
+
+## Checkpoint — 20 Jul 2026 · Pipeline de deploy restaurado
+
+Prod estuvo congelado del 7 al 20 jul: el compose usa proveedor "Custom Git"
+y Dokploy no crea el webhook de GitHub automáticamente — nunca existió.
+Diagnóstico vía API de Dokploy (token en scratch/dokploy.env), deploy manual
+con POST /api/compose.deploy, y webhook creado en GitHub (push → :3000
+/api/deploy/compose/<token>). Módulo Contabilidad unificado EN PRODUCCIÓN.
+Pendiente de seguridad: rotar el GitHub PAT del provider.

@@ -36,8 +36,16 @@ Tests: `npm test` → buildTransactionPayload (paridad payload v1) + useCalculat
 | 09 | Bot IA (WhatsApp/Telegram + Groq) | 🔵 PLANIFICADO | — |
 | 10 | Trading NASDAQ (PnL, velas, heatmap) | 🔵 PLANIFICADO | — |
 
-**Pendiente menor**: renombrar carpeta `contabilidad-v2/` → `contabilidad/`
-(requiere Vite detenido — el watcher bloquea el rename en Windows).
+## Deploy (verificado 20 Jul 2026)
+
+- Producción: http://159.223.156.50:8080 · Panel Dokploy: :3000 · UN solo compose `finsys-app` (backend+backend, `docker-compose.yml`)
+- **Auto-deploy restaurado**: el webhook GitHub → Dokploy no existía (proveedor Custom Git no lo crea solo); prod estuvo congelado 7-20 jul. Webhook creado el 20 Jul.
+- Deploy manual de respaldo: `POST /api/compose.deploy` con la API key de `scratch/dokploy.env` (gitignorado).
+
+## Pendientes
+
+1. **Seguridad**: rotar el GitHub PAT del provider de Dokploy (quedó expuesto en una sesión); opcional regenerar el webhook token del compose.
+2. **Cosmético**: renombrar `contabilidad-v2/` → `contabilidad/` (requiere Vite detenido — el watcher bloquea el rename en Windows).
 
 ---
 
