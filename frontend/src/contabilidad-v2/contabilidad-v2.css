@@ -15,8 +15,8 @@
 /* Panel layout */
 .cv2-grid {
   display: grid;
-  grid-template-columns: 320px 1fr 300px;
-  min-height: calc(100vh - 50px);
+  grid-template-columns: 1fr 350px;
+  min-height: auto;
 }
 
 @media (max-width: 1200px) {
