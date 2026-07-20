@@ -1,17 +1,19 @@
 import { useState } from 'react';
 import { useTerceros } from './useTerceros.js';
 import { useLabel } from '../../engine/TenantProvider.jsx';
+import { useTransactionDraft } from '../../engine/TransactionDraftProvider.jsx';
 
 const ID_TYPES = ['NIT', 'CC', 'CE', 'PP'];
 
 export function TercerosPanel() {
   const lblTercero = useLabel('tercero');
   const [formOpen, setFormOpen] = useState(false);
+  const draft = useTransactionDraft(); // Access the global draft
 
   const {
     loading, search, setSearch,
     editingId, editData, setEditData,
-    form, updateForm, resetForm,
+    form, updateForm,
     filtered, create, update, remove,
     startEdit, cancelEdit,
   } = useTerceros();
@@ -221,6 +223,16 @@ export function TercerosPanel() {
                       </div>
                     ) : (
                       <div style={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
+                        <button
+                          onClick={() => draft.setThirdParty(tp)}
+                          title="Vincular a registro"
+                          style={{
+                            border: draft.thirdParty?.id === tp.id ? '2px solid #00e676' : '1px solid #000',
+                            background: draft.thirdParty?.id === tp.id ? '#00e676' : '#f5f5f0',
+                            cursor: 'pointer', fontSize: 11, padding: '2px 4px',
+                            fontWeight: 700
+                          }}
+                        >🔗</button>
                         <button
                           onClick={() => startEdit(tp)}
                           title="Editar"
