@@ -57,13 +57,16 @@ export function useDashboardData(activePortfolio) {
       if (dashRes.ok) {
         const data = await dashRes.json();
         setPortfolios(data.portfolios || []);
-        setCajaViva({ ...DEFAULT_CAJA_VIVA, ...(data.caja_viva || {}) });
+        // Contrato real del backend (routers/dashboard_data.py): el objeto
+        // de KPIs viaja en `balance`, no en `caja_viva`.
+        setCajaViva({ ...DEFAULT_CAJA_VIVA, ...(data.balance || {}) });
         setTransactions(data.transactions || []);
         setTotalTxCount(data.total_tx_count ?? (data.transactions || []).length);
         setAccounts(data.accounts || []);
         setProfile(data.profile || { name: '', email: '', role: '', avatar_style: '' });
 
-        const tree = data.coa_tree || [];
+        // COA viaja como { status: "OK"|"EMPTY", data: [...] } | null
+        const tree = (data.coa && data.coa.status === 'OK') ? data.coa.data : [];
         setCoaTree(tree);
         const flat = flattenCoa(tree);
         setCoaFlatAccounts(flat.filter((n) => !n.is_group));
@@ -96,11 +99,15 @@ export function useDashboardData(activePortfolio) {
   const refreshTransactions = useCallback(async () => {
     if (!activePortfolio) return;
     try {
-      const res = await fetch(`${API}/transactions?limit=50&portfolio=${activePortfolio}`);
+      // GET /transactions ignora limit/offset y devuelve lista cruda.
+      // El único endpoint que pagina es /dashboard-data.
+      const res = await fetch(
+        `${API}/dashboard-data?portfolio=${encodeURIComponent(activePortfolio)}&limit=50&offset=0`
+      );
       if (res.ok) {
         const data = await res.json();
-        setTransactions(data.transactions || data || []);
-        setTotalTxCount(data.total_count ?? (data.transactions || data || []).length);
+        setTransactions(data.transactions || []);
+        setTotalTxCount(data.total_tx_count ?? (data.transactions || []).length);
       }
     } catch (err) {
       console.error('[useDashboardData] refreshTransactions error:', err);
@@ -122,15 +129,16 @@ export function useDashboardData(activePortfolio) {
   const loadMoreTransactions = useCallback(async (currentCount) => {
     if (!activePortfolio) return;
     try {
+      // Paginación real vía /dashboard-data (GET /transactions no pagina)
       const res = await fetch(
-        `${API}/transactions?limit=50&offset=${currentCount}&portfolio=${activePortfolio}`
+        `${API}/dashboard-data?portfolio=${encodeURIComponent(activePortfolio)}&limit=50&offset=${currentCount}`
       );
       if (res.ok) {
         const data = await res.json();
-        const newTxs = data.transactions || data || [];
+        const newTxs = data.transactions || [];
         setTransactions((prev) => [...prev, ...newTxs]);
-        if (data.total_count != null) {
-          setTotalTxCount(data.total_count);
+        if (data.total_tx_count != null) {
+          setTotalTxCount(data.total_tx_count);
         }
       }
     } catch (err) {
@@ -159,6 +167,7 @@ export function useDashboardData(activePortfolio) {
     coaTree,
     coaFlatAccounts,
     allThirdParties,
+    setAllThirdParties,
     loading,
     refreshBalance,
     refreshTransactions,
