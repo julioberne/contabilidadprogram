@@ -131,12 +131,14 @@ Tablas de BD existentes                 ← NO alterar schema sin aprobación ex
 | DT-01 | Balance Efectivo -$11.2M (legacy sin account_id) | Media |
 | DT-02 | `on_event` deprecation → migrar a `lifespan` FastAPI | Baja |
 | DT-03 | CT: CXP/CXC en KPIs parcial | Media |
-| DT-04 | MD5 en workspace_users → bcrypt | Alta |
-| DT-05 | SHA-256 en hub_users → bcrypt | Alta |
+| ~~DT-04~~ | ~~MD5 en workspace_users → bcrypt~~ ✅ **RESUELTO 2026-07-26** (fallback MD5 eliminado, seed y BD en bcrypt/pgcrypto — ver `docs/remediacion_2026-07.md`) | — |
+| ~~DT-05~~ | ~~SHA-256 en hub_users → bcrypt~~ ✅ **RESUELTO 2026-07-26** (`_hash_password` muerto eliminado; el path real siempre fue bcrypt) | — |
 | DT-06 | Bundle ~1.7MB sin code splitting | Media |
 | DT-07 | Fuentes Kanban/TaskModal pendientes (CSS classes no aplicadas) | Baja |
 | DT-08 | Integración contabilidad-nómina (totalizar gasto nómina en CoA) | Media |
 | DT-09 | Comprobante nómina: integrar con tablas contables al generarse | Baja |
+| DT-10 | Webhook GitHub→Dokploy inexistente: push a master NO despliega solo (confirmado 26 Jul) | Alta |
+| DT-11 | Fase 5 de la remediación sin ejecutar: print→logging, lifespan (=DT-02), TRM 4000 hardcodeada, float→Decimal en capa Python | Media |
 
 ---
 
