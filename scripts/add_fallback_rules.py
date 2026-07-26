@@ -14,10 +14,14 @@ if os.path.exists(_env_path):
 
 from fin_sys_core.db_pool import get_conn, put_conn
 
+# NOTA: usar solo cuentas que existen en seed_puc. La 4120 ("Ingresos por
+# Alquiler") NO está en el seed estándar — solo en la plantilla inmobiliaria —
+# y desde F3 el kernel rechaza asientos contra cuentas inexistentes
+# (CuentaNoExisteError). 417505 (ingresos por servicios) sí está en el seed.
 RULES = [
-    ("Ingreso Genérico",        "__FALLBACK__",           "INGRESO", "__BANK__", "4120",   "Fallback ingreso"),
+    ("Ingreso Genérico",        "__FALLBACK__",           "INGRESO", "__BANK__", "417505", "Fallback ingreso"),
     ("Gasto Genérico",          "__FALLBACK__",           "GASTO",   "5105",     "__BANK__","Fallback gasto"),
-    ("Servicios Profesionales", "Servicios Profesionales","INGRESO", "__BANK__", "4120",   "Ingreso por servicios profesionales"),
+    ("Servicios Profesionales", "Servicios Profesionales","INGRESO", "__BANK__", "417505", "Ingreso por servicios profesionales"),
     ("Venta de Productos",      "Venta de Productos",     "INGRESO", "__BANK__", "413505", "Venta de productos"),
     ("Servicios Públicos",      "Servicios Públicos",     "GASTO",   "513525",   "__BANK__","Pago servicios públicos"),
 ]

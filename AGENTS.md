@@ -108,11 +108,13 @@ python kernel/test_e2e.py
 | `scripts/seed_puc.py` | 🟢 ACTIVO — Seed PUC + posting rules |
 
 ### ⚠️ ENDPOINTS HUÉRFANOS (documentar, NO borrar)
-Existen en `server.py` pero **no tienen consumidor activo** en el frontend:
+Existen en el código pero **no tienen consumidor activo** en el frontend
+(ambos son stubs `NOT_IMPLEMENTED` en `routers/hr.py`):
 - `POST /api/hr/storage/sign-upload` — Sustituido por data URL base64 (bucket bloquea MIME)
 - `POST /api/hr/salary/calculate` — Cálculo ocurre localmente en `SalaryTab.jsx`
-- `PUT /api/hr/salary/v2/{user_id}` — Versión beta sin uso
-- `PUT /api/hr/profile/v2/{user_id}` — Versión beta sin uso
+
+_Eliminados (2026-07-26, ya no existen en el código): `PUT /api/hr/salary/v2/{user_id}`
+y `PUT /api/hr/profile/v2/{user_id}`._
 
 > **Regla**: Mantenerlos hasta la sesión de limpieza técnica (ver `docs/implementaciones_futuras.md` → ENDPOINTS_HUERFANOS).
 

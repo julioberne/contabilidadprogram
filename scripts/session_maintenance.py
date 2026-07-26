@@ -28,15 +28,15 @@ import argparse
 import re
 
 # ─── Colores ANSI ─────────────────────────────────────────────────────────────
-GREEN  = "\\033[92m"
-RED    = "\\033[91m"
-YELLOW = "\\033[93m"
-CYAN   = "\\033[96m"
-DIM    = "\\033[90m"
-BOLD   = "\\033[1m"
-RESET  = "\\033[0m"
-BLUE   = "\\033[94m"
-MAGENTA= "\\033[95m"
+GREEN  = "\033[92m"
+RED    = "\033[91m"
+YELLOW = "\033[93m"
+CYAN   = "\033[96m"
+DIM    = "\033[90m"
+BOLD   = "\033[1m"
+RESET  = "\033[0m"
+BLUE   = "\033[94m"
+MAGENTA= "\033[95m"
 
 def ok(msg):    print(f"{GREEN}✅{RESET} {msg}")
 def fail(msg):  print(f"{RED}❌{RESET} {msg}")

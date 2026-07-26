@@ -50,8 +50,12 @@ export default function MembersList({ workspace, user }) {
     ...((metrics.find(mx => mx.id === m.id)) || {}),
   }));
 
-  // Persona abierta: se resuelve desde la URL contra la lista cargada
-  const selected = selectedId ? membersWithMetrics.find(m => m.id === selectedId) : null;
+  // Persona abierta: se resuelve desde la URL contra la lista cargada.
+  // String() en ambos lados: los ids del hub son UUID (string), pero el
+  // usuario sintético del SSO usa id numérico — así el match nunca falla.
+  const selected = selectedId
+    ? membersWithMetrics.find(m => String(m.id) === String(selectedId))
+    : null;
 
   const handleAddMember = async (e) => {
     e.preventDefault();

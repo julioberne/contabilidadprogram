@@ -64,9 +64,9 @@ function TreeNode({ node, allNodes, depth = 0, onDelete, onAdd, expandedIds, tog
         </div>
       )}
 
-      {/* Hijos */}
+      {/* Hijos: depth+1 para que la jerarquía se indente por nivel */}
       {isExpanded && children.map(child => (
-        <TreeNode key={child.id} node={child} allNodes={allNodes} depth={0}
+        <TreeNode key={child.id} node={child} allNodes={allNodes} depth={depth + 1}
           onDelete={onDelete} onAdd={onAdd}
           expandedIds={expandedIds} toggleExpand={toggleExpand} />
       ))}
