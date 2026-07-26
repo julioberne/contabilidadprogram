@@ -126,9 +126,12 @@ def create_manual_transaction(tx_input: TransactionInput):
         # 3. Guardar en la base de datos PostgreSQL
         transaction_id = registrar_transaccion(tx_data)
 
-        # 4. Zero-COA: Emitir asiento contable al kernel (non-blocking)
+        # 4. Zero-COA: Emitir asiento contable al kernel.
+        # No bloquea la TX, pero el resultado se reporta (antes: except: pass
+        # → el diario podía desincronizarse en silencio).
+        journal = {"status": "error", "error": "sin ejecutar"}
         try:
-            emit_journal_entry(
+            journal = emit_journal_entry(
                 category=tx_input.category or "",
                 tx_type=tx_input.type,
                 amount=float(tax_results["net_value"]),
@@ -136,15 +139,18 @@ def create_manual_transaction(tx_input: TransactionInput):
                 referencia=f"TX-{transaction_id}",
                 descripcion=tx_input.concept or "",
                 fecha=tx_input.transaction_date
-            )
-        except Exception:
-            pass  # Non-blocking: Zero-COA failure must not break transactions
+            ) or {"status": "error", "error": "emit devolvió None"}
+        except Exception as e:
+            journal = {"status": "error", "error": str(e)}
+        if journal.get("status") not in ("ok", "skipped_duplicate"):
+            print(f"❌ [ZERO-COA] TX-{transaction_id} SIN asiento contable: {journal}")
 
         return {
             "status": "EXITOSO",
             "transaction_id": transaction_id,
             "net_value": tax_results["net_value"],
-            "concept": tx_input.concept
+            "concept": tx_input.concept,
+            "journal": journal.get("status"),
         }
     except ExcedeLimitePocketError as e:
         # Error controlado de sobregasto de bolsillo

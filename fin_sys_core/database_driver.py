@@ -569,76 +569,11 @@ def registrar_transaccion(tx_data: Dict[str, Any]) -> int:
         release_db_connection(conn)
         conn = None  # ya devuelta al pool: el finally no debe re-liberarla
 
-        # ── KERNEL: Emitir evento contable → genera asiento de partida doble ──
-        try:
-            from kernel.kernel_event_bus import emit as kernel_emit
-
-            tx_type = tx_data["type"].upper()
-            amount = float(tx_data["amount"])
-            fecha = tx_data["transaction_date"]
-            concepto = tx_data["concept"]
-            iva = float(tx_data.get("tax_iva_amount", 0))
-            gmf = float(tx_data.get("tax_gmf_amount", 0))
-
-            asientos = []
-
-            if tx_type == "INGRESO":
-                # Db Bancos (recibo dinero) / Cr Ingresos (genero ingreso)
-                asientos = [
-                    {"cuenta_codigo": "1110", "cuenta_nombre": "Bancos", "cuenta_tipo": "ACTIVO",
-                     "debito": amount, "credito": 0},
-                    {"cuenta_codigo": "4120", "cuenta_nombre": "Ingresos Operacionales", "cuenta_tipo": "INGRESO",
-                     "debito": 0, "credito": amount},
-                ]
-            elif tx_type == "GASTO":
-                # Db Gastos (registro gasto) / Cr Bancos (sale dinero)
-                asientos = [
-                    {"cuenta_codigo": "5105", "cuenta_nombre": "Gastos Operacionales", "cuenta_tipo": "GASTO",
-                     "debito": amount, "credito": 0},
-                    {"cuenta_codigo": "1110", "cuenta_nombre": "Bancos", "cuenta_tipo": "ACTIVO",
-                     "debito": 0, "credito": amount},
-                ]
-            elif tx_type == "TRANSFERENCIA":
-                # Db Banco destino / Cr Banco origen (movimiento entre cuentas)
-                asientos = [
-                    {"cuenta_codigo": "1110", "cuenta_nombre": "Bancos (destino)", "cuenta_tipo": "ACTIVO",
-                     "debito": amount, "credito": 0},
-                    {"cuenta_codigo": "1110", "cuenta_nombre": "Bancos (origen)", "cuenta_tipo": "ACTIVO",
-                     "debito": 0, "credito": amount},
-                ]
-
-            # Asientos adicionales por impuestos
-            if iva > 0 and tx_type == "INGRESO":
-                # IVA cobrado al cliente → Pasivo (debo pagarle a la DIAN)
-                asientos.append({"cuenta_codigo": "2408", "cuenta_nombre": "IVA por Pagar", "cuenta_tipo": "PASIVO",
-                                 "debito": 0, "credito": iva})
-                # Ajustar el ingreso neto (el ingreso real es amount - iva)
-                asientos[1]["credito"] = amount - iva
-            elif iva > 0 and tx_type == "GASTO":
-                # IVA pagado → Activo (la DIAN me lo debe)
-                asientos.append({"cuenta_codigo": "2408", "cuenta_nombre": "IVA Descontable", "cuenta_tipo": "ACTIVO",
-                                 "debito": iva, "credito": 0})
-                # Ajustar el gasto neto
-                asientos[0]["debito"] = amount - iva
-
-            if gmf > 0:
-                # GMF → Gasto financiero adicional
-                asientos.append({"cuenta_codigo": "5305", "cuenta_nombre": "GMF (4x1000)", "cuenta_tipo": "GASTO",
-                                 "debito": gmf, "credito": 0})
-                asientos.append({"cuenta_codigo": "1110", "cuenta_nombre": "Bancos (GMF)", "cuenta_tipo": "ACTIVO",
-                                 "debito": 0, "credito": gmf})
-
-            if asientos:
-                kernel_emit("fin.transaccion.registrada", {
-                    "fecha": str(fecha),
-                    "modulo_origen": "fin",
-                    "referencia": f"TX-{transaction_id}",
-                    "descripcion": concepto,
-                    "asientos": asientos,
-                })
-        except Exception as kernel_err:
-            # El evento contable es complementario — si falla, la TX original NO se pierde
-            print(f"⚠️ [KERNEL] No se pudo emitir evento contable para TX-{transaction_id}: {kernel_err}")
+        # NOTA (F3): la emisión del asiento contable vive ÚNICAMENTE en el
+        # caller (routers/transactions.py → shared.helpers.emit_journal_entry,
+        # vía posting_rules). El bloque hardcodeado que existía aquí generaba
+        # un SEGUNDO grupo de asientos por TX con códigos PUC inventados
+        # (4120 no existe en el seed) — eliminado.
 
         return transaction_id
     except Exception as e:
@@ -1195,6 +1130,10 @@ def reset_db() -> bool:
         cur.execute("TRUNCATE third_parties RESTART IDENTITY CASCADE;")
         cur.execute("TRUNCATE user_accounts RESTART IDENTITY CASCADE;")
         cur.execute("TRUNCATE user_profiles RESTART IDENTITY CASCADE;")
+        # F3: el diario del kernel TAMBIÉN se reinicia. Antes quedaban asientos
+        # huérfanos (TX-n sin transacción) que colisionaban cuando la secuencia
+        # reutilizaba los ids.
+        cur.execute("TRUNCATE kernel_journal_entries RESTART IDENTITY;")
 
         
         # Volver a semillar los datos iniciales

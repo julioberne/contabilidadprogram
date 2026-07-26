@@ -31,6 +31,8 @@ TABLA QUE USA:
 """
 
 import logging
+import uuid
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Dict, Any, List, Optional
 from psycopg2.extras import RealDictCursor
 
@@ -38,6 +40,28 @@ logger = logging.getLogger("kernel.accounting")
 
 # Importar pool de conexiones centralizado
 from fin_sys_core.db_pool import get_conn, put_conn
+
+# Un centavo: todo monto se normaliza a 2 decimales con Decimal (nunca float)
+_CENT = Decimal("0.01")
+
+# Tipo de cuenta según el primer dígito del PUC colombiano
+_PUC_TIPO = {
+    "1": "ACTIVO", "2": "PASIVO", "3": "PATRIMONIO",
+    "4": "INGRESO", "5": "GASTO", "6": "GASTO", "7": "GASTO",
+}
+
+
+def _monto(valor: Any) -> Decimal:
+    """Convierte a Decimal de 2 decimales. str(x) evita el ruido binario de float."""
+    try:
+        return Decimal(str(valor if valor is not None else 0)).quantize(_CENT, rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError):
+        raise PartidaDobleError(f"Monto inválido en asiento: {valor!r}")
+
+
+def derivar_tipo_puc(cuenta_codigo: str) -> str:
+    """Deriva ACTIVO/PASIVO/... del primer dígito del código PUC."""
+    return _PUC_TIPO.get(str(cuenta_codigo or "")[:1], "")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -93,6 +117,19 @@ def init_journal_entries_table():
             -- Metadata
             created_at TIMESTAMPTZ DEFAULT NOW()
         );
+        """)
+
+        # Idempotencia: número de línea dentro del grupo + índice ÚNICO parcial.
+        # Un re-emit del mismo (modulo, referencia) choca en la línea 1 y se
+        # rechaza completo — imposible duplicar asientos de una misma TX.
+        cur.execute("""
+        ALTER TABLE kernel_journal_entries
+            ADD COLUMN IF NOT EXISTS linea INTEGER;
+        """)
+        cur.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_journal_modulo_ref_linea
+            ON kernel_journal_entries(modulo_origen, referencia, linea)
+            WHERE referencia IS NOT NULL AND referencia <> '' AND linea IS NOT NULL;
         """)
 
         # Índices para consultas frecuentes
@@ -154,78 +191,119 @@ def registrar_asiento(evento: Dict[str, Any]) -> Dict[str, Any]:
         PartidaDobleError: Si débitos ≠ créditos
     """
     asientos = evento.get("asientos", [])
-    
+
     if not asientos:
         raise PartidaDobleError("El evento no contiene asientos")
-    
-    # ── Validar partida doble ─────────────────────────────────────────────────
-    total_debito = sum(float(a.get("debito", 0)) for a in asientos)
-    total_credito = sum(float(a.get("credito", 0)) for a in asientos)
-    
-    if abs(total_debito - total_credito) > 0.01:
+
+    # ── Validar partida doble con Decimal y tolerancia CERO ──────────────────
+    # float acumula error binario (0.1+0.2 != 0.3); en contabilidad Debe=Haber
+    # es exacto o el asiento se rechaza.
+    total_debito = sum((_monto(a.get("debito", 0)) for a in asientos), Decimal("0"))
+    total_credito = sum((_monto(a.get("credito", 0)) for a in asientos), Decimal("0"))
+
+    if total_debito != total_credito:
         raise PartidaDobleError(
             f"Partida doble no cuadra: Débitos={total_debito:,.2f} ≠ Créditos={total_credito:,.2f}"
         )
-    
-    # ── Generar ID de grupo ───────────────────────────────────────────────────
+
     fecha = evento.get("fecha", "1900-01-01")
     modulo = evento.get("modulo_origen", "unknown")
     referencia = evento.get("referencia", "")
     descripcion = evento.get("descripcion", "")
-    
+
     conn = get_conn()
     try:
         cur = conn.cursor()
-        
-        # Obtener siguiente ID de grupo para hoy
-        cur.execute(
-            "SELECT COUNT(*) FROM kernel_journal_entries WHERE fecha = %s",
-            (fecha,)
-        )
-        count = cur.fetchone()[0]
-        fecha_clean = fecha.replace("-", "")
-        entry_group_id = f"JE-{fecha_clean}-{count + 1:03d}"
-        
+
+        # ── Idempotencia (chequeo rápido) ─────────────────────────────────────
+        # Si este módulo ya asentó esta referencia, no se duplica. El índice
+        # único uq_journal_modulo_ref_linea cubre además la carrera concurrente.
+        if referencia:
+            cur.execute("""
+                SELECT entry_group_id FROM kernel_journal_entries
+                WHERE modulo_origen = %s AND referencia = %s LIMIT 1
+            """, (modulo, referencia))
+            existente = cur.fetchone()
+            if existente:
+                logger.info(f"↩️ Asiento ya existente para {modulo}/{referencia} — omitido (idempotencia)")
+                return {
+                    "status": "skipped_duplicate",
+                    "entry_group_id": existente[0],
+                    "lineas": 0,
+                }
+
+        # ── Validar que las cuentas existen ───────────────────────────────────
+        # Un código es válido si está en el catálogo (chart_of_accounts) O si
+        # una posting rule activa lo declara (el COA por portafolio suele estar
+        # incompleto respecto a las reglas Zero-COA, que son la fuente de verdad).
+        codigos = sorted({str(a.get("cuenta_codigo", "")).strip() for a in asientos})
+        if any(not c for c in codigos):
+            raise CuentaNoExisteError("Asiento con cuenta_codigo vacío")
+        cur.execute("""
+            SELECT DISTINCT code FROM chart_of_accounts WHERE code = ANY(%(c)s)
+            UNION
+            SELECT DISTINCT debit_account_code FROM posting_rules
+                WHERE is_active AND debit_account_code = ANY(%(c)s)
+            UNION
+            SELECT DISTINCT credit_account_code FROM posting_rules
+                WHERE is_active AND credit_account_code = ANY(%(c)s)
+        """, {"c": codigos})
+        existentes = {r[0] for r in cur.fetchall()}
+        faltantes = [c for c in codigos if c not in existentes]
+        if faltantes:
+            raise CuentaNoExisteError(
+                f"Cuentas inexistentes (ni en COA ni en posting rules): {', '.join(faltantes)}. "
+                f"Carga el plan de cuentas o corrige la posting rule."
+            )
+
+        # ── ID de grupo sin COUNT+1 (el COUNT era una condición de carrera) ──
+        fecha_clean = str(fecha).replace("-", "")
+        entry_group_id = f"JE-{fecha_clean}-{uuid.uuid4().hex[:6].upper()}"
+
         # ── Insertar cada línea del asiento ───────────────────────────────────
-        for asiento in asientos:
-            cuenta_codigo = asiento.get("cuenta_codigo", "")
+        for num_linea, asiento in enumerate(asientos, start=1):
+            cuenta_codigo = str(asiento.get("cuenta_codigo", "")).strip()
             cuenta_nombre = asiento.get("cuenta_nombre", "")
-            cuenta_tipo = asiento.get("cuenta_tipo", "")
-            debito = float(asiento.get("debito", 0))
-            credito = float(asiento.get("credito", 0))
-            
+            cuenta_tipo = asiento.get("cuenta_tipo") or derivar_tipo_puc(cuenta_codigo)
+            debito = _monto(asiento.get("debito", 0))
+            credito = _monto(asiento.get("credito", 0))
+
             cur.execute("""
                 INSERT INTO kernel_journal_entries
                     (entry_group_id, fecha, cuenta_codigo, cuenta_nombre, cuenta_tipo,
-                     debito, credito, modulo_origen, referencia, descripcion)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     debito, credito, modulo_origen, referencia, descripcion, linea)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 entry_group_id, fecha, cuenta_codigo, cuenta_nombre, cuenta_tipo,
-                debito, credito, modulo, referencia, descripcion
+                debito, credito, modulo, referencia, descripcion, num_linea
             ))
-        
+
         conn.commit()
         cur.close()
-        
+
         logger.info(
             f"✅ Asiento {entry_group_id}: {len(asientos)} líneas | "
             f"Db={total_debito:,.2f} Cr={total_credito:,.2f} | "
             f"Módulo={modulo} Ref={referencia}"
         )
-        
+
         return {
             "status": "ok",
             "entry_group_id": entry_group_id,
             "lineas": len(asientos),
-            "total_debito": total_debito,
-            "total_credito": total_credito,
+            "total_debito": float(total_debito),
+            "total_credito": float(total_credito),
         }
-    
-    except PartidaDobleError:
+
+    except (PartidaDobleError, CuentaNoExisteError):
         conn.rollback()
         raise
     except Exception as e:
         conn.rollback()
+        # Carrera perdida contra el índice único = otro proceso ya asentó esto
+        if "uq_journal_modulo_ref_linea" in str(e):
+            logger.info(f"↩️ Asiento duplicado bloqueado por índice único: {modulo}/{referencia}")
+            return {"status": "skipped_duplicate", "entry_group_id": None, "lineas": 0}
         logger.error(f"❌ Error registrando asiento: {e}")
         raise
     finally:
