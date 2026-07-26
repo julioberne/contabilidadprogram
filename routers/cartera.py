@@ -34,19 +34,7 @@ def get_cartera_summary():
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        # Ensure cartera_payments table
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS cartera_payments (
-                id SERIAL PRIMARY KEY,
-                ledger_id INTEGER NOT NULL REFERENCES cxp_cxc_ledger(id) ON DELETE CASCADE,
-                amount DECIMAL(15,2) NOT NULL,
-                payment_date DATE DEFAULT CURRENT_DATE,
-                note TEXT,
-                balance_after DECIMAL(15,2),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        """)
-        conn.commit()
+        # cartera_payments se crea en init_db() al arrancar (ya no DDL por request)
         cur.execute("""
             SELECT
                 COUNT(*) FILTER (WHERE type='CXC') as total_cxc,
@@ -71,7 +59,7 @@ def get_cartera_summary():
     except Exception as e:
         if conn:
             try: release_db_connection(conn)
-            except: pass
+            except Exception: pass
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/cartera/{ledger_id}/payments")
@@ -99,7 +87,7 @@ def get_cartera_payments(ledger_id: int):
     except Exception as e:
         if conn:
             try: release_db_connection(conn)
-            except: pass
+            except Exception: pass
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/cartera/{ledger_id}/payment")
@@ -135,17 +123,23 @@ def register_cartera_payment(ledger_id: int, body: dict):
                 amount=amount, referencia=f"PAY-{pid}",
                 descripcion=f"Abono cartera #{ledger_id}"
             )
-        except: pass
+        except Exception as emit_err:
+            print(f"⚠️ [CARTERA] Fallo emitiendo asiento de abono PAY-{pid}: {emit_err}")
         cur.close()
         release_db_connection(conn)
+        conn = None
         return {"status": "OK", "payment_id": pid, "new_balance": new_balance, "new_status": new_status}
     except HTTPException:
         raise
     except Exception as e:
-        if conn:
-            try: release_db_connection(conn)
-            except: pass
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Libera también cuando la salida fue una HTTPException (p.ej. 404)
+        if conn is not None:
+            try:
+                release_db_connection(conn)
+            except Exception:
+                pass
 
 @router.post("/api/cartera")
 def create_cartera_entry(body: dict):
@@ -188,7 +182,8 @@ def create_cartera_entry(body: dict):
                 referencia=f"{body['type']}-{lid}",
                 descripcion=f"Crear {body['type']} #{lid}"
             )
-        except: pass
+        except Exception as emit_err:
+            print(f"⚠️ [CARTERA] Fallo emitiendo asiento {body['type']}-{lid}: {emit_err}")
         cur.close()
         release_db_connection(conn)
         return {"status": "CREADO", "id": lid, "remaining_balance": remaining}
@@ -197,7 +192,7 @@ def create_cartera_entry(body: dict):
     except Exception as e:
         if conn:
             try: release_db_connection(conn)
-            except: pass
+            except Exception: pass
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -227,7 +222,7 @@ def create_third_party(body: dict):
     except Exception as e:
         if conn:
             try: release_db_connection(conn)
-            except: pass
+            except Exception: pass
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -287,7 +282,7 @@ def get_cartera_alerts():
     except Exception as e:
         if conn:
             try: release_db_connection(conn)
-            except: pass
+            except Exception: pass
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -307,11 +302,22 @@ def delete_cartera_entry(ledger_id: int):
         conn.commit()
         cur.close()
         release_db_connection(conn)
+        conn = None
         return {"status": "ELIMINADO", "id": ledger_id}
     except HTTPException:
         raise
     except Exception as e:
-        if conn:
-            try: release_db_connection(conn)
-            except: pass
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Libera también cuando la salida fue una HTTPException (p.ej. 404 con
+        # el DELETE de payments ya ejecutado): el finally garantiza rollback
+        # implícito al devolver la conexión sin commit
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            try:
+                release_db_connection(conn)
+            except Exception:
+                pass

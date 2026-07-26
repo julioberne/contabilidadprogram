@@ -22,6 +22,17 @@ def _get_conn():
     from database_driver import get_db_connection
     return get_db_connection()
 
+
+def _put_conn(conn):
+    """Devuelve la conexión al pool (tolerante a errores)."""
+    if conn is None:
+        return
+    try:
+        from database_driver import release_db_connection
+        release_db_connection(conn)
+    except Exception:
+        pass
+
 # ── Modelos ──────────────────────────────────────────────────
 
 class ModuleFlagUpdate(BaseModel):
@@ -79,7 +90,11 @@ async def get_module_flags(company_id: Optional[int] = None, role: Optional[str]
 
         return {"flags": result, "company_id": company_id, "role": role}
     except Exception as e:
-        return {"flags": [], "error": str(e)}
+        # Antes: HTTP 200 con el error tragado y la conexión fugada.
+        # El frontend cae a los defaults del registry ante un 500.
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        _put_conn(conn)
 
 # ── GET /api/module-flags/admin ──────────────────────────────
 # Devuelve TODOS los flags sin filtrar (para panel admin)
@@ -112,6 +127,8 @@ async def get_all_module_flags():
         ]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        _put_conn(conn)
 
 # ── PUT /api/module-flags ────────────────────────────────────
 # Crea o actualiza un flag (upsert)
@@ -138,6 +155,8 @@ async def upsert_module_flag(flag: ModuleFlagUpdate, admin: dict = Depends(requi
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        _put_conn(conn)
 
 # ── DELETE /api/module-flags/{flag_id} ───────────────────────
 # Elimina un flag específico (vuelve al default del registry)
@@ -161,3 +180,5 @@ async def delete_module_flag(flag_id: int, _admin: dict = Depends(require_admin)
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        _put_conn(conn)

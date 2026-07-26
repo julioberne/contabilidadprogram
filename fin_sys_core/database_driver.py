@@ -336,6 +336,19 @@ def init_db():
         );
         """)
 
+        # 6.1. Abonos de cartera (antes se creaba en cada GET /api/cartera/summary)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS cartera_payments (
+            id SERIAL PRIMARY KEY,
+            ledger_id INTEGER NOT NULL REFERENCES cxp_cxc_ledger(id) ON DELETE CASCADE,
+            amount DECIMAL(15,2) NOT NULL,
+            payment_date DATE DEFAULT CURRENT_DATE,
+            note TEXT,
+            balance_after DECIMAL(15,2),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+
         # 6.5. Activos (Gestión de Activos)
         cur.execute("""
         CREATE TABLE IF NOT EXISTS assets (
@@ -437,6 +450,7 @@ def registrar_transaccion(tx_data: Dict[str, Any]) -> int:
     Registra una transacción contable.
     Si falla la conexión con Postgres, se almacena en memoria local (Mock).
     """
+    conn = None  # SOL: liberar SIEMPRE en finally (antes el except fugaba la conexión)
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -553,6 +567,7 @@ def registrar_transaccion(tx_data: Dict[str, Any]) -> int:
         conn.commit()
         cur.close()
         release_db_connection(conn)
+        conn = None  # ya devuelta al pool: el finally no debe re-liberarla
 
         # ── KERNEL: Emitir evento contable → genera asiento de partida doble ──
         try:
@@ -666,6 +681,14 @@ def registrar_transaccion(tx_data: Dict[str, Any]) -> int:
         recalcular_saldos_cuentas()
         save_mock_db()
         return transaction_id
+    finally:
+        # Devuelve la conexión al pool incluso si el flujo cayó al mock por error
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            release_db_connection(conn)
 
 
 def obtener_transacciones(portfolio_name: Optional[str] = None, limit: Optional[int] = None, offset: int = 0) -> List[Dict[str, Any]]:
@@ -788,6 +811,7 @@ def actualizar_transaccion(tx_id: int, update_data: Dict[str, Any]) -> bool:
     Actualiza campos específicos de una transacción y su tercero asociado.
     Si falla PostgreSQL, actualiza en la lista en memoria (Mock).
     """
+    conn = None  # SOL: liberar SIEMPRE en finally (antes el except fugaba la conexión)
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -865,6 +889,7 @@ def actualizar_transaccion(tx_id: int, update_data: Dict[str, Any]) -> bool:
         conn.commit()
         cur.close()
         release_db_connection(conn)
+        conn = None  # ya devuelta al pool: el finally no debe re-liberarla
         return True
     except Exception as e:
         print(f"🔌 [MODO SIMULACIÓN] Actualizando transacción local en memoria ID {tx_id}")
@@ -881,6 +906,14 @@ def actualizar_transaccion(tx_id: int, update_data: Dict[str, Any]) -> bool:
                 save_mock_db()
                 return True
         raise e
+    finally:
+        # Devuelve la conexión al pool incluso si el flujo cayó al mock por error
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            release_db_connection(conn)
 
 
 def recalcular_saldos_cuentas(conn=None):

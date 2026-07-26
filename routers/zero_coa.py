@@ -59,7 +59,7 @@ def list_posting_rules():
     except Exception as e:
         if conn:
             try: release_db_connection(conn)
-            except: pass
+            except Exception: pass
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -67,6 +67,7 @@ def list_posting_rules():
 @router.get("/api/posting-rules/preview")
 def preview_posting_rule(category: str, tx_type: str, amount: float = 0, account_id: int = None):
     """Retorna el preview del asiento contable sin emitirlo."""
+    conn = None
     try:
         from fin_sys_core.database_driver import get_db_connection, release_db_connection
         from shared.helpers import resolve_bank_code
@@ -90,6 +91,7 @@ def preview_posting_rule(category: str, tx_type: str, amount: float = 0, account
             rule = cur.fetchone()
         cur.close()
         release_db_connection(conn)
+        conn = None
         if not rule:
             return {"found": False}
         debit_code, credit_code, rule_name, desc = rule
@@ -104,5 +106,14 @@ def preview_posting_rule(category: str, tx_type: str, amount: float = 0, account
             "credit": {"cuenta_codigo": credit_code, "monto": amount},
             "balanced": True
         }
-    except:
+    except Exception as e:
+        # Antes: `except:` desnudo que tragaba todo y fugaba la conexión
+        print(f"⚠️ [ZERO-COA] Error en preview_posting_rule: {e}")
         return {"found": False}
+    finally:
+        if conn is not None:
+            try:
+                from fin_sys_core.database_driver import release_db_connection
+                release_db_connection(conn)
+            except Exception:
+                pass
