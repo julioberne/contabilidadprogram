@@ -4,14 +4,6 @@ import { API } from '../../config';
 
 const SESSION_KEY = 'finsys_session';
 
-const DEMO_USER = {
-  id:       1,
-  email:    'andres@finsys.os',
-  name:     'Andrés',
-  role:     'ADMIN',
-  initials: 'A',
-};
-
 export function useGlobalSession() {
   // Restore session from localStorage on mount
   const [user, setUser] = useState(() => {
@@ -46,11 +38,14 @@ export function useGlobalSession() {
       if (res.ok) {
         const data = await res.json();
         const hubUser = data.user;
+        // ADMIN de shell: superusuario o rol owner/admin del hub
+        const isAdmin = hubUser?.is_superuser
+          || ['owner', 'admin'].includes(hubUser?.role);
         setUser({
           id:       hubUser?.id || data.id,
           email:    hubUser?.email || data.email || email,
           name:     hubUser?.name || data.name || email.split('@')[0],
-          role:     hubUser?.is_superuser ? 'ADMIN' : 'USER',
+          role:     isAdmin ? 'ADMIN' : 'USER',
           initials: (hubUser?.name || email)[0].toUpperCase(),
           raw:      data,
         });
@@ -61,20 +56,9 @@ export function useGlobalSession() {
         return;
       }
 
-      // Fallback: credenciales de App.jsx (sin auth real → demo user)
-      if (email === 'andres@finsys.os' && password === 'admin123') {
-        setUser({ ...DEMO_USER, email });
-        return;
-      }
-
       setError('Credenciales incorrectas. Verifica email y contraseña.');
     } catch (e) {
-      // Si el backend no responde, permitir demo login
-      if (email === 'andres@finsys.os' && password === 'admin123') {
-        setUser(DEMO_USER);
-      } else {
-        setError('Sin conexión al servidor. Usa andres@finsys.os / admin123');
-      }
+      setError('Sin conexión al servidor. Intenta de nuevo.');
     } finally {
       setLoading(false);
     }

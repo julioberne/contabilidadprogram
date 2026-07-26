@@ -4,7 +4,6 @@ Maneja operaciones CRUD para las 10 tablas hub_*
 Zero-Impact: No modifica database_driver.py ni control_tower_driver.py
 """
 import os
-import hashlib
 import uuid
 from datetime import datetime, timezone
 import psycopg2
@@ -23,12 +22,6 @@ def _put_conn(conn):
     """Devuelve la conexión al pool centralizado."""
     from fin_sys_core.db_pool import put_conn
     put_conn(conn)
-
-def _hash_password(password: str) -> str:
-    """SHA-256 fallback — solo para modo local sin pgcrypto.
-    En producción se usa pgcrypto crypt() directamente en SQL."""
-    return hashlib.sha256(password.encode()).hexdigest()
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # WORKSPACES

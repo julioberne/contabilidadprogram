@@ -170,10 +170,11 @@ def hub_register(data: HubUserRegister):
 def hub_login(data: HubUserLogin):
     try:
         from fin_sys_core.hub_driver import login_user
+        from routers.auth_guard import create_session_token
         user = login_user(email=data.email, password=data.password)
         if not user:
             raise HTTPException(status_code=401, detail="Credenciales incorrectas")
-        return {"status": "ok", "user": user}
+        return {"status": "ok", "user": user, "token": create_session_token(user)}
     except HTTPException:
         raise
     except Exception as e:

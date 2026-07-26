@@ -2,13 +2,41 @@
 """FIN-SYS OS v2.0 — Router: Transacciones (10 endpoints)
 CRUD, evidence upload, voice/transcribe/structure, seed, reset.
 Extracted from contabilidad.py — PURE refactor, zero logic changes."""
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from typing import Optional
-import os, shutil
+import os, re, shutil, uuid
 
+from routers.auth_guard import require_admin
 from routers.schemas import TransactionInput, TransactionUpdateInput, StructureRequest
 
 router = APIRouter(tags=["Transacciones"])
+
+# Extensiones permitidas por tipo de upload (lowercase, sin punto)
+_EVIDENCE_EXTS = {"jpg", "jpeg", "png", "gif", "webp", "pdf"}
+_AUDIO_EXTS    = {"webm", "wav", "mp3", "m4a", "ogg", "opus", "flac"}
+
+
+def _safe_upload_name(filename: str, allowed_exts: set) -> str:
+    """Devuelve un nombre de archivo seguro para guardar en uploads/.
+
+    - Elimina cualquier componente de ruta (bloquea ../ y rutas absolutas)
+    - Restringe los caracteres al set [A-Za-z0-9._-]
+    - Valida la extensión contra una whitelist
+    - Prefija un token aleatorio para evitar colisiones/sobrescrituras
+    """
+    base = os.path.basename(filename or "")
+    # También cortar separadores de Windows que basename (POSIX) no corta
+    base = base.replace("\\", "/").split("/")[-1]
+    ext = base.rsplit(".", 1)[-1].lower() if "." in base else ""
+    if ext not in allowed_exts:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Extensión no permitida: .{ext or '(sin extensión)'}. "
+                   f"Permitidas: {', '.join(sorted(allowed_exts))}",
+        )
+    stem = base.rsplit(".", 1)[0]
+    stem = re.sub(r"[^A-Za-z0-9._-]", "_", stem)[:80] or "archivo"
+    return f"{uuid.uuid4().hex[:8]}_{stem}.{ext}"
 
 
 # ==============================================================================
@@ -132,13 +160,16 @@ def upload_evidence_endpoint(file: UploadFile = File(...)):
     """
     try:
         os.makedirs("uploads", exist_ok=True)
-        file_path = os.path.join("uploads", file.filename)
+        safe_name = _safe_upload_name(file.filename, _EVIDENCE_EXTS)
+        file_path = os.path.join("uploads", safe_name)
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         return {
             "status": "EXITOSO",
-            "file_path": f"/uploads/{file.filename}"
+            "file_path": f"/uploads/{safe_name}"
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -196,10 +227,10 @@ def upload_voice_transaction(
         # 1. Guardar temporalmente el archivo recibido de audio
         upload_dir = "./uploads"
         os.makedirs(upload_dir, exist_ok=True)
-        file_path = os.path.join(upload_dir, audio_file.filename)
+        file_path = os.path.join(upload_dir, _safe_upload_name(audio_file.filename, _AUDIO_EXTS))
         with open(file_path, "wb") as f:
             f.write(audio_file.file.read())
-            
+
         # 2. Llamar al motor inteligente de Gemini + RAG
         parsed_tx = parse_audio_to_transaction(file_path, portfolio_name)
         
@@ -248,6 +279,8 @@ def upload_voice_transaction(
             "suggested_tags": parsed_tx.get("suggested_tags", []),
             "inferred_fields": parsed_tx.get("inferred_fields", [])
         }
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -269,16 +302,18 @@ def upload_voice_transcribe_only(
         # 1. Guardar temporalmente el archivo recibido de audio
         upload_dir = "./uploads"
         os.makedirs(upload_dir, exist_ok=True)
-        file_path = os.path.join(upload_dir, audio_file.filename)
+        file_path = os.path.join(upload_dir, _safe_upload_name(audio_file.filename, _AUDIO_EXTS))
         with open(file_path, "wb") as f:
             f.write(audio_file.file.read())
-            
+
         # 2. Llamar a la transcripción
         transcript = transcribe_audio_only(file_path)
         
         return {
             "transcript": transcript
         }
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -360,7 +395,7 @@ def structure_voice_transcript(
 # ==============================================================================
 
 @router.post("/api/transactions/seed_synthetic")
-def seed_synthetic_data(portfolio: str = "Negocio A"):
+def seed_synthetic_data(portfolio: str = "Negocio A", _admin: dict = Depends(require_admin)):
     """
     Genera un conjunto de datos sintéticos (Ingresos y Egresos)
     para simular un entorno financiero real e inducir una alerta de insolvencia.
@@ -446,7 +481,7 @@ def seed_synthetic_data(portfolio: str = "Negocio A"):
 
 
 @router.post("/api/transactions/reset")
-def reset_database_endpoint():
+def reset_database_endpoint(_admin: dict = Depends(require_admin)):
     """
     Reinicia completamente la base de datos a su estado por defecto
     (borra transacciones y terceros, y restablece las cuentas iniciales).

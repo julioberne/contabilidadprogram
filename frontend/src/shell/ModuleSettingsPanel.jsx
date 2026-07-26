@@ -12,6 +12,7 @@
    ============================================================ */
 import { useState, useEffect } from 'react';
 import { API } from '../config';
+import { authHeaders } from './authHeaders.js';
 
 
 const ROLES = ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER'];
@@ -62,9 +63,9 @@ export default function ModuleSettingsPanel({ onFlagsChanged }) {
   const toggleFlag = async (flag) => {
     setSaving(flag.id);
     try {
-      await fetch(`${API}/module-flags`, {
+      const res = await fetch(`${API}/module-flags`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({
           module_id: flag.module_id,
           enabled: !flag.enabled,
@@ -72,10 +73,14 @@ export default function ModuleSettingsPanel({ onFlagsChanged }) {
           role_filter: flag.role_filter,
         })
       });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.detail || `Error ${res.status}`);
+      }
       await loadData();
       onFlagsChanged?.();
     } catch (e) {
-      alert('❌ Error al actualizar flag');
+      alert(`❌ Error al actualizar flag: ${e.message}`);
     } finally {
       setSaving(null);
     }
@@ -86,9 +91,9 @@ export default function ModuleSettingsPanel({ onFlagsChanged }) {
     if (!newFlag.module_id) return alert('Selecciona un módulo');
     setSaving('new');
     try {
-      await fetch(`${API}/module-flags`, {
+      const res = await fetch(`${API}/module-flags`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({
           module_id: newFlag.module_id,
           enabled: true,
@@ -96,12 +101,16 @@ export default function ModuleSettingsPanel({ onFlagsChanged }) {
           role_filter: newFlag.role_filter || null,
         })
       });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.detail || `Error ${res.status}`);
+      }
       setAddMode(false);
       setNewFlag({ module_id: '', company_id: '', role_filter: '' });
       await loadData();
       onFlagsChanged?.();
     } catch (e) {
-      alert('❌ Error al crear flag');
+      alert(`❌ Error al crear flag: ${e.message}`);
     } finally {
       setSaving(null);
     }
@@ -111,11 +120,18 @@ export default function ModuleSettingsPanel({ onFlagsChanged }) {
   const deleteFlag = async (flag) => {
     if (!window.confirm(`¿Eliminar regla para "${MODULE_LABELS[flag.module_id]?.label || flag.module_id}"?`)) return;
     try {
-      await fetch(`${API}/module-flags/${flag.id}`, { method: 'DELETE' });
+      const res = await fetch(`${API}/module-flags/${flag.id}`, {
+        method: 'DELETE',
+        headers: authHeaders(),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.detail || `Error ${res.status}`);
+      }
       await loadData();
       onFlagsChanged?.();
     } catch (e) {
-      alert('❌ Error al eliminar');
+      alert(`❌ Error al eliminar: ${e.message}`);
     }
   };
 

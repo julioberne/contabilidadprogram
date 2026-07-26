@@ -8,9 +8,11 @@ Endpoints:
   PUT  /api/module-flags          → crear/actualizar un flag
   DELETE /api/module-flags/{id}   → eliminar un flag específico
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
+
+from routers.auth_guard import require_admin
 
 router = APIRouter(tags=["Module Flags"])
 
@@ -115,19 +117,20 @@ async def get_all_module_flags():
 # Crea o actualiza un flag (upsert)
 
 @router.put("/api/module-flags")
-async def upsert_module_flag(flag: ModuleFlagUpdate):
+async def upsert_module_flag(flag: ModuleFlagUpdate, admin: dict = Depends(require_admin)):
     conn = _get_conn()
     if not conn:
         raise HTTPException(status_code=503, detail="BD no disponible")
     try:
+        updated_by = admin.get("name") or admin.get("uid") or "admin"
         cur = conn.cursor()
         cur.execute("""
             INSERT INTO module_flags (module_id, enabled, company_id, role_filter, updated_at, updated_by)
-            VALUES (%s, %s, %s, %s, now(), 'admin')
+            VALUES (%s, %s, %s, %s, now(), %s)
             ON CONFLICT (module_id, company_id, role_filter)
-            DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = now(), updated_by = 'admin'
+            DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = now(), updated_by = EXCLUDED.updated_by
             RETURNING id
-        """, (flag.module_id, flag.enabled, flag.company_id, flag.role_filter))
+        """, (flag.module_id, flag.enabled, flag.company_id, flag.role_filter, updated_by))
         result = cur.fetchone()
         conn.commit()
         cur.close()
@@ -140,7 +143,7 @@ async def upsert_module_flag(flag: ModuleFlagUpdate):
 # Elimina un flag específico (vuelve al default del registry)
 
 @router.delete("/api/module-flags/{flag_id}")
-async def delete_module_flag(flag_id: int):
+async def delete_module_flag(flag_id: int, _admin: dict = Depends(require_admin)):
     conn = _get_conn()
     if not conn:
         raise HTTPException(status_code=503, detail="BD no disponible")

@@ -5,6 +5,7 @@
    handleResetDatabase). Se cablea al shell en la Fase 4.
    ============================================================ */
 import { API } from '../../config';
+import { authHeaders } from '../../shell/authHeaders.js';
 import { useEmpresa } from '../engine/EmpresaProvider.jsx';
 
 const API_BASE_URL = API;
@@ -15,7 +16,8 @@ export function useAdminActions() {
   const handleSeedSynthetic = async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/transactions/seed_synthetic?portfolio=${activePortfolio}`, {
-        method: "POST"
+        method: "POST",
+        headers: authHeaders(),
       });
       const data = await res.json();
       if (res.ok) {
@@ -35,7 +37,8 @@ export function useAdminActions() {
     }
     try {
       const res = await fetch(`${API_BASE_URL}/transactions/reset`, {
-        method: "POST"
+        method: "POST",
+        headers: authHeaders(),
       });
       const data = await res.json();
       if (res.ok) {

@@ -20,8 +20,6 @@ export default function CTLoginRegister({ onLogin, onRegister, isLoading }) {
     if (!result.ok) setErr(result.message || 'Error desconocido');
   };
 
-  const quickLogin = () => onLogin('andres@finsys.os', 'admin123');
-
   return (
     <div className="min-h-screen bg-black flex items-center justify-center p-4 font-mono">
       <div className="w-full max-w-md">
@@ -120,16 +118,6 @@ export default function CTLoginRegister({ onLogin, onRegister, isLoading }) {
             </button>
           </form>
 
-          {/* Quick access for existing user */}
-          <div className="mt-4 pt-4 border-t border-amber-400/30">
-            <button
-              onClick={quickLogin}
-              disabled={isLoading}
-              className="w-full border-2 border-amber-400/50 text-amber-400/80 py-2 text-xs font-bold uppercase hover:border-amber-400 hover:text-amber-400 transition-colors"
-            >
-              ⚡ CONTINUAR COMO ANDRÉS (DEMO)
-            </button>
-          </div>
         </div>
 
         <p className="text-center text-amber-400/40 text-[10px] uppercase tracking-widest mt-4">

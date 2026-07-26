@@ -13,7 +13,6 @@ Gestiona las 5 tablas nuevas del módulo Control Tower:
 import os
 import sys
 import json
-import hashlib
 from typing import List, Dict, Any, Optional
 
 # Importar el driver de BD existente para reutilizar la conexión
@@ -56,8 +55,9 @@ MOCK_ENTITIES = [
 
 MOCK_WORKSPACE_USERS = [
     {
+        # Solo para listados de fallback — SIN password_hash: el login mock
+        # fue eliminado (DT-04); si la BD falla, el login falla.
         "id": 1, "name": "Andrés (Super-Contador)", "email": "andres@finsys.os",
-        "password_hash": hashlib.md5("admin123".encode()).hexdigest(),
         "role_label": "Super-Contador",
         "permissions": {"ledger": True, "reports": True, "users": True, "approvals": True},
         "parent_user_id": None
@@ -67,12 +67,6 @@ MOCK_WORKSPACE_USERS = [
 MOCK_RESOURCE_IDS = []
 MOCK_APPROVALS = []
 MOCK_MEMBERS = []
-
-
-def _hash_password(password: str) -> str:
-    """Hash MD5 — solo para fallback de simulación local.
-    En producción se usa pgcrypto crypt() directamente en SQL."""
-    return hashlib.md5(password.encode()).hexdigest()
 
 
 def init_control_tower_db():
@@ -95,17 +89,17 @@ def init_control_tower_db():
         );
         """)
 
-        # Seed del Super-Contador inicial
+        # Seed del Super-Contador inicial (bcrypt vía pgcrypto — nunca MD5)
         cur.execute("SELECT COUNT(*) FROM workspace_users;")
         if cur.fetchone()[0] == 0:
             cur.execute("""
             INSERT INTO workspace_users (name, email, password_hash, role_label, permissions)
-            VALUES (%s, %s, %s, %s, %s)
+            VALUES (%s, %s, crypt(%s, gen_salt('bf')), %s, %s)
             ON CONFLICT (email) DO NOTHING;
             """, (
                 "Andrés (Super-Contador)",
                 "andres@finsys.os",
-                _hash_password("admin123"),
+                "admin123",
                 "Super-Contador",
                 json.dumps({"ledger": True, "reports": True, "users": True, "approvals": True})
             ))
@@ -348,6 +342,9 @@ def registrar_workspace_user(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def login_workspace_user(email: str, password: str) -> Optional[Dict[str, Any]]:
+    """Autentica contra workspace_users con bcrypt (pgcrypto).
+    Sin fallback mock: si la BD falla, el login falla (DT-04 cerrado)."""
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -358,7 +355,6 @@ def login_workspace_user(email: str, password: str) -> Optional[Dict[str, Any]]:
         """, (email, password))
         row = cur.fetchone()
         cur.close()
-        release_db_connection(conn)
         if row:
             perms = row[4]
             if isinstance(perms, str):
@@ -366,13 +362,12 @@ def login_workspace_user(email: str, password: str) -> Optional[Dict[str, Any]]:
             return {"id": row[0], "name": row[1], "email": row[2],
                     "role_label": row[3], "permissions": perms}
         return None
-    except Exception:
-        # Fallback: mock mode uses MD5
-        password_hash = _hash_password(password)
-        for u in MOCK_WORKSPACE_USERS:
-            if u["email"] == email and u["password_hash"] == password_hash:
-                return {k: v for k, v in u.items() if k != "password_hash"}
+    except Exception as e:
+        print(f"[CT] Error de BD en login_workspace_user: {e}")
         return None
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 # ──────────────────────────────────────────────

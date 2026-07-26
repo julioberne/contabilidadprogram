@@ -24,6 +24,10 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - SENTRY_DSN=${SENTRY_DSN}
       - CORS_ORIGINS=${CORS_ORIGINS}
+      # Firma de los tokens de sesión (auth_guard). Definir en Dokploy →
+      # Environment. Si falta, se deriva de DB_PASSWORD (funcional pero
+      # menos rotable).
+      - SESSION_SECRET=${SESSION_SECRET}
     expose:
       - "8000"
     volumes:
