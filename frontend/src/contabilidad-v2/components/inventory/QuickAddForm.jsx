@@ -1,12 +1,12 @@
 // QuickAddForm.jsx — Extracted from InventoryPanel.jsx
 import React, { useState } from 'react';
-import { COLORS, CATEGORIAS, UNIDADES, API_BASE_URL } from './constants';
+import { COLORS, CATEGORIAS, UNIDADES, API_BASE_URL, fmtCOP } from './constants';
 import { S } from './styles';
 
 // ════════════════════════════════════════════════════════════
 // COMPONENTE: FORMULARIO RÁPIDO DE AGREGAR ITEM
 // ════════════════════════════════════════════════════════════
-export default function QuickAddForm({ activePortfolio, onCreated }) {
+export default function QuickAddForm({ activePortfolio, activeCompany, existingItems = [], onCreated }) {
   const [form, setForm] = useState({
     name: '',
     sku: '',
@@ -21,12 +21,29 @@ export default function QuickAddForm({ activePortfolio, onCreated }) {
 
   const update = (field, value) => setForm((p) => ({ ...p, [field]: value }));
 
+  // ── Previsualización en vivo del recurso ─────────────────
+  const stockNum = parseInt(form.current_stock, 10) || 0;
+  const costNum  = parseFloat(form.cost_price) || 0;
+  const sellNum  = parseFloat(form.sell_price) || 0;
+  const lineCost = stockNum * costNum;
+  const lineSell = stockNum * sellNum;
+  const lineUtil = lineSell - lineCost;
+
+  // ¿Ya existe este recurso en esta empresa? (match por SKU o nombre)
+  const dup = existingItems.find((it) => {
+    const skuMatch  = form.sku.trim() && it.sku && it.sku.toLowerCase() === form.sku.trim().toLowerCase();
+    const nameMatch = form.name.trim() && it.name && it.name.toLowerCase() === form.name.trim().toLowerCase();
+    return skuMatch || nameMatch;
+  });
+  const combinedStock = (dup?.current_stock ?? 0) + stockNum;
+
   const handleSubmit = async () => {
     if (!form.name.trim()) return alert('El nombre es obligatorio');
     setSubmitting(true);
     try {
       const body = {
         portfolio_name: activePortfolio,
+        company_id: activeCompany?.id ?? null,
         name: form.name.trim(),
         sku: form.sku.trim() || null,
         category: form.category,
@@ -60,8 +77,25 @@ export default function QuickAddForm({ activePortfolio, onCreated }) {
       borderBottom: `2px solid ${COLORS.black}`,
       padding: '14px 16px',
     }}>
-      <div style={{ ...S.label, fontSize: 10, marginBottom: 10, color: COLORS.black }}>
+      <div style={{ ...S.label, fontSize: 10, marginBottom: 8, color: COLORS.black }}>
         ▸ NUEVO ITEM DE INVENTARIO
+      </div>
+
+      {/* Empresa destino: deja claro a dónde se agrega el recurso */}
+      <div style={{
+        fontSize: 10, marginBottom: 10, padding: '6px 8px',
+        border: `2px solid ${activeCompany?.id != null ? COLORS.black : COLORS.amber}`,
+        background: activeCompany?.id != null ? '#f0f8f0' : '#fff8e6',
+        display: 'flex', alignItems: 'center', gap: 6,
+      }}>
+        <span style={{ fontWeight: 700 }}>EMPRESA DESTINO:</span>
+        {activeCompany?.id != null ? (
+          <span style={{ fontWeight: 700 }}>{activeCompany.name}</span>
+        ) : (
+          <span style={{ color: '#a15c00' }}>
+            ⚠ Ninguna empresa seleccionada — el recurso quedará a nivel general del portafolio. Selecciona una empresa para asignarlo a ella.
+          </span>
+        )}
       </div>
 
       {/* Fila 1: Nombre + SKU */}
@@ -151,6 +185,26 @@ export default function QuickAddForm({ activePortfolio, onCreated }) {
           />
         </div>
       </div>
+
+      {/* ── Previsualización del recurso ─────────────────────── */}
+      {stockNum > 0 && (
+        <div style={{
+          border: `2px solid ${COLORS.black}`, background: '#0d0d0d', color: COLORS.headerText,
+          padding: '8px 10px', marginBottom: 12, fontSize: 11,
+        }}>
+          {dup && (
+            <div style={{ color: COLORS.amber, fontWeight: 700, marginBottom: 6, letterSpacing: '0.5px' }}>
+              ⚠ Ya existe "{dup.name}" con {dup.current_stock} en stock · total quedaría {combinedStock} {form.unit}
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+            <span>CANTIDAD: <b>{stockNum.toLocaleString('es-CO')} {form.unit}</b></span>
+            <span>COSTO: <b>{fmtCOP(lineCost)}</b></span>
+            <span>VENTA: <b>{fmtCOP(lineSell)}</b></span>
+            <span>UTILIDAD: <b style={{ color: lineUtil >= 0 ? COLORS.greenSoft : COLORS.crimson }}>{fmtCOP(lineUtil)}</b></span>
+          </div>
+        </div>
+      )}
 
       {/* Botón submit */}
       <button

@@ -5,18 +5,22 @@
 import { useState, useEffect } from 'react';
 import MemberProfile from './MemberProfile';
 import CompanyMapTab from './CompanyMapTab';
+import { useQueryParam } from '../../../shell/useRoute.js';
 import { API_HUB } from '../../../config';
 
 const API = API_HUB;
 
+const BLANK_FORM = { name: '', email: '', cedula: '', role: 'member', description: '', password: '' };
+
 export default function MembersList({ workspace, user }) {
   const [members,  setMembers]  = useState([]);
   const [metrics,  setMetrics]  = useState([]);
-  const [selected, setSelected] = useState(null);
+  // Persona abierta reflejada en la URL: /rrhh?view=members&member=<id>
+  const [selectedId, setSelectedId] = useQueryParam('member', '');
   const [loading,  setLoading]  = useState(false);
-  const [addEmail, setAddEmail] = useState('');
-  const [addRole,  setAddRole]  = useState('member');
+  const [form,     setForm]     = useState(BLANK_FORM);
   const [addError, setAddError] = useState('');
+  const [saving,   setSaving]   = useState(false);
   const [showAdd,  setShowAdd]  = useState(false);
   const [showMap,  setShowMap]  = useState(false);   // Mapa de Empresas (ADMIN)
   const isAdmin = user?.role === 'owner' || user?.role === 'admin' || user?.is_superuser;
@@ -46,20 +50,34 @@ export default function MembersList({ workspace, user }) {
     ...((metrics.find(mx => mx.id === m.id)) || {}),
   }));
 
+  // Persona abierta: se resuelve desde la URL contra la lista cargada
+  const selected = selectedId ? membersWithMetrics.find(m => m.id === selectedId) : null;
+
   const handleAddMember = async (e) => {
     e.preventDefault();
-    setAddError('');
+    if (!form.name.trim()) { setAddError('El nombre es obligatorio.'); return; }
+    setSaving(true); setAddError('');
     try {
-      // Buscar usuario por email (login sin contraseña no es posible, se usa endpoint de búsqueda)
-      const res = await fetch(`${API}/users/add-member`, {
+      // Crea la ficha de la persona y la vincula al workspace (login opcional)
+      const res = await fetch(`${API}/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: workspace.id, user_id: addEmail, role: addRole }),
+        body: JSON.stringify({
+          workspace_id: workspace.id,
+          name: form.name.trim(),
+          email: form.email.trim() || null,
+          cedula: form.cedula.trim() || null,
+          description: form.description.trim() || null,
+          role: form.role,
+          password: form.password.trim() || null,
+        }),
       });
-      if (!res.ok) throw new Error((await res.json()).detail || 'Error');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || `Error ${res.status}`);
       await loadAll();
-      setAddEmail(''); setShowAdd(false);
+      setForm(BLANK_FORM); setShowAdd(false);
     } catch (e) { setAddError(e.message); }
+    finally { setSaving(false); }
   };
 
   if (!workspace) return (
@@ -72,7 +90,9 @@ export default function MembersList({ workspace, user }) {
       metrics={membersWithMetrics.find(m => m.id === selected.id)}
       workspace={workspace}
       currentUser={user}
-      onBack={() => setSelected(null)}
+      onBack={() => setSelectedId('')}
+      onSaved={(updated) => { setSelectedId(updated.id); loadAll(); }}
+      onRemoved={() => { setSelectedId(''); loadAll(); }}
     />
   );
 
@@ -102,19 +122,38 @@ export default function MembersList({ workspace, user }) {
         </div>
       </div>
 
-      {/* Formulario agregar */}
+      {/* Formulario alta de trabajador (roster, login opcional) */}
       {showAdd && (
         <form style={styles.addForm} onSubmit={handleAddMember}>
-          <span style={styles.addLabel}>Agregar por User ID:</span>
-          <input style={styles.input} placeholder="UUID del usuario"
-            value={addEmail} onChange={e => setAddEmail(e.target.value)} />
-          <select style={styles.select} value={addRole} onChange={e => setAddRole(e.target.value)}>
-            <option value="member">MEMBER</option>
-            <option value="admin">ADMIN</option>
-            <option value="viewer">VIEWER</option>
-          </select>
-          <button type="submit" style={styles.submitBtn}>AGREGAR</button>
-          {addError && <span style={styles.addError}>{addError}</span>}
+          <div style={styles.addRow}>
+            <input style={styles.input} placeholder="Nombre completo *" autoFocus
+              value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            <input style={styles.inputSm} placeholder="Cédula"
+              value={form.cedula} onChange={e => setForm(f => ({ ...f, cedula: e.target.value }))} />
+            <select style={styles.select} value={form.role}
+              onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
+              <option value="member">MEMBER</option>
+              <option value="admin">ADMIN</option>
+              <option value="viewer">VIEWER</option>
+              <option value="owner">OWNER</option>
+            </select>
+          </div>
+          <div style={styles.addRow}>
+            <input style={styles.input} placeholder="Email (opcional — solo si tendrá login)"
+              value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+            <input style={styles.inputSm} type="password" placeholder="Clave (opcional)"
+              value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} />
+          </div>
+          <input style={styles.input} placeholder="Cargo / funciones (opcional)"
+            value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+          <div style={styles.addRow}>
+            <button type="submit" style={styles.submitBtn} disabled={saving}>
+              {saving ? 'CREANDO…' : '＋ CREAR TRABAJADOR'}
+            </button>
+            <button type="button" style={styles.cancelBtn}
+              onClick={() => { setShowAdd(false); setAddError(''); setForm(BLANK_FORM); }}>CANCELAR</button>
+            {addError && <span style={styles.addError}>{addError}</span>}
+          </div>
         </form>
       )}
 
@@ -133,7 +172,7 @@ export default function MembersList({ workspace, user }) {
               : null;
 
             return (
-              <button key={m.id} style={styles.card} onClick={() => setSelected(m)}>
+              <button key={m.id} style={styles.card} onClick={() => setSelectedId(m.id)}>
                 {/* Avatar */}
                 <div style={{ ...styles.avatar, background: m.color || '#0EA5E9' }}>
                   {m.avatar_url
@@ -224,11 +263,14 @@ const styles = {
   title: { color: C.accent, fontSize: '17px', margin: '0 0 4px', letterSpacing: '3px' },
   subtitle: { color: C.dim, fontSize: '12px', margin: 0 },
   addBtn: { background: C.accent, border: 'none', color: '#000', padding: '8px 16px', cursor: 'pointer', fontSize: '11px', fontWeight: 700, letterSpacing: '1px', fontFamily: '"IBM Plex Mono", monospace', boxShadow: `2px 2px 0 #0369a1` },
-  addForm: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 24px', background: '#111', borderBottom: `1px solid ${C.border}`, flexWrap: 'wrap' },
+  addForm: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px 24px', background: '#111', borderBottom: `1px solid ${C.border}` },
+  addRow: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' },
   addLabel: { color: C.dim, fontSize: '12px' },
   input: { background: '#1a1a1a', border: `2px solid #333`, color: C.text, padding: '7px 10px', fontSize: '12px', fontFamily: '"IBM Plex Mono", monospace', outline: 'none', flex: 1, minWidth: '200px' },
+  inputSm: { background: '#1a1a1a', border: `2px solid #333`, color: C.text, padding: '7px 10px', fontSize: '12px', fontFamily: '"IBM Plex Mono", monospace', outline: 'none', width: '150px' },
   select: { background: '#1a1a1a', border: `2px solid #333`, color: C.text, padding: '7px 10px', fontSize: '12px', fontFamily: '"IBM Plex Mono", monospace', outline: 'none', cursor: 'pointer' },
   submitBtn: { background: C.accent, border: 'none', color: '#000', padding: '7px 16px', cursor: 'pointer', fontSize: '12px', fontWeight: 700, fontFamily: '"IBM Plex Mono", monospace' },
+  cancelBtn: { background: 'transparent', border: '1px solid #333', color: C.dim, padding: '7px 14px', cursor: 'pointer', fontSize: '12px', fontFamily: '"IBM Plex Mono", monospace' },
   addError: { color: '#ef4444', fontSize: '12px' },
   loading: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.dim, fontSize: '12px' },
   grid: { flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px', alignContent: 'start' },

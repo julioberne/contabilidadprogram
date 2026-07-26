@@ -90,6 +90,20 @@ def update_hr_profile(user_id: str, workspace_id: str, data: dict) -> dict:
         "eps", "pension_fund", "social_security_no",
         "country", "city", "marital_status", "education_level",
         "skills", "avatar_url",
+        # Ficha ampliada — identidad
+        "id_type", "gender", "nationality", "birth_place",
+        "personal_email", "occupation", "work_address", "driver_license",
+        # Ficha ampliada — salud y datos físicos
+        "blood_type", "height_cm", "weight_kg",
+        "preexisting_conditions", "allergies", "disability",
+        # Ficha ampliada — núcleo familiar y dotación
+        "lives_with", "dependents_count",
+        "uniform_shirt_size", "uniform_pants_size", "shoe_size",
+        # Desarrollo profesional y talento
+        "languages", "certifications", "software_skills", "development_plan",
+        # Gestión operativa y bienestar
+        "socioeconomic_level", "transport_mode", "vehicle_info",
+        "dependents_detail", "benefits_exemptions",
     }
     fields = {k: v for k, v in data.items() if k in allowed}
     if not fields:

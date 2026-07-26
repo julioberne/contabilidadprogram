@@ -1,5 +1,6 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
 import './hub-typography.css';
+import { useQueryParam }    from '../shell/useRoute.js';
 import { useProjectHub }    from './hooks/useProjectHub';
 import HubLoginRegister     from './components/HubLoginRegister';
 import HubTopBar            from './components/HubTopBar';
@@ -15,7 +16,8 @@ const MOBILE_BREAKPOINT = 768;
 
 export default function ProjectHubApp({ onExit, user: shellUser }) {
   const hub = useProjectHub();
-  const [activeView,    setActiveView]    = useState('tasks');
+  // Sub-vista reflejada en la URL: /rrhh?view=members  → deep-link + botón atrás
+  const [activeView,    setActiveView]    = useQueryParam('view', 'tasks');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileOpen,    setMobileOpen]    = useState(false);
   const [isMobile,      setIsMobile]      = useState(window.innerWidth < MOBILE_BREAKPOINT);

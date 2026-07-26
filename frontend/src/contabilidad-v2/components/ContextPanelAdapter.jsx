@@ -72,6 +72,7 @@ export default function ContextPanelAdapter({ activeTab, setActiveTab }) {
       activeCompany={empresa.activeCompany}
       onCompanyUpdated={(updated) => empresa.setActiveCompany(updated)}
       accounts={empresa.accounts}
+      refreshAccounts={empresa.fetchAll}
       profile={perfil.profile}
       profileEdit={{
         isEditing: perfil.isEditingProfile, setIsEditing: perfil.setIsEditingProfile,

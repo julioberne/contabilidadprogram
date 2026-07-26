@@ -37,6 +37,13 @@ class AccountInput(BaseModel):
     initial_balance: float = 0.0
 
 
+class AccountUpdateInput(BaseModel):
+    name: str
+    type: str
+    # None = no tocar el saldo (lo mantiene el motor incremental)
+    current_balance: Optional[float] = None
+
+
 class CxcCxpInput(BaseModel):
     type: str = Field(..., pattern="^(CXC|CXP)$")
     due_date: str

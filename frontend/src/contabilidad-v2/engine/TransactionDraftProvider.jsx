@@ -18,6 +18,7 @@ import { createContext, useContext, useState, useEffect } from 'react';
 import { API } from '../../config';
 import { useEmpresa } from './EmpresaProvider.jsx';
 import { buildTransactionPayload, deriveAccountState } from './buildTransactionPayload.js';
+import { checkFunds, mensajeSobregiro } from './checkFunds.js';
 
 const API_BASE_URL = API;
 
@@ -189,6 +190,13 @@ export function TransactionDraftProvider({ children }) {
       alert("❌ Error: Los campos Importe y Concepto son obligatorios.");
       return false;
     }
+
+    // Control de disponible: advertir (no bloquear) si la cuenta queda en negativo
+    const sobregiro = checkFunds({
+      accounts, selectedAccountId, formType, amount, txCurrency, trmValue,
+    });
+    if (sobregiro && !confirm(mensajeSobregiro(sobregiro))) return false;
+
     const payload = buildTransactionPayload({
       activePortfolio: portfolioName,
       accounts,

@@ -548,53 +548,71 @@ def get_movements(item_id: int = None, portfolio_name: str = None,
 # 7. RESUMEN DE STOCK — Totales y alertas de stock bajo
 # ═══════════════════════════════════════════════════════════
 
-def get_stock_summary(portfolio_name: str) -> Dict[str, Any]:
-    """Retorna resumen de inventario para un portafolio:
+def get_stock_summary(portfolio_name: str, company_id: int = None) -> Dict[str, Any]:
+    """Retorna resumen de inventario para un portafolio (y opcionalmente una empresa):
     - total_items: cantidad de artículos activos
-    - total_value: valor total (cost_price * current_stock)
-    - low_stock_alerts: artículos con stock <= min_stock
+    - total_units: unidades totales en stock (suma de todos los recursos)
+    - total_cost:  valor total a COSTO  (cost_price * current_stock)
+    - total_sell:  valor total a VENTA  (sell_price * current_stock)
+    - total_utility: utilidad neta      (total_sell - total_cost)
+    - total_value: alias de total_cost (compatibilidad hacia atrás)
+    - low_stock_count / low_stock_alerts: alertas de stock bajo
     """
     try:
         conn = get_conn()
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
-        # Totales generales
-        cur.execute("""
+        # Scope: siempre por portafolio; opcionalmente acotado a una empresa
+        where = "portfolio_name = %s AND status = 'ACTIVO'"
+        params = [portfolio_name]
+        if company_id is not None:
+            where += " AND company_id = %s"
+            params.append(company_id)
+
+        # Totales generales (costo, venta y utilidad)
+        cur.execute(f"""
             SELECT
                 COUNT(*) AS total_items,
-                COALESCE(SUM(cost_price * current_stock), 0) AS total_value,
-                COALESCE(SUM(current_stock), 0) AS total_units
+                COALESCE(SUM(current_stock), 0) AS total_units,
+                COALESCE(SUM(cost_price * current_stock), 0) AS total_cost,
+                COALESCE(SUM(sell_price * current_stock), 0) AS total_sell
             FROM inventory_items
-            WHERE portfolio_name = %s AND status = 'ACTIVO';
-        """, (portfolio_name,))
+            WHERE {where};
+        """, params)
         summary = dict(cur.fetchone())
-        summary["total_value"] = float(summary["total_value"])
-        summary["total_units"] = int(summary["total_units"])
+        summary["total_items"]   = int(summary["total_items"])
+        summary["total_units"]   = int(summary["total_units"])
+        summary["total_cost"]    = float(summary["total_cost"])
+        summary["total_sell"]    = float(summary["total_sell"])
+        summary["total_utility"] = round(summary["total_sell"] - summary["total_cost"], 2)
+        summary["total_value"]   = summary["total_cost"]  # compat
 
-        # Alertas de stock bajo
-        cur.execute("""
+        # Alertas de stock bajo (mismo scope)
+        cur.execute(f"""
             SELECT id, name, sku, current_stock, min_stock
             FROM inventory_items
-            WHERE portfolio_name = %s
-              AND status = 'ACTIVO'
+            WHERE {where}
               AND current_stock <= min_stock
               AND min_stock > 0
             ORDER BY (current_stock - min_stock) ASC;
-        """, (portfolio_name,))
+        """, params)
         alerts = [dict(r) for r in cur.fetchall()]
 
         cur.close()
         put_conn(conn)
 
         summary["low_stock_alerts"] = alerts
+        summary["low_stock_count"]  = len(alerts)
         return summary
     except Exception as e:
         print(f"⚠️ [INVENTORY_DRIVER] Fallback mock en get_stock_summary: {e}")
         activos = [
             i for i in MOCK_ITEMS
             if i["portfolio_name"] == portfolio_name and i["status"] == "ACTIVO"
+            and (company_id is None or i.get("company_id") == company_id)
         ]
-        total_value = sum(i["cost_price"] * i["current_stock"] for i in activos)
+        total_cost = sum(i["cost_price"] * i["current_stock"] for i in activos)
+        total_sell = sum(i["sell_price"] * i["current_stock"] for i in activos)
         total_units = sum(i["current_stock"] for i in activos)
         low_stock = [
             {"id": i["id"], "name": i["name"], "sku": i["sku"],
@@ -604,7 +622,11 @@ def get_stock_summary(portfolio_name: str) -> Dict[str, Any]:
         ]
         return {
             "total_items": len(activos),
-            "total_value": total_value,
             "total_units": total_units,
+            "total_cost": total_cost,
+            "total_sell": total_sell,
+            "total_utility": round(total_sell - total_cost, 2),
+            "total_value": total_cost,
             "low_stock_alerts": low_stock,
+            "low_stock_count": len(low_stock),
         }

@@ -25,6 +25,9 @@ const CONTRACT_TYPES = [
 const MARITAL_OPTS   = ['Soltero/a', 'Casado/a', 'Unión libre', 'Divorciado/a', 'Viudo/a'];
 const EDUCATION_OPTS = ['Bachiller', 'Técnico', 'Tecnólogo', 'Profesional', 'Especialización', 'Maestría', 'Doctorado'];
 const BANK_TYPES     = ['Cuenta de Ahorros', 'Cuenta Corriente', 'Nómina'];
+const ID_TYPES       = ['CC', 'CE', 'TI', 'Pasaporte', 'PEP', 'NIT'];
+const GENDER_OPTS    = ['Femenino', 'Masculino', 'No binario', 'Prefiere no decir', 'Otro'];
+const BLOOD_TYPES    = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'];
 
 // ── Avatar con upload ────────────────────────────────────────────────────────
 function Avatar({ name, avatarUrl, userId, workspaceId, canEdit, onUpdate }) {
@@ -196,24 +199,65 @@ export default function HRProfileTab({ member, workspace, currentUser }) {
       {/* ── BLOQUE 1: IDENTIFICACIÓN ─────────────────────────────── */}
       <Section title="IDENTIFICACIÓN" accent="#0EA5E9">
         <div style={S.grid3}>
-          <Field label="CÉDULA / DOC. IDENTIDAD" value={form.cedula} editing={editing} onChange={v => set('cedula', v)} placeholder="1006374890" />
-          <Field label="TELÉFONO" value={form.phone} editing={editing} onChange={v => set('phone', v)} placeholder="+57 313 577 293" />
-          <Field label="CORREO LABORAL" value={form.email} editing={editing} onChange={v => set('email', v)} placeholder="nombre@empresa.com" />
+          <Field label="TIPO DE IDENTIFICACIÓN" value={form.id_type} editing={editing} onChange={v => set('id_type', v)}
+            type="select" options={ID_TYPES} placeholder="CC" />
+          <Field label="N° DE IDENTIFICACIÓN" value={form.cedula} editing={editing} onChange={v => set('cedula', v)} placeholder="1006374890" />
+          <Field label="GÉNERO" value={form.gender} editing={editing} onChange={v => set('gender', v)}
+            type="select" options={GENDER_OPTS} placeholder="Seleccionar..." />
           <Field label="FECHA DE NACIMIENTO" value={form.birth_date} type="date" editing={editing} onChange={v => set('birth_date', v)} />
+          <Field label="LUGAR DE NACIMIENTO" value={form.birth_place} editing={editing} onChange={v => set('birth_place', v)} placeholder="Ciudad, País" />
+          <Field label="NACIONALIDAD" value={form.nationality} editing={editing} onChange={v => set('nationality', v)} placeholder="Colombiana" />
           <Field label="ESTADO CIVIL" value={form.marital_status} editing={editing} onChange={v => set('marital_status', v)}
             type="select" options={MARITAL_OPTS} placeholder="Seleccionar..." />
           <Field label="NIVEL EDUCATIVO" value={form.education_level} editing={editing} onChange={v => set('education_level', v)}
             type="select" options={EDUCATION_OPTS} placeholder="Seleccionar..." />
+          <Field label="OCUPACIÓN / PROFESIÓN" value={form.occupation} editing={editing} onChange={v => set('occupation', v)} placeholder="Ej: Ingeniera Civil" />
         </div>
-        <Field label="DIRECCIÓN" value={form.address} editing={editing} onChange={v => set('address', v)} placeholder="Calle 1 # 2-3" fullWidth />
+        <div style={S.grid3}>
+          <Field label="TELÉFONO DE CONTACTO" value={form.phone} editing={editing} onChange={v => set('phone', v)} placeholder="+57 313 577 293" />
+          <Field label="CORREO LABORAL" value={form.email} editing={editing} onChange={v => set('email', v)} placeholder="nombre@empresa.com" />
+          <Field label="CORREO PERSONAL" value={form.personal_email} editing={editing} onChange={v => set('personal_email', v)} placeholder="personal@correo.com" />
+        </div>
+        <Field label="DIRECCIÓN DE RESIDENCIA" value={form.address} editing={editing} onChange={v => set('address', v)} placeholder="Calle 1 # 2-3" fullWidth />
         <div style={S.grid2}>
           <Field label="PAÍS" value={form.country} editing={editing} onChange={v => set('country', v)} placeholder="Colombia" />
           <Field label="CIUDAD" value={form.city} editing={editing} onChange={v => set('city', v)} placeholder="Bogotá" />
         </div>
+        <Field label="DOMICILIO LABORAL (SEDE DONDE TRABAJA)" value={form.work_address} editing={editing} onChange={v => set('work_address', v)} placeholder="Dirección de la sede / obra" fullWidth />
+      </Section>
+
+      {/* ── BLOQUE SALUD Y DATOS FÍSICOS ─────────────────────────── */}
+      <Section title="SALUD Y DATOS FÍSICOS" accent="#EF4444" defaultOpen={false}>
+        <div style={S.grid3}>
+          <Field label="TIPO DE SANGRE (RH)" value={form.blood_type} editing={editing} onChange={v => set('blood_type', v)}
+            type="select" options={BLOOD_TYPES} placeholder="Seleccionar..." />
+          <Field label="ESTATURA" value={form.height_cm} editing={editing} onChange={v => set('height_cm', v)} placeholder="Ej: 1.65 m" />
+          <Field label="PESO" value={form.weight_kg} editing={editing} onChange={v => set('weight_kg', v)} placeholder="Ej: 62 kg" />
+        </div>
+        <Field label="ENFERMEDADES PREEXISTENTES" value={form.preexisting_conditions} type="textarea" editing={editing}
+          onChange={v => set('preexisting_conditions', v)} placeholder="Diabetes, hipertensión, asma... (o 'Ninguna')" fullWidth />
+        <div style={S.grid2}>
+          <Field label="ALERGIAS" value={form.allergies} editing={editing} onChange={v => set('allergies', v)} placeholder="Medicamentos, alimentos... (o 'Ninguna')" />
+          <Field label="DISCAPACIDAD / CONDICIÓN ESPECIAL" value={form.disability} editing={editing} onChange={v => set('disability', v)} placeholder="Ninguna" />
+        </div>
+      </Section>
+
+      {/* ── BLOQUE NÚCLEO FAMILIAR Y DOTACIÓN ────────────────────── */}
+      <Section title="NÚCLEO FAMILIAR Y DOTACIÓN" accent="#EC4899" defaultOpen={false}>
+        <div style={S.grid2}>
+          <Field label="¿CON QUIÉN VIVE?" value={form.lives_with} editing={editing} onChange={v => set('lives_with', v)} placeholder="Ej: Pareja e hijo, padres, sola..." />
+          <Field label="PERSONAS A CARGO" value={form.dependents_count} editing={editing} onChange={v => set('dependents_count', v)} placeholder="Ej: 2 (hijos)" />
+        </div>
+        <div style={S.grid3}>
+          <Field label="TALLA CAMISA" value={form.uniform_shirt_size} editing={editing} onChange={v => set('uniform_shirt_size', v)} placeholder="S / M / L / XL" />
+          <Field label="TALLA PANTALÓN" value={form.uniform_pants_size} editing={editing} onChange={v => set('uniform_pants_size', v)} placeholder="Ej: 32" />
+          <Field label="TALLA CALZADO" value={form.shoe_size} editing={editing} onChange={v => set('shoe_size', v)} placeholder="Ej: 38" />
+        </div>
+        <Field label="LICENCIA DE CONDUCCIÓN (CATEGORÍA)" value={form.driver_license} editing={editing} onChange={v => set('driver_license', v)} placeholder="Ej: B1, C1 · o 'No aplica'" fullWidth />
       </Section>
 
       {/* ── BLOQUE 2: CARGO & ROL ─────────────────────────────────── */}
-      <Section title="CARGO Y ROL EN LA EMPRESA" accent="#8B5CF6">
+      <Section title="CARGO Y ROL EN LA EMPRESA" accent="#8B5CF6" defaultOpen={false}>
         <div style={S.grid2}>
           <Field label="CARGO / POSICIÓN" value={form.job_title} editing={editing} onChange={v => set('job_title', v)} placeholder="Ej: Gerente de Proyectos" />
           <Field label="DEPARTAMENTO / ÁREA" value={form.department} editing={editing} onChange={v => set('department', v)} placeholder="Ej: Tecnología" />
@@ -228,8 +272,42 @@ export default function HRProfileTab({ member, workspace, currentUser }) {
           placeholder="Ej: Excel avanzado, AutoCAD, Gestión de proyectos, Licitaciones..." fullWidth />
       </Section>
 
+      {/* ── BLOQUE: DESARROLLO PROFESIONAL Y TALENTO ─────────────── */}
+      <Section title="DESARROLLO PROFESIONAL Y TALENTO" accent="#06B6D4" defaultOpen={false}>
+        <div style={S.grid2}>
+          <Field label="IDIOMAS Y NIVEL" value={form.languages} editing={editing} onChange={v => set('languages', v)}
+            placeholder="Ej: Inglés B2, Español Nativo" />
+          <Field label="MANEJO DE SOFTWARE / HERRAMIENTAS" value={form.software_skills} editing={editing} onChange={v => set('software_skills', v)}
+            placeholder="Ej: SAP, AutoCAD, Excel avanzado" />
+        </div>
+        <Field label="CERTIFICACIONES Y CURSOS VIGENTES" value={form.certifications} type="textarea" editing={editing}
+          onChange={v => set('certifications', v)}
+          placeholder="Manipulación de alimentos, primeros auxilios, alturas, títulos adicionales... (con vencimiento si aplica)" fullWidth />
+        <Field label="PLAN DE CAPACITACIÓN / OBJETIVOS DE DESARROLLO" value={form.development_plan} type="textarea" editing={editing}
+          onChange={v => set('development_plan', v)}
+          placeholder="Metas de crecimiento, formaciones pendientes, funciones a delegar a futuro..." fullWidth />
+      </Section>
+
+      {/* ── BLOQUE: GESTIÓN OPERATIVA Y BIENESTAR ────────────────── */}
+      <Section title="GESTIÓN OPERATIVA Y BIENESTAR" accent="#84CC16" defaultOpen={false}>
+        <div style={S.grid2}>
+          <Field label="NIVEL SOCIOECONÓMICO / ESTRATO" value={form.socioeconomic_level} editing={editing} onChange={v => set('socioeconomic_level', v)}
+            placeholder="Ej: Estrato 3" />
+          <Field label="MEDIO DE DESPLAZAMIENTO" value={form.transport_mode} editing={editing} onChange={v => set('transport_mode', v)}
+            placeholder="Vehículo propio, transporte público, caminata..." />
+        </div>
+        <Field label="VEHÍCULO PROPIO (PLACA / MODELO)" value={form.vehicle_info} editing={editing} onChange={v => set('vehicle_info', v)}
+          placeholder="Ej: ABC123 · Mazda 3 2019 · o 'No aplica'" fullWidth />
+        <Field label="HIJOS / DEPENDIENTES (DETALLE)" value={form.dependents_detail} type="textarea" editing={editing}
+          onChange={v => set('dependents_detail', v)}
+          placeholder="Nombres, edades y fechas de nacimiento (para beneficios, cumpleaños, día de la familia)" fullWidth />
+        <Field label="BENEFICIOS / EXENCIONES (RETENCIÓN EN LA FUENTE)" value={form.benefits_exemptions} type="textarea" editing={editing}
+          onChange={v => set('benefits_exemptions', v)}
+          placeholder="Dependientes a cargo, medicina prepagada, intereses de vivienda... (simplificado)" fullWidth />
+      </Section>
+
       {/* ── BLOQUE 3: SEGURIDAD SOCIAL ──────────────────────────── */}
-      <Section title="SEGURIDAD SOCIAL" accent="#10B981">
+      <Section title="SEGURIDAD SOCIAL" accent="#10B981" defaultOpen={false}>
         <div style={S.grid3}>
           <Field label="EPS / ENTIDAD DE SALUD" value={form.eps} editing={editing} onChange={v => set('eps', v)} placeholder="Ej: Sura, Sanitas, Colmédica" />
           <Field label="FONDO DE PENSIONES" value={form.pension_fund} editing={editing} onChange={v => set('pension_fund', v)} placeholder="Ej: Porvenir, Protección" />
@@ -238,7 +316,7 @@ export default function HRProfileTab({ member, workspace, currentUser }) {
       </Section>
 
       {/* ── BLOQUE 4: CUENTA BANCARIA ─────────────────────────────── */}
-      <Section title="CUENTA BANCARIA (NÓMINA)" accent="#F59E0B">
+      <Section title="CUENTA BANCARIA (NÓMINA)" accent="#F59E0B" defaultOpen={false}>
         <div style={S.grid3}>
           <Field label="BANCO" value={form.bank_name} editing={editing} onChange={v => set('bank_name', v)} placeholder="Ej: Bancolombia, Davivienda" />
           <Field label="TIPO DE CUENTA" value={form.bank_account_type} editing={editing} onChange={v => set('bank_account_type', v)}
@@ -248,7 +326,7 @@ export default function HRProfileTab({ member, workspace, currentUser }) {
       </Section>
 
       {/* ── BLOQUE 5: DATOS ADICIONALES ──────────────────────────── */}
-      <Section title="DATOS ADICIONALES" accent="#64748b">
+      <Section title="DATOS ADICIONALES" accent="#64748b" defaultOpen={false}>
         <Field label="CONTACTO DE EMERGENCIA" value={form.emergency_contact} editing={editing} onChange={v => set('emergency_contact', v)}
           placeholder="Nombre — Teléfono — Relación" fullWidth />
         {editing && (
@@ -347,16 +425,24 @@ export default function HRProfileTab({ member, workspace, currentUser }) {
   );
 }
 
-// ── Section wrapper ───────────────────────────────────────────────────────────
-function Section({ title, accent, children }) {
+// ── Section wrapper (colapsable) ──────────────────────────────────────────────
+function Section({ title, accent, children, defaultOpen = true }) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <div style={S.section}>
-      <div style={{ ...S.sectionHeader, borderBottomColor: `${accent}40` }}>
+      <button
+        style={{ ...S.sectionHeader, ...S.sectionToggle, borderBottomColor: open ? `${accent}40` : 'transparent' }}
+        onClick={() => setOpen(o => !o)}
+        title={open ? 'Contraer' : 'Desplegar'}
+      >
         <span style={{ ...S.sectionTitle, color: accent }}>{title}</span>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', paddingTop: '4px' }}>
-        {children}
-      </div>
+        <span style={{ ...S.chevron, color: accent }}>{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', paddingTop: '4px' }}>
+          {children}
+        </div>
+      )}
     </div>
   );
 }
@@ -397,6 +483,8 @@ const S = {
   jobBadge:      { color: '#64748b', fontSize: '10px', border: '1px solid #1e1e1e', padding: '2px 8px', letterSpacing: '0.5px' },
   section:       { padding: '14px 16px', borderBottom: `1px solid ${C.border}` },
   sectionHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${C.border}`, paddingBottom: '8px', marginBottom: '12px' },
+  sectionToggle: { width: '100%', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: FF, textAlign: 'left', paddingLeft: 0, paddingRight: 0 },
+  chevron:       { fontSize: '11px', flexShrink: 0 },
   sectionTitle:  { color: C.accent, fontSize: '10px', letterSpacing: '2px', fontWeight: 700 },
   statusBadge:   { border: '1px solid', padding: '2px 8px', fontSize: '10px', letterSpacing: '1px' },
   grid2:         { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' },

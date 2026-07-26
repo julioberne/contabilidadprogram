@@ -124,10 +124,11 @@ def inventory_list_movements(
 
 
 @router.get("/api/inventory/summary")
-def inventory_stock_summary(portfolio: str = "Principal"):
-    """Retorna resumen de inventario: totales, valor, alertas de stock bajo."""
+def inventory_stock_summary(portfolio: str = "Principal", company_id: Optional[int] = None):
+    """Retorna resumen de inventario: totales (costo/venta/utilidad), unidades, alertas.
+    Opcionalmente acotado a una empresa (company_id)."""
     try:
         from fin_sys_core.inventory_driver import get_stock_summary
-        return get_stock_summary(portfolio)
+        return get_stock_summary(portfolio, company_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

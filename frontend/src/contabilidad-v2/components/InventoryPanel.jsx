@@ -14,9 +14,15 @@ import QuickAddForm from './inventory/QuickAddForm';
 export default function InventoryPanel({ activePortfolio, activeCompany, onDataChanged }) {
   // ── Estado global ────────────────────────────────────────
   const [items, setItems] = useState([]);
-  const [summary, setSummary] = useState({ total_items: 0, total_value: 0, low_stock_count: 0 });
+  const [summary, setSummary] = useState({
+    total_items: 0, total_units: 0, total_cost: 0, total_sell: 0,
+    total_utility: 0, total_value: 0, low_stock_count: 0,
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Scope por empresa: si hay empresa activa, el inventario se acota a ella.
+  const companyScope = activeCompany?.id != null ? `&company_id=${activeCompany.id}` : '';
 
   // ── Estado de UI ─────────────────────────────────────────
   const [expandedItemId, setExpandedItemId] = useState(null);
@@ -29,7 +35,7 @@ export default function InventoryPanel({ activePortfolio, activeCompany, onDataC
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch(`${API_BASE_URL}/inventory/items?portfolio=${encodeURIComponent(activePortfolio)}`);
+      const res = await fetch(`${API_BASE_URL}/inventory/items?portfolio=${encodeURIComponent(activePortfolio)}${companyScope}`);
       if (!res.ok) throw new Error(`Error ${res.status}`);
       const data = await res.json();
       setItems(Array.isArray(data) ? data : (data.items || []));
@@ -39,17 +45,17 @@ export default function InventoryPanel({ activePortfolio, activeCompany, onDataC
     } finally {
       setLoading(false);
     }
-  }, [activePortfolio]);
+  }, [activePortfolio, companyScope]);
 
   const fetchSummary = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/inventory/summary?portfolio=${encodeURIComponent(activePortfolio)}`);
+      const res = await fetch(`${API_BASE_URL}/inventory/summary?portfolio=${encodeURIComponent(activePortfolio)}${companyScope}`);
       if (res.ok) {
         const data = await res.json();
         setSummary(data);
       }
     } catch (_) { /* silencioso */ }
-  }, [activePortfolio]);
+  }, [activePortfolio, companyScope]);
 
   useEffect(() => {
     if (activePortfolio) {
@@ -115,7 +121,8 @@ export default function InventoryPanel({ activePortfolio, activeCompany, onDataC
           </div>
           <div style={{ fontSize: 9, color: COLORS.gray, marginTop: 2, letterSpacing: '1px' }}>
             {activePortfolio || 'Sin portafolio'}
-            {activeCompany?.industry ? ` · ${activeCompany.industry}` : ''}
+            {activeCompany?.name ? ` · ${activeCompany.name}` : ' · TODAS LAS EMPRESAS'}
+            {activeCompany?.industry ? ` (${activeCompany.industry})` : ''}
           </div>
         </div>
         <button
@@ -133,26 +140,40 @@ export default function InventoryPanel({ activePortfolio, activeCompany, onDataC
         </button>
       </div>
 
-      {/* ── 1. BARRA DE RESUMEN ────────────────────────────── */}
-      <div style={{
-        display: 'flex',
-        gap: 0,
-        borderBottom: `2px solid ${COLORS.black}`,
-      }}>
+      {/* ── 1. BARRA DE RESUMEN — Fila A: conteo ───────────── */}
+      <div style={{ display: 'flex', gap: 0, borderBottom: `1px solid ${COLORS.black}` }}>
         {[
           { label: 'ITEMS', value: summary.total_items ?? items.length, color: COLORS.black },
-          { label: 'VALOR TOTAL', value: fmtCOP(summary.total_value), color: COLORS.greenSoft },
+          { label: 'UNIDADES', value: (summary.total_units ?? 0).toLocaleString('es-CO'), color: COLORS.black },
           { label: 'ALERTAS', value: summary.low_stock_count ?? 0, color: summary.low_stock_count > 0 ? COLORS.crimson : COLORS.black },
         ].map((stat, i) => (
           <div key={i} style={{
-            flex: 1,
-            padding: '10px 12px',
+            flex: 1, padding: '10px 12px',
             borderRight: i < 2 ? `2px solid ${COLORS.black}` : 'none',
-            background: COLORS.white,
-            textAlign: 'center',
+            background: COLORS.white, textAlign: 'center',
           }}>
             <div style={{ ...S.label, marginBottom: 4 }}>{stat.label}</div>
             <div style={{ fontSize: 16, fontWeight: 700, color: stat.color, letterSpacing: '0.5px' }}>
+              {stat.value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── 1. BARRA DE RESUMEN — Fila B: consolidado monetario ── */}
+      <div style={{ display: 'flex', gap: 0, borderBottom: `2px solid ${COLORS.black}` }}>
+        {[
+          { label: 'COSTO TOTAL', value: fmtCOP(summary.total_cost ?? summary.total_value), color: COLORS.black },
+          { label: 'VENTA TOTAL', value: fmtCOP(summary.total_sell), color: COLORS.black },
+          { label: 'UTILIDAD NETA', value: fmtCOP(summary.total_utility), color: (summary.total_utility ?? 0) >= 0 ? COLORS.greenSoft : COLORS.crimson },
+        ].map((stat, i) => (
+          <div key={i} style={{
+            flex: 1, padding: '10px 12px',
+            borderRight: i < 2 ? `2px solid ${COLORS.black}` : 'none',
+            background: i === 2 ? '#0d0d0d' : COLORS.white, textAlign: 'center',
+          }}>
+            <div style={{ ...S.label, marginBottom: 4, color: i === 2 ? COLORS.grayLight : undefined }}>{stat.label}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: stat.color, letterSpacing: '0.5px' }}>
               {stat.value}
             </div>
           </div>
@@ -163,6 +184,8 @@ export default function InventoryPanel({ activePortfolio, activeCompany, onDataC
       {showAddForm && (
         <QuickAddForm
           activePortfolio={activePortfolio}
+          activeCompany={activeCompany}
+          existingItems={items}
           onCreated={async () => { setShowAddForm(false); await refresh(); }}
         />
       )}

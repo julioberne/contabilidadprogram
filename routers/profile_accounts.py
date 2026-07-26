@@ -3,7 +3,7 @@
 Extracted from contabilidad.py — PURE refactor, zero logic changes."""
 from fastapi import APIRouter, HTTPException
 
-from routers.schemas import ProfileInput, AccountInput
+from routers.schemas import ProfileInput, AccountInput, AccountUpdateInput
 
 router = APIRouter(tags=["Perfil & Cuentas"])
 
@@ -48,5 +48,31 @@ def add_account(acc: AccountInput):
         from database_driver import crear_cuenta
         new_id = crear_cuenta(acc.dict())
         return {"status": "CREADO", "account_id": new_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/api/accounts/{account_id}")
+def update_account(account_id: int, acc: AccountUpdateInput):
+    try:
+        from database_driver import actualizar_cuenta
+        if not actualizar_cuenta(account_id, acc.dict()):
+            raise HTTPException(status_code=404, detail="Cuenta no encontrada.")
+        return {"status": "ACTUALIZADO"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/api/accounts/{account_id}")
+def delete_account(account_id: int):
+    try:
+        from database_driver import eliminar_cuenta
+        if not eliminar_cuenta(account_id):
+            raise HTTPException(status_code=404, detail="Cuenta no encontrada.")
+        return {"status": "ELIMINADO"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

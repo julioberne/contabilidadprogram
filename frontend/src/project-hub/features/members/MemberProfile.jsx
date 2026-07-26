@@ -8,6 +8,10 @@ import HRProfileTab  from './tabs/HRProfileTab';
 import SalaryTab     from './tabs/SalaryTab';
 import DocumentsTab  from './tabs/DocumentsTab';
 import HistorialTab  from './tabs/HistorialTab';
+import MemberTasksBreakdown from './MemberTasksBreakdown';
+import { API_HUB } from '../../../config';
+
+const ROLES = ['owner', 'admin', 'member', 'viewer'];
 
 const TABS = [
   { id: 'rendimiento', label: 'RENDIMIENTO' },
@@ -17,10 +21,51 @@ const TABS = [
   { id: 'historial',   label: 'HISTORIAL'   },
 ];
 
-export default function MemberProfile({ member, metrics, workspace, currentUser, onBack }) {
+export default function MemberProfile({ member, metrics, workspace, currentUser, onBack, onSaved, onRemoved }) {
   const [activeTab, setActiveTab] = useState('rendimiento');
+  const [editing,   setEditing]   = useState(false);
+  const [form,      setForm]      = useState({});
+  const [saving,    setSaving]    = useState(false);
+  const [editError, setEditError] = useState('');
+
+  const isAdmin = currentUser?.role === 'owner' || currentUser?.role === 'admin' || currentUser?.is_superuser;
 
   if (!member) return null;
+
+  const startEdit = () => {
+    setEditError('');
+    setForm({
+      name: member.name || '', role: member.role || 'member',
+      cedula: member.cedula || '', email: member.email || '',
+      description: member.description || '',
+    });
+    setEditing(true);
+  };
+
+  const saveEdit = async () => {
+    if (!form.name.trim()) { setEditError('El nombre es obligatorio.'); return; }
+    setSaving(true); setEditError('');
+    try {
+      const res = await fetch(`${API_HUB}/users/${member.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: workspace.id, ...form }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || `Error ${res.status}`);
+      setEditing(false);
+      onSaved?.(data.member);
+    } catch (e) { setEditError(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const removeMember = async () => {
+    if (!confirm(`¿Quitar a "${member.name}" de ${workspace.name}?\n\nSe desvincula del equipo; su ficha de usuario no se borra.`)) return;
+    try {
+      const res = await fetch(`${API_HUB}/users/${member.id}?workspace_id=${workspace.id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(`Error ${res.status}`);
+      onRemoved?.();
+    } catch (e) { setEditError(e.message); }
+  };
 
   const done    = metrics?.tasks_done    || 0;
   const pending = metrics?.tasks_pending || 0;
@@ -46,21 +91,69 @@ export default function MemberProfile({ member, metrics, workspace, currentUser,
             ? <img src={member.avatar_url} alt={member.name} style={styles.avatarImg} />
             : initials}
         </div>
-        <div style={styles.profileInfo}>
-          <h2 style={styles.name}>{member.name}</h2>
-          <div style={styles.meta}>
-            <span style={{ ...styles.roleBadge, borderColor: getRoleColor(member.role), color: getRoleColor(member.role) }}>
-              {member.role?.toUpperCase()}
-            </span>
-            {member.cedula && (
-              <span style={styles.metaItem}>CC {member.cedula}</span>
+
+        {!editing ? (
+          <>
+            <div style={styles.profileInfo}>
+              <h2 style={styles.name}>{member.name}</h2>
+              <div style={styles.meta}>
+                <span style={{ ...styles.roleBadge, borderColor: getRoleColor(member.role), color: getRoleColor(member.role) }}>
+                  {member.role?.toUpperCase()}
+                </span>
+                {member.cedula && <span style={styles.metaItem}>CC {member.cedula}</span>}
+                {member.email
+                  ? <span style={styles.metaItem}>{member.email}</span>
+                  : <span style={{ ...styles.metaItem, fontStyle: 'italic', color: '#475569' }}>sin login</span>}
+              </div>
+              {member.description && <p style={styles.desc}>{member.description}</p>}
+            </div>
+            {isAdmin && (
+              <div style={styles.actions}>
+                <button style={styles.editBtn} onClick={startEdit}>✎ EDITAR</button>
+                <button style={styles.removeBtn} onClick={removeMember}>✕ QUITAR</button>
+              </div>
             )}
-            <span style={styles.metaItem}>{member.email}</span>
+          </>
+        ) : (
+          <div style={styles.editForm}>
+            <div style={styles.editGrid}>
+              <label style={styles.field}>
+                <span style={styles.fieldLabel}>Nombre *</span>
+                <input style={styles.input} value={form.name}
+                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+              </label>
+              <label style={styles.field}>
+                <span style={styles.fieldLabel}>Rol / Función</span>
+                <select style={styles.input} value={form.role}
+                  onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
+                  {ROLES.map(r => <option key={r} value={r}>{r.toUpperCase()}</option>)}
+                </select>
+              </label>
+              <label style={styles.field}>
+                <span style={styles.fieldLabel}>Cédula</span>
+                <input style={styles.input} value={form.cedula}
+                  onChange={e => setForm(f => ({ ...f, cedula: e.target.value }))} />
+              </label>
+              <label style={styles.field}>
+                <span style={styles.fieldLabel}>Email (login opcional)</span>
+                <input style={styles.input} value={form.email} placeholder="sin login"
+                  onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+              </label>
+            </div>
+            <label style={styles.field}>
+              <span style={styles.fieldLabel}>Descripción / Funciones</span>
+              <textarea style={{ ...styles.input, minHeight: '54px', resize: 'vertical' }} value={form.description}
+                onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+            </label>
+            {editError && <span style={styles.err}>{editError}</span>}
+            <div style={styles.editActions}>
+              <button style={styles.saveBtn} onClick={saveEdit} disabled={saving}>
+                {saving ? 'GUARDANDO…' : '✔ GUARDAR'}
+              </button>
+              <button style={styles.cancelBtn} onClick={() => setEditing(false)} disabled={saving}>CANCELAR</button>
+            </div>
           </div>
-          {member.description && (
-            <p style={styles.desc}>{member.description}</p>
-          )}
-        </div>
+        )}
       </div>
 
       {/* ── TABS ──────────────────────────────────────────────── */}
@@ -100,6 +193,11 @@ export default function MemberProfile({ member, metrics, workspace, currentUser,
                 <div style={{ ...styles.bigBarFill, width: `${pct}%`, background: color }} />
               </div>
               <p style={styles.barCaption}>{done} de {total} tareas completadas</p>
+            </div>
+
+            {/* Desglose real de tareas: agrupado por estado, con proyecto/empresa */}
+            <div style={styles.section}>
+              <MemberTasksBreakdown member={member} workspace={workspace} />
             </div>
 
             {member.joined_at && (
@@ -178,7 +276,19 @@ const styles = {
   profileCard: { display: 'flex', gap: '24px', alignItems: 'flex-start', padding: '16px 20px', borderBottom: `1px solid ${C.border}`, flexWrap: 'wrap', flexShrink: 0 },
   avatar:      { width: '80px', height: '80px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#000', fontSize: '24px', fontWeight: 700, overflow: 'hidden' },
   avatarImg:   { width: '100%', height: '100%', objectFit: 'cover' },
-  profileInfo: { flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' },
+  profileInfo: { flex: 1, display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '200px' },
+  actions:     { display: 'flex', flexDirection: 'column', gap: '6px', flexShrink: 0 },
+  editBtn:     { background: 'transparent', border: '1px solid #0EA5E9', color: '#0EA5E9', padding: '6px 12px', cursor: 'pointer', fontSize: '10px', letterSpacing: '1px', fontFamily: '"IBM Plex Mono", monospace' },
+  removeBtn:   { background: 'transparent', border: '1px solid #EF4444', color: '#EF4444', padding: '6px 12px', cursor: 'pointer', fontSize: '10px', letterSpacing: '1px', fontFamily: '"IBM Plex Mono", monospace' },
+  editForm:    { flex: 1, display: 'flex', flexDirection: 'column', gap: '10px', minWidth: '260px' },
+  editGrid:    { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' },
+  field:       { display: 'flex', flexDirection: 'column', gap: '3px' },
+  fieldLabel:  { color: '#64748b', fontSize: '9px', letterSpacing: '1px', textTransform: 'uppercase' },
+  input:       { background: '#1a1a1a', border: '2px solid #333', color: '#e2e8f0', padding: '7px 9px', fontSize: '12px', fontFamily: '"IBM Plex Mono", monospace', outline: 'none' },
+  err:         { color: '#EF4444', fontSize: '11px' },
+  editActions: { display: 'flex', gap: '8px' },
+  saveBtn:     { background: '#0EA5E9', border: 'none', color: '#000', padding: '8px 18px', cursor: 'pointer', fontSize: '11px', fontWeight: 700, letterSpacing: '1px', fontFamily: '"IBM Plex Mono", monospace' },
+  cancelBtn:   { background: 'transparent', border: '1px solid #333', color: '#64748b', padding: '8px 16px', cursor: 'pointer', fontSize: '11px', letterSpacing: '1px', fontFamily: '"IBM Plex Mono", monospace' },
   name:        { color: C.text, fontSize: '20px', margin: 0, letterSpacing: '-0.5px', wordBreak: 'break-word' },
   meta:        { display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' },
   roleBadge:   { border: '1px solid', padding: '2px 8px', fontSize: '10px', letterSpacing: '2px' },

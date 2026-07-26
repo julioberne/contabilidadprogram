@@ -19,12 +19,13 @@ import GlobalHeader   from './shell/GlobalHeader.jsx';
 import { UserProvider }         from './shell/providers/UserProvider.jsx';
 import { NotificationProvider } from './shell/providers/NotificationProvider.jsx';
 import { useGlobalSession } from './shell/hooks/useGlobalSession.js';
+import { useRoute } from './shell/useRoute.js';
 
 const MOBILE_BP = 900;
 
 function FINSYSShell() {
   const { user, loading, error, login, logout } = useGlobalSession();
-  const [view,        setView]        = useState('home');
+  const [view,        setView]        = useRoute();  // sincronizado con la URL
   const [collapsed,   setCollapsed]   = useState(false);
   const [mobileOpen,  setMobileOpen]  = useState(false);
   const [isMobile,    setIsMobile]    = useState(window.innerWidth < MOBILE_BP);

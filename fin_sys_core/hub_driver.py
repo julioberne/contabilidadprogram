@@ -185,6 +185,168 @@ def add_member_to_workspace(workspace_id: str, user_id: str, role: str = "member
         _put_conn(conn)
 
 
+def _member_row(cur, workspace_id: str, user_id: str) -> dict | None:
+    """Devuelve un miembro en la MISMA forma que get_workspace_members()."""
+    cur.execute("""
+        SELECT u.id, u.name, u.email, u.cedula, u.color,
+               u.avatar_url, u.description, wm.role, wm.joined_at
+        FROM hub_users u
+        JOIN hub_workspace_members wm ON wm.user_id = u.id
+        WHERE wm.workspace_id = %s AND u.id = %s
+    """, (workspace_id, user_id))
+    row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def create_member(workspace_id: str, name: str, email: str = None,
+                  cedula: str = None, description: str = None,
+                  role: str = "member", password: str = None) -> dict:
+    """Crea una persona (ficha de roster) y la vincula al workspace.
+
+    Modelo "login opcional": email y password son opcionales. Si no hay
+    password, el usuario existe como ficha de RRHH pero no puede iniciar sesión.
+    """
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("El nombre es obligatorio")
+    email = (email or "").strip() or None
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            # Email único solo si se proporcionó
+            if email:
+                cur.execute("SELECT id FROM hub_users WHERE email = %s", (email,))
+                if cur.fetchone():
+                    raise ValueError("El email ya está registrado")
+
+            # Color de avatar rotando por cantidad de usuarios
+            cur.execute("SELECT COUNT(*) AS cnt FROM hub_users")
+            color = AVATAR_COLORS[cur.fetchone()["cnt"] % len(AVATAR_COLORS)]
+
+            if password:
+                cur.execute("""
+                    INSERT INTO hub_users
+                      (email, password_hash, name, cedula, description, color, role)
+                    VALUES (%s, crypt(%s, gen_salt('bf')), %s, %s, %s, %s, %s)
+                    RETURNING id
+                """, (email, password, name, cedula, description, color, role))
+            else:
+                cur.execute("""
+                    INSERT INTO hub_users
+                      (email, password_hash, name, cedula, description, color, role)
+                    VALUES (%s, NULL, %s, %s, %s, %s, %s)
+                    RETURNING id
+                """, (email, name, cedula, description, color, role))
+            user_id = cur.fetchone()["id"]
+
+            cur.execute("""
+                INSERT INTO hub_workspace_members (workspace_id, user_id, role)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (workspace_id, user_id) DO UPDATE SET role = EXCLUDED.role
+            """, (workspace_id, user_id, role))
+
+            member = _member_row(cur, workspace_id, user_id)
+            conn.commit()
+            return member
+    finally:
+        _put_conn(conn)
+
+
+def update_member(user_id: str, workspace_id: str, name: str = None,
+                  email: str = None, cedula: str = None,
+                  description: str = None, role: str = None) -> dict | None:
+    """Edita los datos de una persona y su rol dentro del workspace.
+
+    Solo actualiza los campos no-None (name="" sí es válido para limpiar).
+    El rol se guarda tanto en hub_users como en la membresía del workspace.
+    """
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            # Email único (excluyendo al propio usuario)
+            if email is not None and email.strip():
+                cur.execute(
+                    "SELECT id FROM hub_users WHERE email = %s AND id != %s",
+                    (email.strip(), user_id)
+                )
+                if cur.fetchone():
+                    raise ValueError("El email ya está registrado")
+
+            sets, params = [], []
+            if name is not None:
+                sets.append("name = %s"); params.append(name.strip())
+            if email is not None:
+                sets.append("email = %s"); params.append(email.strip() or None)
+            if cedula is not None:
+                sets.append("cedula = %s"); params.append(cedula.strip() or None)
+            if description is not None:
+                sets.append("description = %s"); params.append(description)
+            if role is not None:
+                sets.append("role = %s"); params.append(role)
+
+            if sets:
+                params.append(user_id)
+                cur.execute(f"UPDATE hub_users SET {', '.join(sets)} WHERE id = %s", params)
+
+            if role is not None:
+                cur.execute(
+                    "UPDATE hub_workspace_members SET role = %s WHERE workspace_id = %s AND user_id = %s",
+                    (role, workspace_id, user_id)
+                )
+
+            member = _member_row(cur, workspace_id, user_id)
+            conn.commit()
+            return member
+    finally:
+        _put_conn(conn)
+
+
+def remove_member_from_workspace(workspace_id: str, user_id: str) -> bool:
+    """Desvincula a una persona del workspace (no borra su ficha de usuario)."""
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM hub_workspace_members WHERE workspace_id = %s AND user_id = %s",
+                (workspace_id, user_id)
+            )
+            removed = cur.rowcount > 0
+            conn.commit()
+            return removed
+    finally:
+        _put_conn(conn)
+
+
+def get_user_tasks(workspace_id: str, user_id: str) -> list:
+    """Tareas asignadas a una persona en un workspace, con su proyecto y empresa.
+
+    Alimenta el detalle de RENDIMIENTO: lista real agrupable por estado, con
+    el proyecto y la entidad/empresa asociada (task → project → entity).
+    """
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT t.id, t.title, t.description, t.status, t.priority,
+                       t.due_date, t.started_at, t.completed_at, t.created_at,
+                       p.name  AS project_name,  p.color AS project_color,
+                       e.name  AS entity_name,
+                       (t.due_date < NOW()::DATE AND t.status != 'done') AS is_overdue
+                FROM hub_task_assignees ta
+                JOIN hub_tasks t     ON t.id = ta.task_id
+                LEFT JOIN hub_projects p ON p.id = t.project_id
+                LEFT JOIN hub_entities e ON e.id = p.entity_id
+                WHERE ta.user_id = %s AND t.workspace_id = %s
+                ORDER BY
+                    CASE t.status WHEN 'done' THEN 2 ELSE 1 END,
+                    t.due_date ASC NULLS LAST,
+                    t.created_at DESC
+            """, (user_id, workspace_id))
+            return [dict(r) for r in cur.fetchall()]
+    finally:
+        _put_conn(conn)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ENTITIES (árbol jerárquico flexible)
 # ══════════════════════════════════════════════════════════════════════════════

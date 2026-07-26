@@ -35,6 +35,23 @@ class HubUserLogin(BaseModel):
     email: str
     password: str
 
+class HubMemberCreate(BaseModel):
+    workspace_id: str
+    name: str
+    email: Optional[str] = None
+    cedula: Optional[str] = None
+    description: Optional[str] = None
+    role: str = "member"
+    password: Optional[str] = None
+
+class HubUserUpdate(BaseModel):
+    workspace_id: str
+    name: Optional[str] = None
+    email: Optional[str] = None
+    cedula: Optional[str] = None
+    description: Optional[str] = None
+    role: Optional[str] = None
+
 class HubEntityCreate(BaseModel):
     workspace_id: str
     name: str
@@ -176,6 +193,65 @@ def hub_add_member(data: HubMemberAdd):
         from fin_sys_core.hub_driver import add_member_to_workspace
         result = add_member_to_workspace(data.workspace_id, data.user_id, data.role)
         return {"status": "ok", "member": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/api/hub/users", status_code=201)
+def hub_create_member(data: HubMemberCreate):
+    """Crea una persona (ficha de roster) y la vincula al workspace."""
+    try:
+        from fin_sys_core.hub_driver import create_member
+        member = create_member(
+            workspace_id=data.workspace_id, name=data.name, email=data.email,
+            cedula=data.cedula, description=data.description,
+            role=data.role, password=data.password,
+        )
+        return {"status": "ok", "member": member}
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/api/hub/users/{user_id}")
+def hub_update_member(user_id: str, data: HubUserUpdate):
+    """Edita nombre, email, cédula, descripción y rol de una persona."""
+    try:
+        from fin_sys_core.hub_driver import update_member
+        member = update_member(
+            user_id=user_id, workspace_id=data.workspace_id, name=data.name,
+            email=data.email, cedula=data.cedula,
+            description=data.description, role=data.role,
+        )
+        if not member:
+            raise HTTPException(status_code=404, detail="Miembro no encontrado en este workspace")
+        return {"status": "ok", "member": member}
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/api/hub/users/{user_id}")
+def hub_remove_member(user_id: str, workspace_id: str):
+    """Desvincula a la persona del workspace (conserva su ficha de usuario)."""
+    try:
+        from fin_sys_core.hub_driver import remove_member_from_workspace
+        ok = remove_member_from_workspace(workspace_id, user_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Miembro no encontrado en este workspace")
+        return {"status": "ok"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/api/hub/users/{user_id}/tasks")
+def hub_get_user_tasks(user_id: str, workspace_id: str):
+    """Tareas asignadas a una persona, con proyecto y empresa (para RENDIMIENTO)."""
+    try:
+        from fin_sys_core.hub_driver import get_user_tasks
+        return get_user_tasks(workspace_id, user_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

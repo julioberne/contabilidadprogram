@@ -44,6 +44,7 @@ export default function ContextPanel({
   activeCompany = null,     // Entity activa (id, name, industry)
   onCompanyUpdated,         // Callback cuando se actualiza la empresa
   accounts = [],
+  refreshAccounts,           // refetch de dashboard-data tras un CRUD de cuenta
   profile = {},
   // --- Profile editing ---
   profileEdit = {},
@@ -86,16 +87,78 @@ export default function ContextPanel({
   // --- Helpers ---
   const SectionLabel = ({ text }) => <div className="text-[8px] font-mono text-gray-400 uppercase border-b border-dashed border-gray-200 pb-1 mb-1.5">{text}</div>;
 
+  // --- CRUD de cuentas financieras (user_accounts) ---
+  // El endpoint real es /accounts; antes se apuntaba a /user-accounts, que no
+  // existe, y el 404 se tragaba en silencio dejando la cuenta sin crear.
+  const [accError, setAccError] = useState("");
+
   const handleAddAccount = async (e) => {
     e.preventDefault();
     if (!newAccName.trim()) return;
+    setAccError("");
     try {
-      const r = await fetch(`${API_BASE}/user-accounts`, {
+      const r = await fetch(`${API_BASE}/accounts`, {
         method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ name: newAccName.trim(), type: newAccType, currency: newAccCurrency, initial_balance: parseFloat(newAccBalance) || 0, portfolio: activePortfolio })
       });
-      if (r.ok) { setNewAccName(''); setNewAccBalance(''); /* parent will refetch */ }
-    } catch(e) { console.error(e); }
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        setAccError(d.detail ? String(d.detail) : `Error ${r.status} al crear la cuenta`);
+        return;
+      }
+      setNewAccName(''); setNewAccBalance('');
+      refreshAccounts?.();
+    } catch (err) {
+      setAccError('No se pudo conectar con el servidor.');
+      console.error(err);
+    }
+  };
+
+  const handleUpdateAccount = async (id, data) => {
+    setAccError("");
+    try {
+      const r = await fetch(`${API_BASE}/accounts/${id}`, {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(data)
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        setAccError(d.detail ? String(d.detail) : `Error ${r.status} al actualizar`);
+        return false;
+      }
+      refreshAccounts?.();
+      return true;
+    } catch (err) {
+      setAccError('No se pudo conectar con el servidor.');
+      return false;
+    }
+  };
+
+  const handleDeleteAccount = async (id, name) => {
+    if (!confirm(`¿Eliminar la cuenta "${name}"?\n\nLas transacciones asociadas quedarán sin cuenta (account_id = NULL), no se borran.`)) return;
+    setAccError("");
+    try {
+      const r = await fetch(`${API_BASE}/accounts/${id}`, { method: 'DELETE' });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        setAccError(d.detail ? String(d.detail) : `Error ${r.status} al eliminar`);
+        return;
+      }
+      refreshAccounts?.();
+    } catch (err) {
+      setAccError('No se pudo conectar con el servidor.');
+    }
+  };
+
+  const handleReconcile = async () => {
+    setAccError("");
+    try {
+      const r = await fetch(`${API_BASE}/reconcile-balances`, { method: 'POST' });
+      if (!r.ok) { setAccError(`Error ${r.status} al reconciliar`); return; }
+      refreshAccounts?.();
+    } catch (err) {
+      setAccError('No se pudo conectar con el servidor.');
+    }
   };
 
   return (
@@ -194,6 +257,10 @@ export default function ContextPanel({
           newAccCurrency={newAccCurrency} setNewAccCurrency={setNewAccCurrency}
           newAccBalance={newAccBalance} setNewAccBalance={setNewAccBalance}
           handleAddAccount={handleAddAccount}
+          handleUpdateAccount={handleUpdateAccount}
+          handleDeleteAccount={handleDeleteAccount}
+          handleReconcile={handleReconcile}
+          accError={accError}
           SectionLabel={SectionLabel}
         />}
 
