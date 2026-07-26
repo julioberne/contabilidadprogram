@@ -1,6 +1,14 @@
 // CTCollaborators.jsx — Panel de gestión de colaboradores y roles dinámicos
 import React, { useState } from 'react';
 
+/** Parsea permissions tolerando strings malformados (antes un JSON inválido
+    rompía el render de toda la lista de colaboradores). */
+function parsePerms(raw) {
+  if (!raw) return {};
+  if (typeof raw !== 'string') return raw;
+  try { return JSON.parse(raw) || {}; } catch { return {}; }
+}
+
 const PERMISSION_LABELS = {
   ledger: 'Libro Mayor',
   reports: 'Reportes',
@@ -196,14 +204,14 @@ export default function CTCollaborators({
                   </div>
                   {/* Perms */}
                   <div className="hidden sm:flex flex-col gap-0.5 flex-shrink-0">
-                    {Object.entries(PERMISSION_LABELS).map(([k, label]) => {
-                      const perms = typeof m.permissions === 'string' ? JSON.parse(m.permissions) : m.permissions || {};
+                    {(() => { const perms = parsePerms(m.permissions);
+                    return Object.entries(PERMISSION_LABELS).map(([k, label]) => {
                       return (
                         <span key={k} className={`text-[8px] font-bold uppercase ${perms[k] ? 'text-green-400' : 'text-white/15'}`}>
                           {perms[k] ? '✓' : '○'} {label}
                         </span>
                       );
-                    })}
+                    }); })()}
                   </div>
                 </div>
               ))}

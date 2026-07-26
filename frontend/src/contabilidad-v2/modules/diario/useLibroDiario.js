@@ -28,7 +28,13 @@ export function useLibroDiario() {
     let valueToSave = editValue;
     if (field === "net_value" || field === "amount") {
       valueToSave = parseFloat(editValue);
-      if (isNaN(valueToSave)) valueToSave = 0.0;
+      if (isNaN(valueToSave)) {
+        // Antes: un texto no numérico guardaba 0.0 en silencio (corrupción
+        // de datos contables). Ahora se rechaza la edición.
+        alert(`❌ "${editValue}" no es un número válido. La edición no se guardó.`);
+        setEditingCell(null);
+        return;
+      }
     }
 
     const payload = {

@@ -17,13 +17,16 @@ import { authHeaders } from './authHeaders.js';
 
 const ROLES = ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER'];
 
+// IDs EXACTOS del moduleRegistry — antes usaba 'control-tower'/'project-hub'/
+// 'contabilidad-v2'/'trading', que no existen en el registry, así que las
+// reglas creadas para ellos jamás afectaban a ningún módulo real.
 const MODULE_LABELS = {
-  'contabilidad':    { icon: '◆', label: 'Contabilidad' },
-  'control-tower':   { icon: '◈', label: 'Control Tower' },
-  'project-hub':     { icon: '◇', label: 'Project Hub' },
-  'contabilidad-v2': { icon: '▣', label: 'Contabilidad v2' },
-  'bot':             { icon: '◉', label: 'Bot IA' },
-  'trading':         { icon: '△', label: 'Trading NASDAQ' },
+  'contabilidad': { icon: '◆', label: 'Contabilidad' },
+  'tower':        { icon: '◈', label: 'Control Tower' },
+  'rrhh':         { icon: '◇', label: 'RRHH (Project Hub)' },
+  'bot':          { icon: '◉', label: 'Bot IA' },
+  'tesoreria':    { icon: '⊕', label: 'Tesorería' },
+  'facturacion':  { icon: '▦', label: 'Facturación' },
 };
 
 export default function ModuleSettingsPanel({ onFlagsChanged }) {

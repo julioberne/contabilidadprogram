@@ -113,7 +113,9 @@ export function useControlTower() {
   // ── Set Active Entity & Build Breadcrumb ─────────────────
   const selectEntity = useCallback((entity, parentChain = []) => {
     setActiveEntity(entity);
-    setBreadcrumb([...parentChain, entity]);
+    // entity null = volver a home → breadcrumb vacío (antes quedaba [null]
+    // y el TopBar mostraba un "···" en vez del placeholder)
+    setBreadcrumb(entity ? [...parentChain, entity] : []);
   }, []);
 
   // ── KPIs ─────────────────────────────────────────────────

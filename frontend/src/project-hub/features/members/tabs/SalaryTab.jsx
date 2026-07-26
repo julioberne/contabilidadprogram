@@ -125,7 +125,7 @@ export default function SalaryTab({ member, workspace, currentUser }) {
   const [payments,       setPayments]       = useState([]);
   const [generatingVoucher, setGeneratingVoucher] = useState(null);
   const [registeringPay,    setRegisteringPay]    = useState(false);
-  const [showHistory,       setShowHistory]       = useState(false); // kept for compatibility
+  const [showHistory,       setShowHistory]       = useState(false); // toggle ◉ HISTORIAL del header
   const [f, setF] = useState({
     base: '',
     salaryType: 'base',
@@ -230,6 +230,10 @@ export default function SalaryTab({ member, workspace, currentUser }) {
               onClick={() => setMode('nomina')}>◈ NÓMINA MENSUAL</button>
             <button style={{ ...S.modeBtn, ...(mode === 'liquidacion' ? S.modeBtnActive : {}) }}
               onClick={() => setMode('liquidacion')}>◉ LIQUIDACIÓN</button>
+            {/* El panel de historial existía pero era inalcanzable (showHistory
+                nunca se ponía en true) — ahora tiene su toggle */}
+            <button style={{ ...S.modeBtn, ...(showHistory ? S.modeBtnActive : {}) }}
+              onClick={() => setShowHistory(v => !v)}>◉ HISTORIAL</button>
           </div>
         </div>
       </div>

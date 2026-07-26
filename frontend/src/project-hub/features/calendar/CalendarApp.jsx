@@ -39,6 +39,7 @@ export default function CalendarApp({ workspace, user }) {
     if (!workspace) return;
     fetchEvents();
     fetchMembers();
+    fetchTasks();
   }, [workspace?.id]);
 
   const fetchEvents = async () => {
@@ -52,6 +53,23 @@ export default function CalendarApp({ workspace, user }) {
     try {
       const r = await fetch(`${API}/users?workspace_id=${workspace.id}`);
       setMembers(await r.json());
+    } catch {}
+  };
+
+  // El toggle "◈ TAREAS" existía pero tasks jamás se cargaba (feature muerta).
+  // Las tareas viven por proyecto: se cargan los proyectos del workspace y
+  // luego sus tareas en paralelo.
+  const fetchTasks = async () => {
+    try {
+      const rp = await fetch(`${API}/projects?workspace_id=${workspace.id}`);
+      const projects = await rp.json();
+      if (!Array.isArray(projects)) return;
+      const porProyecto = await Promise.all(projects.map(p =>
+        fetch(`${API}/tasks?project_id=${p.id}`)
+          .then(r => (r.ok ? r.json() : []))
+          .catch(() => [])
+      ));
+      setTasks(porProyecto.flat().filter(Boolean));
     } catch {}
   };
 

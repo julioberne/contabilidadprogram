@@ -4,7 +4,7 @@
    arquitectura modular v2: providers (Empresa → Tenant → Draft)
    + módulos adapter que montan los componentes v1 reales.
    ============================================================ */
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import './contabilidad-v2.css';
 
 // Engine: providers (Empresa → Tenant → Draft)
@@ -45,6 +45,16 @@ function ContabilidadInner() {
   const [evidenceUrl, setEvidenceUrl] = useState(null);
   const [selectedEvidenceTx, setSelectedEvidenceTx] = useState(null);
 
+  // ── Auto-selección de primera empresa ──────────────────────
+  // useCallback: antes era una arrow inline → nueva referencia en cada
+  // render → CompanySelector refetcheaba entities en bucle continuo.
+  const handleCompaniesLoaded = useCallback((entities) => {
+    if (!activeCompany && entities.length > 0) {
+      const firstEmpresa = entities.find(e => e.type === 'EMPRESA') || entities[0];
+      handleSelectCompany(firstEmpresa);
+    }
+  }, [activeCompany, handleSelectCompany]);
+
   return (
     <div className="min-h-screen bg-brutalBg text-black font-mono p-2 flex flex-col antialiased selection:bg-brutalGreen">
 
@@ -56,13 +66,7 @@ function ContabilidadInner() {
         <CompanySelector
           activeCompanyId={activeCompany?.id}
           onSelectCompany={handleSelectCompany}
-          onCompaniesLoaded={(entities) => {
-            // Auto-seleccionar la primera empresa si no hay ninguna activa
-            if (!activeCompany && entities.length > 0) {
-              const firstEmpresa = entities.find(e => e.type === 'EMPRESA') || entities[0];
-              handleSelectCompany(firstEmpresa);
-            }
-          }}
+          onCompaniesLoaded={handleCompaniesLoaded}
           style={{ flex: 1 }}
         />
         {/* Acciones rápidas + estado */}

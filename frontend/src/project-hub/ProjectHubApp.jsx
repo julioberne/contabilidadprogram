@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import './hub-typography.css';
 import { useQueryParam }    from '../shell/useRoute.js';
 import { useProjectHub }    from './hooks/useProjectHub';
@@ -23,8 +23,10 @@ export default function ProjectHubApp({ onExit, user: shellUser }) {
   const [isMobile,      setIsMobile]      = useState(window.innerWidth < MOBILE_BREAKPOINT);
 
   // ── SSO: Effective user (shell fallback when hub.user is null) ──────
-  // Prefer the real Hub user object (from API login via shell) over synthetic
-  const ssoUser = shellUser ? (
+  // Prefer the real Hub user object (from API login via shell) over synthetic.
+  // useMemo: el objeto sintético era una referencia nueva por render →
+  // el efecto de loadWorkspaces corría en cada render.
+  const ssoUser = useMemo(() => shellUser ? (
     shellUser.raw?.user || {
       id: shellUser.id || 1,
       email: shellUser.email || 'andres@finsys.os',
@@ -32,7 +34,7 @@ export default function ProjectHubApp({ onExit, user: shellUser }) {
       is_superuser: shellUser.role === 'ADMIN',
       color: '#0EA5E9',
     }
-  ) : null;
+  ) : null, [shellUser]);
 
   // The active user is hub's own user OR the synthetic SSO user
   const activeUser = hub.user || ssoUser;
