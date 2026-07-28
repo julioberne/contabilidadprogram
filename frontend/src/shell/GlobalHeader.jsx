@@ -23,8 +23,9 @@ function formatClock() {
   return `${hh}:${mm}`;
 }
 
-export function GlobalHeader({ activeView, moduleLabels, onLogout, isMobile, onHamburger }) {
+export function GlobalHeader({ activeView, moduleLabels, onLogout, onNavigate, isMobile, onHamburger }) {
   const { user } = useUser();
+  const isAdmin = user?.role === 'ADMIN';
   const { notifications, unreadCount, markAllRead, clearAll, notify } = useNotify();
 
   const [clock, setClock] = useState(formatClock);
@@ -98,6 +99,11 @@ export function GlobalHeader({ activeView, moduleLabels, onLogout, isMobile, onH
     setUserOpen((v) => !v);
     setNotifOpen(false);
   }, []);
+
+  const go = useCallback((v) => {
+    setUserOpen(false);
+    onNavigate?.(v);
+  }, [onNavigate]);
 
   const handleClear = useCallback(() => {
     clearAll();
@@ -206,6 +212,31 @@ export function GlobalHeader({ activeView, moduleLabels, onLogout, isMobile, onH
       color: '#666',
       padding: 0,
       fontFamily: "'IBM Plex Mono', monospace",
+    },
+    accountBtn: {
+      display: 'flex', alignItems: 'center', gap: 6,
+      background: '#1a1a1a', border: '1px solid #333',
+      cursor: 'pointer', padding: '2px 8px', height: 26,
+      fontFamily: "'IBM Plex Mono', monospace", borderRadius: 0,
+    },
+    accountAvatar: {
+      width: 18, height: 18, background: '#00e676', color: '#000',
+      fontSize: 9, fontWeight: 700, display: 'flex',
+      alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+    },
+    accountName: {
+      color: '#fff', fontSize: 9, fontWeight: 700, textTransform: 'uppercase',
+      maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+    },
+    accountRole: {
+      fontSize: 7, background: '#222', border: '1px solid #444',
+      padding: '1px 5px', color: '#00e676', textTransform: 'uppercase',
+    },
+    menuItem: {
+      display: 'block', width: '100%', padding: '7px 10px', fontSize: 9,
+      color: '#ccc', background: 'transparent', border: 'none',
+      borderBottom: '1px solid #333', textAlign: 'left', cursor: 'pointer',
+      fontFamily: "'IBM Plex Mono', monospace", textTransform: 'uppercase',
     },
     dropdown: {
       position: 'absolute',
@@ -402,10 +433,12 @@ export function GlobalHeader({ activeView, moduleLabels, onLogout, isMobile, onH
         {/* Clock */}
         <span style={S.clock}>{clock}</span>
 
-        {/* User dropdown */}
+        {/* User dropdown — botón de cuenta visible */}
         <div ref={userRef} style={{ position: 'relative' }}>
-          <button style={S.dropToggle} onClick={toggleUser}>
-            ▾
+          <button style={S.accountBtn} onClick={toggleUser} title="Mi cuenta">
+            <span style={S.accountName}>{displayName}</span>
+            <span style={S.accountRole}>{displayRole}</span>
+            <span style={{ color: '#00e676', fontSize: 9 }}>▾</span>
           </button>
 
           {userOpen && (
@@ -435,27 +468,21 @@ export function GlobalHeader({ activeView, moduleLabels, onLogout, isMobile, onH
                 </div>
               </div>
 
-              {/* Config (disabled) */}
-              <button
-                disabled
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  padding: '6px 10px',
-                  fontSize: 9,
-                  color: '#666',
-                  background: 'transparent',
-                  border: 'none',
-                  borderBottom: '1px solid #333',
-                  textAlign: 'left',
-                  cursor: 'not-allowed',
-                  fontFamily: "'IBM Plex Mono', monospace",
-                  textTransform: 'uppercase',
-                  borderRadius: 0,
-                }}
-              >
-                ⚙ CONFIGURACIÓN
+              {/* Mi cuenta */}
+              <button style={S.menuItem} onClick={() => go('mi-cuenta')}
+                onMouseEnter={(e) => (e.currentTarget.style.background = '#1a1a1a')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
+                ◐ MI CUENTA
               </button>
+
+              {/* Usuarios y roles — solo admin/owner */}
+              {isAdmin && (
+                <button style={S.menuItem} onClick={() => go('usuarios')}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = '#1a1a1a')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
+                  ⚑ USUARIOS Y ROLES
+                </button>
+              )}
 
               {/* Logout */}
               <button

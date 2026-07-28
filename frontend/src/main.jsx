@@ -16,6 +16,8 @@ import GlobalLogin    from './shell/GlobalLogin.jsx';
 import Sidebar        from './shell/Sidebar.jsx';
 import HomeDashboard  from './shell/HomeDashboard.jsx';
 import GlobalHeader   from './shell/GlobalHeader.jsx';
+import MiCuenta       from './shell/MiCuenta.jsx';
+import UsuariosPanel  from './shell/UsuariosPanel.jsx';
 import { UserProvider }         from './shell/providers/UserProvider.jsx';
 import { NotificationProvider } from './shell/providers/NotificationProvider.jsx';
 import { useGlobalSession } from './shell/hooks/useGlobalSession.js';
@@ -107,6 +109,7 @@ function FINSYSShell() {
           activeView={view}
           moduleLabels={MODULE_LABELS}
           onLogout={logout}
+          onNavigate={setView}
           isMobile={isMobile}
           onHamburger={() => setMobileOpen(v => !v)}
         />
@@ -123,6 +126,10 @@ function FINSYSShell() {
           {view === 'module-settings' && (
             <ModuleSettingsPanel onFlagsChanged={loadFlags} />
           )}
+
+          {view === 'mi-cuenta' && <MiCuenta user={user} />}
+
+          {view === 'usuarios' && <UsuariosPanel user={user} />}
 
           <Suspense fallback={
             <div style={{

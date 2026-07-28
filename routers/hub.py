@@ -6,9 +6,11 @@ Workspaces, usuarios, entidades, proyectos, tareas, notas, eventos, métricas.
 Endpoints: /api/hub/*
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
+
+from routers.auth_guard import require_auth, require_admin
 
 router = APIRouter(tags=["Project Hub"])
 
@@ -51,6 +53,13 @@ class HubUserUpdate(BaseModel):
     cedula: Optional[str] = None
     description: Optional[str] = None
     role: Optional[str] = None
+
+class HubPasswordChange(BaseModel):
+    old_password: str
+    new_password: str
+
+class HubRoleChange(BaseModel):
+    role: str
 
 class HubEntityCreate(BaseModel):
     workspace_id: str
@@ -185,6 +194,52 @@ def hub_get_members(workspace_id: str):
     try:
         from fin_sys_core.hub_driver import get_workspace_members
         return get_workspace_members(workspace_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/api/hub/users/me/password")
+def hub_change_own_password(data: HubPasswordChange, auth: dict = Depends(require_auth)):
+    """Cambio de contraseña del PROPIO usuario (MI CUENTA), verificando la actual."""
+    try:
+        from fin_sys_core.hub_driver import change_password
+        result = change_password(auth["uid"], data.old_password, data.new_password)
+        if result == "ok":
+            return {"status": "ok"}
+        detail = {
+            "wrong_old": "La contraseña actual es incorrecta.",
+            "not_found": "Usuario no encontrado.",
+            "no_login":  "Esta cuenta no tiene acceso con contraseña.",
+        }.get(result, "No se pudo cambiar la contraseña.")
+        raise HTTPException(status_code=400, detail=detail)
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/api/hub/users/all")
+def hub_get_all_users(_admin: dict = Depends(require_admin)):
+    """Todos los usuarios del sistema (panel USUARIOS Y ROLES — solo owner/admin)."""
+    try:
+        from fin_sys_core.hub_driver import get_all_users
+        return get_all_users()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/api/hub/users/{user_id}/role")
+def hub_set_user_role(user_id: str, data: HubRoleChange, _admin: dict = Depends(require_admin)):
+    """Cambia el rol global de un usuario (solo owner/admin)."""
+    try:
+        from fin_sys_core.hub_driver import set_user_role
+        updated = set_user_role(user_id, data.role)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+        return {"status": "ok", "user": updated}
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

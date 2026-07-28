@@ -143,6 +143,81 @@ def login_user(email: str, password: str) -> dict | None:
         _put_conn(conn)
 
 
+def change_password(user_id: str, old_password: str, new_password: str) -> str:
+    """Cambia la contraseña del propio usuario verificando la actual con bcrypt.
+
+    Devuelve: 'ok' | 'wrong_old' | 'not_found' | 'no_login'.
+    Un usuario del roster sin login (password_hash NULL) no puede cambiar clave
+    por esta vía — eso lo hace un admin (flujo aparte)."""
+    if not new_password or len(new_password) < 6:
+        raise ValueError("La nueva contraseña debe tener al menos 6 caracteres.")
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT password_hash FROM hub_users WHERE id = %s", (user_id,))
+            row = cur.fetchone()
+            if not row:
+                return "not_found"
+            if row["password_hash"] is None:
+                return "no_login"
+            # Verificar la clave actual
+            cur.execute(
+                "SELECT 1 FROM hub_users WHERE id = %s AND password_hash = crypt(%s, password_hash)",
+                (user_id, old_password),
+            )
+            if not cur.fetchone():
+                return "wrong_old"
+            cur.execute(
+                "UPDATE hub_users SET password_hash = crypt(%s, gen_salt('bf')) WHERE id = %s",
+                (new_password, user_id),
+            )
+            conn.commit()
+            return "ok"
+    finally:
+        _put_conn(conn)
+
+
+def get_all_users() -> list:
+    """Todos los usuarios del sistema (para el panel de USUARIOS Y ROLES del owner)."""
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, name, email, cedula, color, avatar_url, description,
+                       role, is_superuser, created_at
+                FROM hub_users
+                ORDER BY created_at ASC
+            """)
+            return [dict(r) for r in cur.fetchall()]
+    finally:
+        _put_conn(conn)
+
+
+def set_user_role(user_id: str, role: str) -> dict | None:
+    """Cambia el rol global de un usuario en hub_users (panel de owner).
+    También sincroniza el rol en todas sus membresías de workspace."""
+    if role not in ("owner", "admin", "member", "viewer"):
+        raise ValueError(f"Rol inválido: {role}")
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE hub_users SET role = %s WHERE id = %s RETURNING id, name, email, role, is_superuser",
+                (role, user_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            cur.execute(
+                "UPDATE hub_workspace_members SET role = %s WHERE user_id = %s",
+                (role, user_id),
+            )
+            conn.commit()
+            return dict(row)
+    finally:
+        _put_conn(conn)
+
+
 def get_workspace_members(workspace_id: str) -> list:
     """Devuelve los miembros de un workspace con sus roles."""
     conn = _get_conn()

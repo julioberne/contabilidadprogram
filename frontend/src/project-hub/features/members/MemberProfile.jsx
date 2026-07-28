@@ -13,12 +13,13 @@ import { API_HUB } from '../../../config';
 
 const ROLES = ['owner', 'admin', 'member', 'viewer'];
 
+// adminOnly: nómina y pagos solo para admin/owner (un member ve su ficha en lectura)
 const TABS = [
   { id: 'rendimiento', label: 'RENDIMIENTO' },
   { id: 'rrhh',        label: 'FICHA RRHH'  },
-  { id: 'salario',     label: 'SALARIO'      },
+  { id: 'salario',     label: 'SALARIO',     adminOnly: true },
   { id: 'documentos',  label: 'DOCUMENTOS'  },
-  { id: 'historial',   label: 'HISTORIAL'   },
+  { id: 'historial',   label: 'HISTORIAL',   adminOnly: true },
 ];
 
 export default function MemberProfile({ member, metrics, workspace, currentUser, onBack, onSaved, onRemoved }) {
@@ -29,6 +30,7 @@ export default function MemberProfile({ member, metrics, workspace, currentUser,
   const [editError, setEditError] = useState('');
 
   const isAdmin = currentUser?.role === 'owner' || currentUser?.role === 'admin' || currentUser?.is_superuser;
+  const visibleTabs = TABS.filter(t => isAdmin || !t.adminOnly);
 
   if (!member) return null;
 
@@ -158,7 +160,7 @@ export default function MemberProfile({ member, metrics, workspace, currentUser,
 
       {/* ── TABS ──────────────────────────────────────────────── */}
       <div style={styles.tabs}>
-        {TABS.map(tab => (
+        {visibleTabs.map(tab => (
           <button key={tab.id}
             style={{
               ...styles.tab,
