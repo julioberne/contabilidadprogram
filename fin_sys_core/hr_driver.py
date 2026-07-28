@@ -342,79 +342,8 @@ def update_employee_company(link_id: str, data: dict) -> dict:
             row = cur.fetchone()
             return dict(row) if row else {}
 
-# ─── CATEGORÍAS DE DOCUMENTOS ──────────────────────────────────────────────────
-
-DEFAULT_DOC_CATEGORIES = [
-    ('contrato',     'Contrato laboral',    '#0EA5E9', 1),
-    ('cedula',       'Cedula / ID',         '#10B981', 2),
-    ('hoja_vida',    'Hoja de vida',        '#8B5CF6', 3),
-    ('fotos',        'Fotos',               '#F59E0B', 4),
-    ('clinico',      'Historial clinico',   '#EF4444', 5),
-    ('certificados', 'Certificados',        '#06B6D4', 6),
-    ('nomina',       'Desprendibles nomina','#84CC16', 7),
-    ('financiero',   'Info financiera',     '#F97316', 8),
-    ('paz_salvo',    'Paz y salvos',        '#EC4899', 9),
-    ('cartas',       'Cartas / Notas',      '#A78BFA', 10),
-    ('general',      'General',             '#64748b', 11),
-]
-
-def get_doc_categories(workspace_id: str) -> list:
-    with _get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT * FROM hr_doc_categories WHERE workspace_id = %s ORDER BY sort_order, name",
-                (workspace_id,)
-            )
-            db_rows = [dict(r) for r in cur.fetchall()]
-
-    # Los defaults se gestionan solo en memoria (la tabla usa UUID, no string IDs)
-    # Siempre incluimos los defaults + los custom de BD (merge en memoria)
-    default_list = [
-        {'id': cid, 'workspace_id': workspace_id, 'name': name, 'color': color,
-         'sort_order': order, 'is_default': True, 'created_at': None}
-        for cid, name, color, order in DEFAULT_DOC_CATEGORIES
-    ]
-
-    # IDs de defaults para no duplicar si alguien los hubiera guardado en BD
-    default_ids = {c[0] for c in DEFAULT_DOC_CATEGORIES}
-    custom_rows = [r for r in db_rows if r['id'] not in default_ids]
-
-    merged = default_list + custom_rows
-    merged.sort(key=lambda r: (r.get('sort_order') or 99, r.get('name') or ''))
-    return merged
-
-
-def add_doc_category(workspace_id: str, name: str, color: str, sort_order: int) -> dict:
-    with _get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO hr_doc_categories (workspace_id, name, color, sort_order) VALUES (%s, %s, %s, %s) RETURNING *",
-                (workspace_id, name, color, sort_order)
-            )
-            conn.commit()
-            return dict(cur.fetchone())
-
-def update_doc_category(cat_id: str, workspace_id: str, name: str, color: str, sort_order: int) -> dict:
-    with _get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE hr_doc_categories SET name=%s, color=%s, sort_order=%s WHERE id=%s AND workspace_id=%s RETURNING *",
-                (name, color, sort_order, cat_id, workspace_id)
-            )
-            conn.commit()
-            row = cur.fetchone()
-            return dict(row) if row else {}
-
-def delete_doc_category(cat_id: str, workspace_id: str) -> bool:
-    with _get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM hr_doc_categories WHERE id=%s AND workspace_id=%s",
-                (cat_id, workspace_id)
-            )
-            conn.commit()
-            return cur.rowcount > 0
-
+# (bloque duplicado de categorías de documentos eliminado — las definiciones
+#  vivas están más abajo, sección CATEGORÍAS DE DOCUMENTOS con _DEFAULT_DOC_CATS)
 
 # ─── HISTORIAL DE PAGOS ────────────────────────────────────────────────────────
 

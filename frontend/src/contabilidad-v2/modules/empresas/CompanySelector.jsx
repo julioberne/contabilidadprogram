@@ -6,6 +6,7 @@
    ============================================================ */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { API } from '../../../config';
+import { flattenTree } from './flattenTree.js';
 
 /* ── Mapa de iconos por tipo de entidad ────────────────────── */
 const TYPE_ICONS = {
@@ -440,23 +441,4 @@ const inputStyle = {
   boxSizing: 'border-box',
 };
 
-/* ── Helper: aplanar árbol de CT a lista ─────────────────── */
-function flattenTree(tree, level = 0) {
-  const result = [];
-  for (const node of (tree || [])) {
-    result.push({
-      id: node.id,
-      name: node.name,
-      type: node.type || 'EMPRESA',
-      parent_id: node.parent_id,
-      industry: node.industry || 'ESTANDAR',
-      portfolio_id: node.portfolio_id,
-      status: node.status || 'AL DIA',
-      level,
-    });
-    if (node.children?.length) {
-      result.push(...flattenTree(node.children, level + 1));
-    }
-  }
-  return result;
-}
+/* flattenTree ahora vive en ./flattenTree.js (compartido con DashboardPanel) */

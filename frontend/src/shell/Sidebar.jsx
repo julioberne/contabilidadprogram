@@ -2,7 +2,6 @@
    Sidebar.jsx — Barra lateral unificada del Shell FIN-SYS OS
    Grupos: INICIO · FINANCIERO · GESTIÓN · OPERACIONES · SISTEMA
    ============================================================ */
-import { useState, useEffect } from 'react';
 import { getNavGroups } from '../registry/moduleRegistry';
 
 
@@ -15,13 +14,6 @@ const ACTIVE_CLASS = {
 
 /* ── Componente ──────────────────────────────────────────── */
 export default function Sidebar({ user, activeView, onNavigate, collapsed, onToggle, mobileOpen, enabledIds }) {
-  const [clock, setClock] = useState(new Date());
-
-  useEffect(() => {
-    const t = setInterval(() => setClock(new Date()), 60000);
-    return () => clearInterval(t);
-  }, []);
-
   const sidebarClass = [
     'shell-sidebar',
     collapsed ? 'collapsed' : '',

@@ -107,7 +107,7 @@ export default function LibroDiario({
                               onDoubleClick={() => startEditing(tx.id, "net_value", tx.net_value)} 
                               className="cursor-pointer block w-full h-full font-mono text-[11px]"
                             >
-                              {tx.transaction_currency === "USD" ? "$" : "$"}
+                              {"$"}
                               {tx.net_value.toLocaleString('es-CO', { minimumFractionDigits: 2 })} {tx.transaction_currency || "COP"}
                             </span>
                           )}
