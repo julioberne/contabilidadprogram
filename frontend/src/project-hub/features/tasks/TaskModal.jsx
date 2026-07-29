@@ -18,7 +18,7 @@ const STATUSES = [
   { id: 'done',        label: 'Completado' },
 ];
 
-export default function TaskModal({ task, members, onSave, onDelete, onClose }) {
+export default function TaskModal({ task, members, projects = [], activeProjectId, onSave, onDelete, onClose }) {
   const isNew = !task;
   const [form, setForm] = useState({
     title:       task?.title       || '',
@@ -26,6 +26,7 @@ export default function TaskModal({ task, members, onSave, onDelete, onClose }) 
     status:      task?.status      || 'todo',
     priority:    task?.priority    || 'medium',
     due_date:    task?.due_date    || '',
+    project_id:  task?.project_id  || activeProjectId || '',
     assignee_ids: (task?.assignees || []).map(a => a.id),
   });
   const [saving, setSaving] = useState(false);
@@ -67,6 +68,21 @@ export default function TaskModal({ task, members, onSave, onDelete, onClose }) 
             value={form.description}
             onChange={e => set('description', e.target.value)}
             placeholder="Detalle adicional..." />
+
+          {/* Proyecto / Empresa — solo al crear */}
+          {isNew && projects.length > 0 && (
+            <>
+              <label style={styles.label}>PROYECTO / EMPRESA *</label>
+              <select style={styles.select} value={form.project_id}
+                onChange={e => set('project_id', e.target.value)}>
+                {projects.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}{p.entity_name ? ` — ${p.entity_name}` : ''}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
 
           <div style={styles.row2}>
             {/* Estado */}

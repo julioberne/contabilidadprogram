@@ -27,8 +27,14 @@ def _put_conn(conn):
 # WORKSPACES
 # ══════════════════════════════════════════════════════════════════════════════
 
-def create_workspace(name: str, nit: str = None, logo_url: str = None) -> dict:
-    """Crea una nueva organización/workspace."""
+def create_workspace(name: str, nit: str = None, logo_url: str = None,
+                     owner_id: str = None) -> dict:
+    """Crea una nueva organización/workspace.
+
+    Si se pasa owner_id, registra a ese usuario como miembro OWNER del
+    workspace. Esto es imprescindible: sin membresía, get_workspaces_for_user()
+    no devuelve el workspace y "desaparece" al recargar.
+    """
     slug = name.lower().replace(" ", "-").replace("/", "-")[:50]
     # Asegurar slug único
     slug = f"{slug}-{str(uuid.uuid4())[:8]}"
@@ -41,8 +47,29 @@ def create_workspace(name: str, nit: str = None, logo_url: str = None) -> dict:
                 RETURNING *
             """, (slug, name, nit, logo_url))
             row = cur.fetchone()
+            # Registrar al creador como miembro OWNER
+            if owner_id:
+                cur.execute("""
+                    INSERT INTO hub_workspace_members (workspace_id, user_id, role)
+                    VALUES (%s, %s, 'owner')
+                    ON CONFLICT (workspace_id, user_id) DO NOTHING
+                """, (row["id"], owner_id))
             conn.commit()
             return dict(row)
+    finally:
+        _put_conn(conn)
+
+
+def delete_workspace(workspace_id: str) -> bool:
+    """Elimina un workspace y todo su contenido (proyectos, tareas, notas,
+    eventos, entidades y membresías) vía ON DELETE CASCADE. Irreversible."""
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM hub_workspaces WHERE id = %s", (workspace_id,))
+            deleted = cur.rowcount
+            conn.commit()
+            return deleted > 0
     finally:
         _put_conn(conn)
 
@@ -385,6 +412,50 @@ def remove_member_from_workspace(workspace_id: str, user_id: str) -> bool:
         _put_conn(conn)
 
 
+def get_workspace_tasks_overview(workspace_id: str) -> list:
+    """COMPENDIO: todas las tareas del workspace con sus asignados, proyecto,
+    empresa (entidad) y estado. Para ver quién trabaja en qué y para quién."""
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT t.id, t.title, t.description, t.status, t.priority,
+                       t.due_date, t.created_at,
+                       p.id    AS project_id,   p.name AS project_name,
+                       p.color AS project_color,
+                       e.name  AS entity_name,
+                       (t.due_date < NOW()::DATE AND t.status != 'done') AS is_overdue,
+                       COALESCE(
+                         json_agg(
+                           json_build_object('id', u.id, 'name', u.name, 'color', u.color)
+                         ) FILTER (WHERE u.id IS NOT NULL),
+                         '[]'
+                       ) AS assignees
+                FROM hub_tasks t
+                LEFT JOIN hub_projects p ON p.id = t.project_id
+                LEFT JOIN hub_entities e ON e.id = p.entity_id
+                LEFT JOIN hub_task_assignees ta ON ta.task_id = t.id
+                LEFT JOIN hub_users u ON u.id = ta.user_id
+                WHERE t.workspace_id = %s
+                GROUP BY t.id, p.id, p.name, p.color, e.name
+                ORDER BY
+                    CASE t.status WHEN 'done' THEN 2 ELSE 1 END,
+                    t.due_date ASC NULLS LAST,
+                    t.created_at DESC
+            """, (workspace_id,))
+            rows = cur.fetchall()
+            result = []
+            for r in rows:
+                d = dict(r)
+                if isinstance(d.get("assignees"), str):
+                    import json
+                    d["assignees"] = json.loads(d["assignees"])
+                result.append(d)
+            return result
+    finally:
+        _put_conn(conn)
+
+
 def get_user_tasks(workspace_id: str, user_id: str) -> list:
     """Tareas asignadas a una persona en un workspace, con su proyecto y empresa.
 
@@ -497,17 +568,19 @@ def get_projects(workspace_id: str, entity_id: str = None) -> list:
         with conn.cursor() as cur:
             if entity_id:
                 cur.execute("""
-                    SELECT p.*, u.name AS creator_name
+                    SELECT p.*, u.name AS creator_name, e.name AS entity_name
                     FROM hub_projects p
                     LEFT JOIN hub_users u ON u.id = p.created_by
+                    LEFT JOIN hub_entities e ON e.id = p.entity_id
                     WHERE p.workspace_id = %s AND p.entity_id = %s
                     ORDER BY p.created_at ASC
                 """, (workspace_id, entity_id))
             else:
                 cur.execute("""
-                    SELECT p.*, u.name AS creator_name
+                    SELECT p.*, u.name AS creator_name, e.name AS entity_name
                     FROM hub_projects p
                     LEFT JOIN hub_users u ON u.id = p.created_by
+                    LEFT JOIN hub_entities e ON e.id = p.entity_id
                     WHERE p.workspace_id = %s
                     ORDER BY p.created_at ASC
                 """, (workspace_id,))

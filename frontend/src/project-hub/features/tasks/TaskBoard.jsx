@@ -19,6 +19,7 @@ export default function TaskBoard({ project, workspace, user }) {
   const [view, setView]         = useState('kanban'); // 'kanban' | 'list'
   const [tasks, setTasks]       = useState([]);
   const [members, setMembers]   = useState([]);
+  const [projects, setProjects] = useState([]);
   const [loading, setLoading]   = useState(false);
   const [modal, setModal]       = useState(null); // null | 'new' | task-object
 
@@ -39,7 +40,15 @@ export default function TaskBoard({ project, workspace, user }) {
     setMembers(await r.json());
   };
 
+  const loadProjects = async () => {
+    if (!workspace) return;
+    const r = await fetch(`${API}/projects?workspace_id=${workspace.id}`);
+    const d = await r.json();
+    setProjects(Array.isArray(d) ? d : []);
+  };
+
   useEffect(() => { loadTasks(); loadMembers(); }, [project?.id]);
+  useEffect(() => { loadProjects(); }, [workspace?.id]);
 
   const handleStatusChange = async (taskId, newStatus) => {
     setTasks(ts => ts.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
@@ -52,13 +61,17 @@ export default function TaskBoard({ project, workspace, user }) {
 
   const handleSaveTask = async (formData) => {
     if (modal === 'new') {
+      const targetProjectId = formData.project_id || project?.id;
       const r = await fetch(`${API}/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...formData, workspace_id: workspace.id, project_id: project.id, created_by: user?.id }),
+        body: JSON.stringify({ ...formData, workspace_id: workspace.id, project_id: targetProjectId, created_by: user?.id }),
       });
       const { task } = await r.json();
-      setTasks(ts => [...ts, { ...task, assignees: [] }]);
+      // Solo se muestra en el tablero si pertenece al proyecto activo
+      if (targetProjectId === project?.id) {
+        setTasks(ts => [...ts, { ...task, assignees: [] }]);
+      }
     } else {
       const r = await fetch(`${API}/tasks/${modal.id}`, {
         method: 'PUT',
@@ -143,6 +156,8 @@ export default function TaskBoard({ project, workspace, user }) {
         <TaskModal
           task={modal === 'new' ? null : modal}
           members={members}
+          projects={projects}
+          activeProjectId={project?.id}
           onSave={handleSaveTask}
           onDelete={handleDeleteTask}
           onClose={() => setModal(null)}

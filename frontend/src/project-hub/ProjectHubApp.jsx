@@ -6,6 +6,7 @@ import HubLoginRegister     from './components/HubLoginRegister';
 import HubTopBar            from './components/HubTopBar';
 import HubSidebar           from './components/HubSidebar';
 import TaskBoard            from './features/tasks/TaskBoard';
+import TasksOverview        from './features/tasks/TasksOverview';
 const NotesApp = lazy(() => import('./features/notes/NotesApp'));
 import CalendarApp          from './features/calendar/CalendarApp';
 import MembersList          from './features/members/MembersList';
@@ -96,6 +97,7 @@ export default function ProjectHubApp({ onExit, user: shellUser }) {
   const renderView = () => {
     switch (activeView) {
       case 'tasks':    return <TaskBoard project={hub.activeProject} workspace={hub.workspace} user={activeUser} />;
+      case 'overview': return <TasksOverview workspace={hub.workspace} user={activeUser} />;
       case 'notes':    return <Suspense fallback={<div style={{color:'#555',padding:40,textAlign:'center',fontFamily:'IBM Plex Mono'}}>CARGANDO EDITOR...</div>}><NotesApp workspace={hub.workspace} user={activeUser} /></Suspense>;
       case 'calendar': return <CalendarApp workspace={hub.workspace} user={activeUser} />;
       case 'members':  return <MembersList workspace={hub.workspace} user={activeUser} />;
@@ -126,6 +128,7 @@ export default function ProjectHubApp({ onExit, user: shellUser }) {
           workspaces={hub.workspaces}
           onSwitchWorkspace={hub.switchWorkspace}
           onCreateWorkspace={hub.createWorkspace}
+          onDeleteWorkspace={hub.deleteWorkspace}
           activeView={activeView}
           onChangeView={setActiveView}
           activeProject={hub.activeProject}

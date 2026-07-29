@@ -105,22 +105,44 @@ export function useProjectHub() {
   }, []);
 
   const createWorkspace = useCallback(async (form) => {
+    // owner_id es imprescindible: registra al creador como miembro para que
+    // el workspace persista y aparezca al recargar.
     const res = await fetch(`${API}/workspaces`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form),
+      body: JSON.stringify({ ...form, owner_id: user?.id }),
     });
     const json = await res.json();
     const ws   = json.workspace;
     setWorkspaces(prev => [...prev, ws]);
     switchWorkspace(ws);
     return ws;
-  }, [switchWorkspace]);
+  }, [switchWorkspace, user]);
+
+  const deleteWorkspace = useCallback(async (wsId) => {
+    const res = await fetch(`${API}/workspaces/${wsId}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j.detail || `Error ${res.status}`);
+    }
+    // Quitar de la lista y reubicar el workspace activo
+    setWorkspaces(prev => {
+      const next = prev.filter(w => w.id !== wsId);
+      if (workspace?.id === wsId) {
+        const fallback = next[next.length - 1] || null;
+        if (fallback) { setStored('hub_workspace', fallback); }
+        else { localStorage.removeItem('hub_workspace'); }
+        setWorkspace(fallback);
+        setActiveProject(null);
+      }
+      return next;
+    });
+  }, [workspace]);
 
   return {
     user, workspace, workspaces, activeProject, loading, error,
     login, register, logout,
-    loadWorkspaces, switchWorkspace, createWorkspace,
+    loadWorkspaces, switchWorkspace, createWorkspace, deleteWorkspace,
     setActiveProject,
     API,
   };

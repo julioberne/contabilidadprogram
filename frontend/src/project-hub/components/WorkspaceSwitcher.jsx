@@ -3,10 +3,26 @@
    ============================================================ */
 import { useState } from 'react';
 
-export default function WorkspaceSwitcher({ workspace, workspaces, onSwitch, onCreate }) {
+export default function WorkspaceSwitcher({ workspace, workspaces, onSwitch, onCreate, onDelete }) {
   const [open, setOpen]         = useState(false);
   const [creating, setCreating] = useState(false);
   const [form, setForm]         = useState({ name: '', nit: '' });
+  const [confirmId, setConfirmId] = useState(null);
+  const [busyId, setBusyId]     = useState(null);
+
+  const handleDelete = async (ws, e) => {
+    e.stopPropagation();
+    if (confirmId !== ws.id) { setConfirmId(ws.id); return; }
+    if (!onDelete) return;
+    setBusyId(ws.id);
+    try {
+      await onDelete(ws.id);
+    } catch (err) {
+      alert(`No se pudo eliminar: ${err.message}`);
+    } finally {
+      setBusyId(null); setConfirmId(null);
+    }
+  };
 
   const initials = (name) => name?.slice(0, 2).toUpperCase() || '??';
   const bgColor  = (name) => {
@@ -38,14 +54,26 @@ export default function WorkspaceSwitcher({ workspace, workspaces, onSwitch, onC
         <div style={styles.dropdown}>
           <p style={styles.dropLabel}>MIS WORKSPACES</p>
           {workspaces.map(ws => (
-            <button key={ws.id} style={styles.wsItem}
-              onClick={() => { onSwitch(ws); setOpen(false); }}>
-              <div style={{ ...styles.avatarSm, background: bgColor(ws.name) }}>
-                {initials(ws.name)}
-              </div>
-              <span style={styles.wsItemName}>{ws.name}</span>
-              {workspace?.id === ws.id && <span style={styles.check}>✓</span>}
-            </button>
+            <div key={ws.id} style={styles.wsRow}>
+              <button style={styles.wsItem}
+                onClick={() => { onSwitch(ws); setOpen(false); }}>
+                <div style={{ ...styles.avatarSm, background: bgColor(ws.name) }}>
+                  {initials(ws.name)}
+                </div>
+                <span style={styles.wsItemName}>{ws.name}</span>
+                {workspace?.id === ws.id && <span style={styles.check}>✓</span>}
+              </button>
+              {onDelete && (
+                <button
+                  style={{ ...styles.delBtn, ...(confirmId === ws.id ? styles.delBtnConfirm : {}) }}
+                  onClick={(e) => handleDelete(ws, e)}
+                  title={confirmId === ws.id ? 'Clic de nuevo para confirmar' : 'Eliminar workspace'}
+                  disabled={busyId === ws.id}
+                >
+                  {busyId === ws.id ? '…' : confirmId === ws.id ? '¿SEGURO?' : '🗑'}
+                </button>
+              )}
+            </div>
           ))}
 
           <div style={styles.divider} />
@@ -106,13 +134,20 @@ const styles = {
     minWidth: '220px',
   },
   dropLabel: { color: C.dim, fontSize: '10px', letterSpacing: '2px', margin: '4px 8px 8px', },
+  wsRow: { display: 'flex', alignItems: 'center', gap: '2px' },
   wsItem: {
-    display: 'flex', alignItems: 'center', gap: '8px', width: '100%',
+    display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0,
     background: 'transparent', border: 'none', cursor: 'pointer',
     padding: '8px', color: C.text, fontSize: '12px',
     fontFamily: '"IBM Plex Mono", monospace',
   },
-  wsItemName: { flex: 1, textAlign: 'left' },
+  wsItemName: { flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  delBtn: {
+    background: 'transparent', border: '1px solid #333', color: C.dim,
+    cursor: 'pointer', fontSize: '11px', padding: '4px 6px', flexShrink: 0,
+    fontFamily: '"IBM Plex Mono", monospace',
+  },
+  delBtnConfirm: { borderColor: '#EF4444', color: '#EF4444', fontWeight: 700, letterSpacing: '0.5px' },
   check: { color: C.accent, fontSize: '14px' },
   divider: { borderTop: `1px solid #333`, margin: '8px 0' },
   createBtn: {

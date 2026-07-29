@@ -17,7 +17,12 @@ import { useState, useEffect, useCallback } from 'react';
 import modules from '../registry/moduleRegistry';
 
 /** Vistas del shell que no son módulos del registry */
-const SHELL_ROUTES = { 'module-settings': 'modulos' };
+const SHELL_ROUTES = {
+  'module-settings': 'modulos',
+  'admin':           'admin',
+  'mi-cuenta':       'mi-cuenta',
+  'usuarios':        'usuarios',
+};
 
 /** view id → segmento de URL */
 export function viewToPath(view) {

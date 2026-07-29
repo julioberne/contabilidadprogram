@@ -9,6 +9,7 @@ import { API_HUB } from '../../config';
 
 const NAV = [
   { id: 'tasks',    icon: '◈', label: 'TAREAS' },
+  { id: 'overview', icon: '▤', label: 'COMPENDIO' },
   { id: 'notes',    icon: '◉', label: 'NOTAS' },
   { id: 'calendar', icon: '◷', label: 'CALENDARIO' },
   { id: 'members',  icon: '◎', label: 'EQUIPO' },
@@ -18,7 +19,7 @@ const NAV = [
 
 export default function HubSidebar({
   user, workspace, workspaces,
-  onSwitchWorkspace, onCreateWorkspace,
+  onSwitchWorkspace, onCreateWorkspace, onDeleteWorkspace,
   activeView, onChangeView,
   activeProject, onSelectProject,
   collapsed, onToggleCollapse,
@@ -29,6 +30,7 @@ export default function HubSidebar({
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [showNewProject,  setShowNewProject]  = useState(false);
   const [newProjectName,  setNewProjectName]  = useState('');
+  const [newProjectEntity, setNewProjectEntity] = useState('');
 
   // DT-3: bloquear scroll del body cuando el drawer mobile está abierto
   useEffect(() => {
@@ -63,11 +65,14 @@ export default function HubSidebar({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         workspace_id: workspace.id, name: newProjectName.trim(), created_by: user?.id,
+        entity_id: newProjectEntity || null,
       }),
     });
     const { project } = await res.json();
-    setProjects(p => [...p, project]);
-    setNewProjectName(''); setShowNewProject(false);
+    // entity_name lo resuelve el backend al releer; lo anexamos para la UI inmediata
+    const entity = entities.find(e => e.id === newProjectEntity);
+    setProjects(p => [...p, { ...project, entity_name: entity?.name || null }]);
+    setNewProjectName(''); setNewProjectEntity(''); setShowNewProject(false);
     onSelectProject(project);
   };
 
@@ -109,6 +114,7 @@ export default function HubSidebar({
           <WorkspaceSwitcher
             workspace={workspace} workspaces={workspaces}
             onSwitch={onSwitchWorkspace} onCreate={onCreateWorkspace}
+            onDelete={onDeleteWorkspace}
           />
         )}
 
@@ -146,15 +152,30 @@ export default function HubSidebar({
             </div>
 
             {showNewProject && (
-              <div style={S.newProject}>
-                <input
-                  placeholder="Nombre del proyecto..."
-                  value={newProjectName}
-                  onChange={e => setNewProjectName(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && createProject()}
-                  style={S.input} autoFocus
-                />
-                <button onClick={createProject} style={S.btnCreate}>✓</button>
+              <div style={S.newProjectWrap}>
+                <div style={S.newProject}>
+                  <input
+                    placeholder="Nombre del proyecto..."
+                    value={newProjectName}
+                    onChange={e => setNewProjectName(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && createProject()}
+                    style={S.input} autoFocus
+                  />
+                  <button onClick={createProject} style={S.btnCreate}>✓</button>
+                </div>
+                {entities.length > 0 && (
+                  <select
+                    value={newProjectEntity}
+                    onChange={e => setNewProjectEntity(e.target.value)}
+                    style={S.entitySelect}
+                    title="Empresa a la que pertenece este proyecto"
+                  >
+                    <option value="">Sin empresa</option>
+                    {entities.map(en => (
+                      <option key={en.id} value={en.id}>{en.name}</option>
+                    ))}
+                  </select>
+                )}
               </div>
             )}
 
@@ -167,7 +188,10 @@ export default function HubSidebar({
                   }}
                   onClick={() => { onSelectProject(p); handleNavClick('tasks'); }}>
                   <span style={{ ...S.projectDot, background: p.color || '#0EA5E9' }} />
-                  <span style={S.projectName}>{p.name}</span>
+                  <span style={S.projectCol}>
+                    <span style={S.projectName}>{p.name}</span>
+                    {p.entity_name && <span style={S.projectEntity}>{p.entity_name}</span>}
+                  </span>
                 </button>
               ))}
               {loadingProjects ? (
@@ -273,7 +297,13 @@ const S = {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontFamily: '"IBM Plex Mono", monospace',
   },
-  newProject: { display: 'flex', gap: '4px', marginBottom: '10px' },
+  newProjectWrap: { display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '10px' },
+  newProject: { display: 'flex', gap: '4px' },
+  entitySelect: {
+    background: '#1a1a1a', border: `1px solid #333`, color: C.text,
+    padding: '5px 8px', fontSize: '11px', outline: 'none', cursor: 'pointer',
+    fontFamily: '"IBM Plex Mono", monospace', width: '100%',
+  },
   input: {
     flex: 1, background: '#1a1a1a', border: `1px solid ${C.border}`,
     color: C.text, padding: '6px 10px', fontSize: '12px', outline: 'none',
@@ -289,7 +319,9 @@ const S = {
   },
   projectActive: { color: C.text, background: 'rgba(14,165,233,0.06)' },
   projectDot: { width: '9px', height: '9px', flexShrink: 0 },
-  projectName: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  projectCol: { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, gap: '1px' },
+  projectName: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  projectEntity: { fontSize: '10px', color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   emptyMsg: { color: C.dim, fontSize: '12px', textAlign: 'center', padding: '10px 0', margin: 0 },
   emptyProjects: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '10px' },
   emptyCreate: { background: 'transparent', border: `1px dashed ${C.accent}`, color: C.accent, padding: '5px 12px', cursor: 'pointer', fontSize: '11px', fontFamily: '"IBM Plex Mono", monospace' },

@@ -468,11 +468,20 @@ export function GlobalHeader({ activeView, moduleLabels, onLogout, onNavigate, i
                 </div>
               </div>
 
-              {/* Mi cuenta */}
+              {/* Panel de administración — solo admin/owner */}
+              {isAdmin && (
+                <button style={{ ...S.menuItem, color: '#F59E0B' }} onClick={() => go('admin')}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = '#1a1a1a')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
+                  ▣ PANEL ADMIN
+                </button>
+              )}
+
+              {/* Mi ficha técnica */}
               <button style={S.menuItem} onClick={() => go('mi-cuenta')}
                 onMouseEnter={(e) => (e.currentTarget.style.background = '#1a1a1a')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
-                ◐ MI CUENTA
+                ◐ MI FICHA TÉCNICA
               </button>
 
               {/* Usuarios y roles — solo admin/owner */}

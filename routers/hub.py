@@ -23,6 +23,7 @@ class HubWorkspaceCreate(BaseModel):
     name: str
     nit: Optional[str] = None
     logo_url: Optional[str] = None
+    owner_id: Optional[str] = None
 
 class HubUserRegister(BaseModel):
     email: str
@@ -140,8 +141,23 @@ class HubMemberAdd(BaseModel):
 def hub_create_workspace(data: HubWorkspaceCreate):
     try:
         from fin_sys_core.hub_driver import create_workspace
-        ws = create_workspace(name=data.name, nit=data.nit, logo_url=data.logo_url)
+        ws = create_workspace(name=data.name, nit=data.nit,
+                              logo_url=data.logo_url, owner_id=data.owner_id)
         return {"status": "ok", "workspace": ws}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/api/hub/workspaces/{workspace_id}")
+def hub_delete_workspace(workspace_id: str):
+    """Elimina un workspace y todo su contenido (cascade). Irreversible."""
+    try:
+        from fin_sys_core.hub_driver import delete_workspace
+        ok = delete_workspace(workspace_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Workspace no encontrado")
+        return {"status": "ok"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -370,6 +386,15 @@ def hub_create_project(data: HubProjectCreate):
 
 
 # ── TASKS ─────────────────────────────────────────────────────────────────────
+
+@router.get("/api/hub/tasks/overview")
+def hub_get_tasks_overview(workspace_id: str):
+    """COMPENDIO: todas las tareas del workspace con asignados, empresa y estado."""
+    try:
+        from fin_sys_core.hub_driver import get_workspace_tasks_overview
+        return get_workspace_tasks_overview(workspace_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/hub/tasks")
 def hub_get_tasks(project_id: str, status: str = None):

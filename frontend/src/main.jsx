@@ -18,6 +18,7 @@ import HomeDashboard  from './shell/HomeDashboard.jsx';
 import GlobalHeader   from './shell/GlobalHeader.jsx';
 import MiCuenta       from './shell/MiCuenta.jsx';
 import UsuariosPanel  from './shell/UsuariosPanel.jsx';
+import AdminConsole   from './shell/AdminConsole.jsx';
 import { UserProvider }         from './shell/providers/UserProvider.jsx';
 import { NotificationProvider } from './shell/providers/NotificationProvider.jsx';
 import { useGlobalSession } from './shell/hooks/useGlobalSession.js';
@@ -74,6 +75,7 @@ function FINSYSShell() {
   const MODULE_LABELS = getModuleLabels();
   const noScroll = getNoScrollIds().includes(view);
   const renderableModules = getRenderableModules(enabledIds);
+  const isAdmin = user.role === 'ADMIN';
 
   return (
     <UserProvider user={user} logout={logout}>
@@ -125,6 +127,12 @@ function FINSYSShell() {
 
           {view === 'module-settings' && (
             <ModuleSettingsPanel onFlagsChanged={loadFlags} />
+          )}
+
+          {view === 'admin' && (
+            isAdmin
+              ? <AdminConsole user={user} onNavigate={setView} enabledIds={enabledIds} />
+              : <HomeDashboard user={user} onNavigate={setView} enabledIds={enabledIds} />
           )}
 
           {view === 'mi-cuenta' && <MiCuenta user={user} />}

@@ -83,12 +83,22 @@ export default function Sidebar({ user, activeView, onNavigate, collapsed, onTog
         ))}
       </nav>
 
-      {/* ── Settings (solo OWNER/ADMIN) — fijo en el footer ── */}
+      {/* ── Zona ADMIN (solo OWNER/ADMIN) — fija en el footer ── */}
       {user && (user.role === 'OWNER' || user.role === 'ADMIN') && (
         <div style={{
           padding: '4px 8px',
           borderTop: '1px solid var(--shell-border, #222)',
         }}>
+          <button
+            id="shell-nav-admin"
+            className={`shell-nav-item${activeView === 'admin' ? ' active-amber' : ''}`}
+            onClick={() => onNavigate('admin')}
+            title={collapsed ? 'Administración' : undefined}
+            style={{ width: '100%' }}
+          >
+            <span className="shell-nav-icon">▣</span>
+            <span className="shell-nav-text">Administración</span>
+          </button>
           <button
             id="shell-nav-module-settings"
             className={`shell-nav-item${activeView === 'module-settings' ? ' active' : ''}`}
