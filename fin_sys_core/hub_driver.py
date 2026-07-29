@@ -423,7 +423,7 @@ def get_workspace_tasks_overview(workspace_id: str) -> list:
                        t.due_date, t.created_at,
                        p.id    AS project_id,   p.name AS project_name,
                        p.color AS project_color,
-                       e.name  AS entity_name,
+                       e.id    AS entity_id,    e.name AS entity_name,
                        (t.due_date < NOW()::DATE AND t.status != 'done') AS is_overdue,
                        COALESCE(
                          json_agg(
@@ -437,7 +437,7 @@ def get_workspace_tasks_overview(workspace_id: str) -> list:
                 LEFT JOIN hub_task_assignees ta ON ta.task_id = t.id
                 LEFT JOIN hub_users u ON u.id = ta.user_id
                 WHERE t.workspace_id = %s
-                GROUP BY t.id, p.id, p.name, p.color, e.name
+                GROUP BY t.id, p.id, p.name, p.color, e.id, e.name
                 ORDER BY
                     CASE t.status WHEN 'done' THEN 2 ELSE 1 END,
                     t.due_date ASC NULLS LAST,

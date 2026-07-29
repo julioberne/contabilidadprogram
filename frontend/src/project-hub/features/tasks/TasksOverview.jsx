@@ -27,36 +27,51 @@ function fmtDate(iso) {
 }
 
 export default function TasksOverview({ workspace, user }) {
-  const [tasks, setTasks]     = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [tasks, setTasks]       = useState([]);
+  const [entities, setEntities] = useState([]); // roster completo de empresas del workspace
+  const [members, setMembers]   = useState([]); // roster completo de personas del workspace
+  const [loading, setLoading]   = useState(false);
   const [fEstado, setFEstado]   = useState('all');
   const [fEmpresa, setFEmpresa] = useState('all');
   const [fPersona, setFPersona] = useState('all');
 
+  // Las opciones de EMPRESA/PERSONA vienen del roster real del workspace
+  // (entidades y miembros), no solo de lo que ya aparece en tareas — así el
+  // filtro muestra empresas/personas aunque todavía no tengan tareas asignadas.
   useEffect(() => {
     if (!workspace) return;
     setLoading(true);
-    fetch(`${API_HUB}/tasks/overview?workspace_id=${workspace.id}`)
-      .then(r => r.json())
-      .then(d => setTasks(Array.isArray(d) ? d : []))
-      .catch(() => setTasks([]))
+    Promise.all([
+      fetch(`${API_HUB}/tasks/overview?workspace_id=${workspace.id}`).then(r => r.json()),
+      fetch(`${API_HUB}/entities?workspace_id=${workspace.id}`).then(r => r.json()),
+      fetch(`${API_HUB}/users?workspace_id=${workspace.id}`).then(r => r.json()),
+    ])
+      .then(([tk, ent, usr]) => {
+        setTasks(Array.isArray(tk) ? tk : []);
+        setEntities(Array.isArray(ent) ? ent : []);
+        setMembers(Array.isArray(usr) ? usr : []);
+      })
+      .catch(() => { setTasks([]); setEntities([]); setMembers([]); })
       .finally(() => setLoading(false));
   }, [workspace?.id]);
 
-  // Opciones de filtro derivadas
-  const empresas = useMemo(
-    () => [...new Set(tasks.map(t => t.entity_name).filter(Boolean))].sort(),
-    [tasks]
-  );
+  // Opciones de filtro: roster completo, con fallback a lo visto en tareas
+  // (por si una tarea referencia una empresa/persona fuera del roster actual).
+  const empresas = useMemo(() => {
+    const map = new Map(entities.map(e => [e.id, e.name]));
+    tasks.forEach(t => { if (t.entity_id && !map.has(t.entity_id)) map.set(t.entity_id, t.entity_name); });
+    return [...map.entries()].sort((a, b) => (a[1] || '').localeCompare(b[1] || ''));
+  }, [entities, tasks]);
+
   const personas = useMemo(() => {
-    const map = new Map();
-    tasks.forEach(t => (t.assignees || []).forEach(a => map.set(a.id, a)));
+    const map = new Map(members.map(m => [m.id, m]));
+    tasks.forEach(t => (t.assignees || []).forEach(a => { if (!map.has(a.id)) map.set(a.id, a); }));
     return [...map.values()].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  }, [tasks]);
+  }, [members, tasks]);
 
   const filtered = useMemo(() => tasks.filter(t => {
     if (fEstado !== 'all' && t.status !== fEstado) return false;
-    if (fEmpresa !== 'all' && t.entity_name !== fEmpresa) return false;
+    if (fEmpresa !== 'all' && t.entity_id !== fEmpresa) return false;
     if (fPersona !== 'all' && !(t.assignees || []).some(a => a.id === fPersona)) return false;
     return true;
   }), [tasks, fEstado, fEmpresa, fPersona]);
@@ -102,7 +117,7 @@ export default function TasksOverview({ workspace, user }) {
           <span style={S.filterLabel}>EMPRESA</span>
           <select style={S.select} value={fEmpresa} onChange={e => setFEmpresa(e.target.value)}>
             <option value="all">Todas</option>
-            {empresas.map(e => <option key={e} value={e}>{e}</option>)}
+            {empresas.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
           </select>
         </div>
         <div style={S.filterGroup}>
