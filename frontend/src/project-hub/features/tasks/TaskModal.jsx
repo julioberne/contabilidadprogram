@@ -30,6 +30,7 @@ export default function TaskModal({ task, members, projects = [], activeProjectI
     assignee_ids: (task?.assignees || []).map(a => a.id),
   });
   const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState('');
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -43,8 +44,14 @@ export default function TaskModal({ task, members, projects = [], activeProjectI
 
   const handleSave = async () => {
     if (!form.title.trim()) return;
-    setSaving(true);
-    try { await onSave(form); } finally { setSaving(false); }
+    setSaving(true); setError('');
+    try {
+      await onSave(form);
+    } catch (e) {
+      setError(e.message || 'No se pudo guardar la tarea.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -146,6 +153,7 @@ export default function TaskModal({ task, members, projects = [], activeProjectI
         </div>
 
         {/* Footer */}
+        {error && <div style={styles.error}>⚠ {error}</div>}
         <div style={styles.footer}>
           {!isNew && (
             <button style={styles.deleteBtn}
@@ -222,6 +230,10 @@ const styles = {
   memberName: { fontSize: '13px', color: C.text },
   memberRole: { fontSize: '11px', color: C.dim, letterSpacing: '1px' },
   check: { color: C.accent, fontSize: '14px' },
+  error: {
+    color: '#ef4444', border: '1px solid #ef4444', margin: '0 20px',
+    padding: '8px 10px', fontSize: '12px', fontFamily: '"IBM Plex Mono", monospace',
+  },
   footer: {
     display: 'flex', gap: '10px', padding: '16px 20px',
     borderTop: `2px solid #222`, alignItems: 'center',

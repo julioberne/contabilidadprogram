@@ -7,7 +7,7 @@ Endpoints: /api/hub/*
 """
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional, List
 
 from routers.auth_guard import require_auth, require_admin
@@ -78,15 +78,26 @@ class HubProjectCreate(BaseModel):
     color: str = "#0EA5E9"
     created_by: Optional[str] = None
 
+def _blank_to_none(v):
+    """'' -> None. Los <input type=date> vacios mandan cadena vacia, que
+    Postgres rechaza en columnas DATE ('invalid input syntax for type date')."""
+    if isinstance(v, str) and not v.strip():
+        return None
+    return v
+
+
 class HubTaskCreate(BaseModel):
     workspace_id: str
     project_id: str
     title: str
     description: Optional[str] = None
     priority: str = "medium"
+    status: str = "todo"
     due_date: Optional[str] = None
     created_by: Optional[str] = None
     assignee_ids: List[str] = []
+
+    _clean_due = field_validator("due_date", mode="before")(_blank_to_none)
 
 class HubTaskUpdate(BaseModel):
     title: Optional[str] = None
@@ -96,6 +107,8 @@ class HubTaskUpdate(BaseModel):
     due_date: Optional[str] = None
     position: Optional[int] = None
     assignee_ids: Optional[List[str]] = None
+
+    _clean_due = field_validator("due_date", mode="before")(_blank_to_none)
 
 class HubNoteCreate(BaseModel):
     workspace_id: str
@@ -411,7 +424,7 @@ def hub_create_task(data: HubTaskCreate):
         task = create_task(
             workspace_id=data.workspace_id, project_id=data.project_id,
             title=data.title, description=data.description,
-            priority=data.priority, due_date=data.due_date,
+            priority=data.priority, status=data.status, due_date=data.due_date,
             created_by=data.created_by, assignee_ids=data.assignee_ids
         )
         return {"status": "ok", "task": task}

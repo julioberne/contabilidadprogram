@@ -67,19 +67,23 @@ export default function TaskBoard({ project, workspace, user }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...formData, workspace_id: workspace.id, project_id: targetProjectId, created_by: user?.id }),
       });
-      const { task } = await r.json();
-      // Solo se muestra en el tablero si pertenece al proyecto activo
-      if (targetProjectId === project?.id) {
-        setTasks(ts => [...ts, { ...task, assignees: [] }]);
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.detail || `No se pudo crear la tarea (error ${r.status})`);
       }
+      // Releer del servidor: refleja asignados y cualquier normalización del backend
+      if (targetProjectId === project?.id) await loadTasks();
     } else {
       const r = await fetch(`${API}/tasks/${modal.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
       });
-      const { task } = await r.json();
-      setTasks(ts => ts.map(t => t.id === task.id ? { ...t, ...task } : t));
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.detail || `No se pudo guardar la tarea (error ${r.status})`);
+      }
+      await loadTasks();
     }
     setModal(null);
   };

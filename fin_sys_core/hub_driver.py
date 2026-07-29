@@ -709,6 +709,10 @@ def update_task(task_id: str, **kwargs) -> dict:
                 UPDATE hub_tasks SET {set_clause}
                 WHERE id = %s RETURNING *
             """, values)
+            # Leer la fila AHORA: los execute() de asignados de abajo reusan el
+            # cursor y descartarian este RETURNING.
+            row = cur.fetchone()
+            task = dict(row) if row else {}
 
             # Actualizar asignados si se proporcionaron
             if "assignee_ids" in kwargs:
@@ -718,9 +722,10 @@ def update_task(task_id: str, **kwargs) -> dict:
                         INSERT INTO hub_task_assignees (task_id, user_id)
                         VALUES (%s, %s) ON CONFLICT DO NOTHING
                     """, (task_id, uid))
+                task["assignees"] = kwargs["assignee_ids"]
 
             conn.commit()
-            return dict(cur.fetchone()) if cur.rowcount else {}
+            return task
     finally:
         _put_conn(conn)
 
