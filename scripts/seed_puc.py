@@ -135,18 +135,19 @@ PUC_ACCOUNTS = [
 # usando el account_id de la transacción → user_accounts.name → código PUC
 
 POSTING_RULES = [
-    # Egresos (el usuario gasta dinero)
+    # Gastos (el usuario gasta dinero) — el tipo DEBE ser "GASTO": es el valor
+    # que valida TransactionInput y por el que filtra emit_journal_entry
     # rule_name, category, type, debit_code, credit_code, description
-    ("Servicios Públicos",   "Servicios",         "EGRESO", "513520", "__BANK__", "Internet, teléfono, acueducto, energía"),
-    ("Suscripciones Tech",   "Suscripciones",     "EGRESO", "513535", "__BANK__", "Software, streaming, SaaS mensual"),
-    ("Alimentación",         "Alimentación",      "EGRESO", "519525", "__BANK__", "Restaurantes, mercado, cafetería"),
-    ("Infraestructura",      "Infraestructura",   "EGRESO", "522005", "__BANK__", "Arriendo oficina, bodega, coworking"),
-    ("Transporte",           "Transporte",        "EGRESO", "513530", "__BANK__", "Uber, taxi, envíos, correo"),
-    ("Publicidad",           "Publicidad",        "EGRESO", "519530", "__BANK__", "Diseño, marketing, pauta digital"),
-    ("Papelería",            "Papelería",         "EGRESO", "519520", "__BANK__", "Útiles, papelería, impresiones"),
-    ("Gastos Bancarios",     "Gastos Bancarios",  "EGRESO", "519505", "__BANK__", "Comisiones, cuota de manejo"),
-    ("Nómina",               "Nómina",            "EGRESO", "510506", "__BANK__", "Sueldos y salarios"),
-    ("Gastos Diversos",      "Otros Gastos",      "EGRESO", "519515", "__BANK__", "Gastos varios no categorizados"),
+    ("Servicios Públicos",   "Servicios",         "GASTO", "513520", "__BANK__", "Internet, teléfono, acueducto, energía"),
+    ("Suscripciones Tech",   "Suscripciones",     "GASTO", "513535", "__BANK__", "Software, streaming, SaaS mensual"),
+    ("Alimentación",         "Alimentación",      "GASTO", "519525", "__BANK__", "Restaurantes, mercado, cafetería"),
+    ("Infraestructura",      "Infraestructura",   "GASTO", "522005", "__BANK__", "Arriendo oficina, bodega, coworking"),
+    ("Transporte",           "Transporte",        "GASTO", "513530", "__BANK__", "Uber, taxi, envíos, correo"),
+    ("Publicidad",           "Publicidad",        "GASTO", "519530", "__BANK__", "Diseño, marketing, pauta digital"),
+    ("Papelería",            "Papelería",         "GASTO", "519520", "__BANK__", "Útiles, papelería, impresiones"),
+    ("Gastos Bancarios",     "Gastos Bancarios",  "GASTO", "519505", "__BANK__", "Comisiones, cuota de manejo"),
+    ("Nómina",               "Nómina",            "GASTO", "510506", "__BANK__", "Sueldos y salarios"),
+    ("Gastos Diversos",      "Otros Gastos",      "GASTO", "519515", "__BANK__", "Gastos varios no categorizados"),
 
     # Ingresos (el usuario recibe dinero)
     ("Venta Productos",      "Ventas",            "INGRESO", "__BANK__", "413505", "Venta de mercancía y productos"),
