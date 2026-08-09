@@ -66,6 +66,7 @@ from routers.zero_coa import router as zero_coa_router
 from routers.org import router as org_router
 from routers.inventory import router as inventory_router
 from routers.module_flags import router as flags_router
+from routers.bot import router as bot_router
 
 app.include_router(portfolios_router)
 app.include_router(transactions_router)
@@ -81,6 +82,7 @@ app.include_router(zero_coa_router)
 app.include_router(org_router)
 app.include_router(inventory_router)
 app.include_router(flags_router)
+app.include_router(bot_router)
 
 
 # ==============================================================================
