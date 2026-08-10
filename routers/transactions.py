@@ -129,6 +129,69 @@ def update_transaction_endpoint(tx_id: int, tx_update: TransactionUpdateInput):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _build_voice_draft(parsed_tx, texto, portfolio_name, raw_transcript=""):
+    """Respuesta BORRADOR de los endpoints de voz, con la MISMA inferencia
+    que el Bot IA (fin_sys_core/draft_builder): portafolio validado, método de
+    pago cruzado con las cuentas reales, account_id resuelto y campos
+    inferidos/faltantes calculados en un solo lugar.
+
+    El shape de la respuesta se mantiene (parsed_data / calculation_results /
+    inferred_fields) para no romper el frontend; solo se agregan campos.
+    """
+    from draft_builder import build_draft
+    from db_pool import get_conn, put_conn
+    from tax_motor import process_transaction_taxes
+
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        draft = build_draft(cur, parsed_tx, texto, portfolio_name)
+        conn.commit()
+    finally:
+        put_conn(conn)
+
+    if draft is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No hay portafolios creados. Crea uno antes de usar la ingestión por voz."
+        )
+
+    payload = draft["payload"]
+    base_amount = payload.get("amount") or 0.0
+    tax_results = process_transaction_taxes(
+        base_amount=base_amount,
+        apply_iva=payload.get("apply_iva", False),
+        apply_gmf=False
+    )
+
+    return {
+        "status": "BORRADOR",
+        "raw_transcript": raw_transcript,
+        "parsed_data": {
+            "portfolio_name": payload["portfolio_name"],
+            "type": payload["type"],
+            "amount": base_amount,
+            "concept": payload["concept"],
+            "payment_method": payload["payment_method"],
+            "category": payload["category"],
+            "third_party": payload["third_party"],
+            "transaction_date": payload["transaction_date"],
+            "account_id": draft["account_id"],
+            "apply_iva": payload.get("apply_iva", False),
+            "is_recurring": payload.get("is_recurring", False),
+        },
+        "calculation_results": {
+            "tax_iva_amount": tax_results["iva_amount"],
+            "tax_gmf_amount": tax_results["gmf_amount"],
+            "net_value": tax_results["net_value"],
+        },
+        "suggested_tags": parsed_tx.get("suggested_tags", []),
+        "inferred_fields": draft["inferred_fields"],
+        "missing_fields": draft["missing_fields"],
+        "account_error": draft["account_error"],
+    }
+
+
 # ==============================================================================
 # 🎙️ Endpoints de Voz & Estructura IA
 # ==============================================================================
@@ -139,14 +202,13 @@ def upload_voice_transaction(
     portfolio_name: str = Form("Negocio A")
 ):
     """
-    Recibe el archivo binario de audio del micrófono en localhost,
-    lo pasa a la API de Gemini Multimodal para su transcripción y parseo RAG
-    y devuelve la propuesta de transacción en estado BORRADOR para confirmación interactiva.
+    Recibe el audio del micrófono, lo transcribe y estructura con IA, y devuelve
+    la propuesta en estado BORRADOR para confirmación en la UI.
+    Comparte la inferencia con el Bot IA (fin_sys_core/draft_builder).
     """
     try:
         from ai_engine import parse_audio_to_transaction
-        from tax_motor import process_transaction_taxes
-        
+
         # 1. Guardar temporalmente el archivo recibido de audio
         upload_dir = "./uploads"
         os.makedirs(upload_dir, exist_ok=True)
@@ -154,54 +216,12 @@ def upload_voice_transaction(
         with open(file_path, "wb") as f:
             f.write(audio_file.file.read())
 
-        # 2. Llamar al motor inteligente de Gemini + RAG
+        # 2. Motor de IA: transcripción + estructuración con RAG
         parsed_tx = parse_audio_to_transaction(file_path, portfolio_name)
-        
-        # 3. Calcular impuestos estándar (IVA/GMF) de forma determinista basados en lo extraído
-        base_amount = parsed_tx.get("amount")
-        if base_amount is None:
-            base_amount = 0.0
-        else:
-            try:
-                base_amount = float(base_amount)
-            except (ValueError, TypeError):
-                base_amount = 0.0
-        
-        # Inferencia simple de IVA: si se extrae o deduce que aplica
-        apply_iva = parsed_tx.get("category") in ["Servicios", "Infraestructura"]
-        
-        tax_results = process_transaction_taxes(
-            base_amount=base_amount,
-            apply_iva=apply_iva,
-            apply_gmf=False
-        )
-        
-        # 4. Devolver la respuesta en estado BORRADOR (para confirmación en la UI)
-        return {
-            "status": "BORRADOR",
-            "raw_transcript": parsed_tx.get("raw_transcript", ""),
-            "parsed_data": {
-                "portfolio_name": portfolio_name,
-                "type": parsed_tx.get("type", "GASTO"),
-                "amount": base_amount,
-                "concept": parsed_tx.get("concept", ""),
-                "payment_method": parsed_tx.get("payment_method") or "Efectivo",
-                "category": parsed_tx.get("category") or "Ventas",
-                "third_party": parsed_tx.get("third_party") or {
-                    "identification_type": "NIT",
-                    "identification_number": "",
-                    "name": ""
-                },
-                "is_recurring": parsed_tx.get("is_recurring", False)
-            },
-            "calculation_results": {
-                "tax_iva_amount": tax_results["iva_amount"],
-                "tax_gmf_amount": tax_results["gmf_amount"],
-                "net_value": tax_results["net_value"]
-            },
-            "suggested_tags": parsed_tx.get("suggested_tags", []),
-            "inferred_fields": parsed_tx.get("inferred_fields", [])
-        }
+        transcript = parsed_tx.get("raw_transcript", "") or ""
+
+        # 3. Inferencia determinista compartida con el bot + impuestos
+        return _build_voice_draft(parsed_tx, transcript, portfolio_name, transcript)
     except HTTPException:
         raise
     except Exception as e:
@@ -248,70 +268,22 @@ def structure_voice_transcript(
     req: StructureRequest
 ):
     """
-    Toma un texto transcrito (que puede haber sido editado por el usuario),
-    lo pasa a la API de Llama 3.3/Gemini para su parseo RAG
-    y devuelve la propuesta de transacción en estado BORRADOR para confirmación interactiva.
+    Toma un texto transcrito (posiblemente editado por el usuario), lo estructura
+    con IA y devuelve la propuesta en estado BORRADOR.
+    Comparte la inferencia con el Bot IA (fin_sys_core/draft_builder): portafolio
+    validado, método de pago cruzado con las cuentas reales y account_id resuelto.
     """
     try:
         from ai_engine import structure_text_only
-        from tax_motor import process_transaction_taxes
-        
-        portfolio_name = req.portfolio_name
-        transcript = req.transcript
-        
-        # 1. Llamar al motor inteligente de estructuración
-        parsed_tx = structure_text_only(transcript, portfolio_name)
-        
-        # 2. Calcular impuestos estándar (IVA/GMF) de forma determinista basados en lo extraído
-        base_amount = parsed_tx.get("amount")
-        if base_amount is None:
-            base_amount = 0.0
-        else:
-            try:
-                base_amount = float(base_amount)
-            except (ValueError, TypeError):
-                base_amount = 0.0
-        
-        # Inferencia simple de IVA: si se extrae o deduce que aplica
-        apply_iva = parsed_tx.get("category") in ["Servicios", "Infraestructura"]
-        
-        tax_results = process_transaction_taxes(
-            base_amount=base_amount,
-            apply_iva=apply_iva,
-            apply_gmf=False
-        )
-        
-        # 3. Devolver la respuesta en estado BORRADOR (para confirmación en la UI)
-        return {
-            "status": "BORRADOR",
-            "raw_transcript": transcript,
-            "parsed_data": {
-                "portfolio_name": portfolio_name,
-                "type": parsed_tx.get("type", "GASTO"),
-                "amount": base_amount,
-                "concept": parsed_tx.get("concept", ""),
-                "payment_method": parsed_tx.get("payment_method") or "Efectivo",
-                "category": parsed_tx.get("category") or "Ventas",
-                "third_party": parsed_tx.get("third_party") or {
-                    "identification_type": "NIT",
-                    "identification_number": "",
-                    "name": ""
-                },
-                "is_recurring": parsed_tx.get("is_recurring", False)
-            },
-            "calculation_results": {
-                "tax_iva_amount": tax_results["iva_amount"],
-                "tax_gmf_amount": tax_results["gmf_amount"],
-                "net_value": tax_results["net_value"]
-            },
-            "suggested_tags": parsed_tx.get("suggested_tags", []),
-            "inferred_fields": parsed_tx.get("inferred_fields", [])
-        }
+
+        parsed_tx = structure_text_only(req.transcript, req.portfolio_name)
+        return _build_voice_draft(parsed_tx, req.transcript, req.portfolio_name, req.transcript)
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-
 
 # ==============================================================================
 # 🔌 Endpoints — Seed Sintético & Reset

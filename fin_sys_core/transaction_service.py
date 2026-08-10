@@ -11,6 +11,28 @@ dominio y deja subir las excepciones (ExcedeLimitePocketError incluida).
 """
 
 
+def ensure_journal_listener():
+    """Garantiza que el listener de partida doble esté registrado EN ESTE proceso.
+
+    El bus de eventos del kernel vive en memoria: cada proceso tiene el suyo.
+    server.py lo registra en su startup, pero el poller del bot es otro proceso
+    — sin esto, sus transacciones emitían el evento al vacío y el asiento
+    quedaba sin registrar ('no_listener'). Idempotente: no duplica handlers.
+    """
+    try:
+        from kernel.kernel_event_bus import on, list_listeners
+        from kernel.kernel_accounting import registrar_asiento, init_journal_entries_table
+        if 'registrar_asiento' in list_listeners().get('fin.transaccion.registrada', []):
+            return True
+        init_journal_entries_table()
+        on('fin.transaccion.registrada', registrar_asiento)
+        print("✅ Zero-COA: listener de partida doble registrado (proceso actual)")
+        return True
+    except Exception as e:
+        print(f"⚠️ Zero-COA: no se pudo registrar el listener: {e}")
+        return False
+
+
 def create_transaction(tx_input) -> dict:
     """Registra una transacción oficial y emite su asiento contable.
 
@@ -86,6 +108,7 @@ def create_transaction(tx_input) -> dict:
     # 4. Zero-COA: Emitir asiento contable al kernel.
     # No bloquea la TX, pero el resultado se reporta (antes: except: pass
     # → el diario podía desincronizarse en silencio).
+    ensure_journal_listener()   # imprescindible fuera del proceso de server.py
     from shared.helpers import emit_journal_entry
     journal = {"status": "error", "error": "sin ejecutar"}
     try:

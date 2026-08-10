@@ -259,11 +259,17 @@ export function TransactionDraftProvider({ children }) {
       return val.trim();
     };
 
-    setFormType(p.type || "GASTO");
+    const tipo = p.type || "GASTO";
+    setFormType(tipo);
     setAmount(p.amount || "");
     setConcept(cleanStr(p.concept));
     setPaymentMethod(cleanStr(p.payment_method, "Efectivo"));
-    setCategory(cleanStr(p.category, "Ventas"));
+    // Default por tipo (antes ponía "Ventas" incluso en un GASTO)
+    setCategory(cleanStr(p.category, tipo === "GASTO" ? "Otros Gastos" : "Ventas"));
+
+    // El backend ya resolvió la cuenta desde el método de pago mencionado
+    // (misma inferencia que el Bot IA) — preseleccionarla evita elegirla a mano.
+    if (p.account_id) setSelectedAccountId(String(p.account_id));
 
     if (p.third_party) {
       setThirdPartyType(cleanStr(p.third_party.identification_type, "NIT"));
@@ -275,16 +281,22 @@ export function TransactionDraftProvider({ children }) {
     setApplyGmf(draft.calculation_results?.tax_gmf_amount > 0);
     setIsRecurring(p.is_recurring || false);
 
-    // Inferencia de campos faltantes
-    const missing = [];
-    const checkAmount = parseFloat(p.amount);
-    if (!p.amount || isNaN(checkAmount) || checkAmount <= 0) missing.push("Importe/Valor");
-    if (!cleanStr(p.payment_method)) missing.push("Método de Pago");
-    if (!cleanStr(p.category)) missing.push("Categoría");
-    const cleanThirdName = p.third_party ? cleanStr(p.third_party.name) : "";
-    if (!cleanThirdName) missing.push("Nombre de Tercero");
-    const cleanThirdId = p.third_party ? cleanStr(p.third_party.identification_number) : "";
-    if (!cleanThirdId) missing.push("Identificación (NIT/CC)");
+    // Campos faltantes: los calcula el backend (draft_builder), fuente única
+    // compartida con el bot. Fallback local para respuestas antiguas.
+    const ETIQUETAS = { monto: "Importe/Valor", concepto: "Concepto" };
+    let missing;
+    if (Array.isArray(draft.missing_fields)) {
+      missing = draft.missing_fields.map(f => ETIQUETAS[f] || f);
+    } else {
+      missing = [];
+      const checkAmount = parseFloat(p.amount);
+      if (!p.amount || isNaN(checkAmount) || checkAmount <= 0) missing.push("Importe/Valor");
+      if (!cleanStr(p.payment_method)) missing.push("Método de Pago");
+      if (!cleanStr(p.category)) missing.push("Categoría");
+      if (!(p.third_party ? cleanStr(p.third_party.name) : "")) missing.push("Nombre de Tercero");
+      if (!(p.third_party ? cleanStr(p.third_party.identification_number) : "")) missing.push("Identificación (NIT/CC)");
+    }
+    if (draft.account_error) missing.push(draft.account_error);
 
     setFormSuggestion(missing.length > 0 ? { fields: missing } : null);
   };

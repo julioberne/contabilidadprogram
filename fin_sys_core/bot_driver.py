@@ -27,11 +27,21 @@ InboundMessage = {
 """
 import json
 import re
-from datetime import date
+
+# Fuente ÚNICA de inferencia — compartida con la Ingestión por Voz de la web
+from draft_builder import (          # noqa: F401  (re-exportadas para tests)
+    TIPOS_VALIDOS,
+    build_draft,
+    build_payload,
+    compute_missing,
+    fmt_money as _fmt_money,
+    norm as _norm,
+    resolver_cuenta as _resolver_cuenta,
+    resolver_metodo_pago as _resolver_metodo_pago,
+    resolver_portafolio as _resolver_portafolio,
+)
 
 SCHEMA_VERSION = 1
-
-TIPOS_VALIDOS = ("INGRESO", "GASTO", "TRANSFERENCIA")
 
 AYUDA = (
     "🤖 FIN-SYS Bot — registro contable por chat\n\n"
@@ -84,88 +94,6 @@ def parse_command(text: str):
     if _RE_DRAFTS.match(t):
         return "borradores", None
     return None, None
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Funciones puras (testeables sin BD)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def build_payload(parsed: dict, portfolio_name: str):
-    """Convierte la propuesta del LLM en el payload del borrador.
-
-    Aplica los mismos defaults del formulario web (buildTransactionPayload /
-    endpoint /structure) y marca TODO default como campo inferido — el humano
-    los ve en el resumen antes de confirmar.
-    → (payload, inferred_fields)
-    """
-    inferred = [str(f) for f in (parsed.get("inferred_fields") or [])]
-
-    amount = parsed.get("amount")
-    try:
-        amount = float(amount) if amount is not None else None
-    except (ValueError, TypeError):
-        amount = None
-
-    tipo = parsed.get("type") or "GASTO"
-    if tipo not in TIPOS_VALIDOS:
-        tipo = "GASTO"
-
-    categoria = parsed.get("category")
-    if not categoria:
-        categoria = "Otros Gastos" if tipo == "GASTO" else "Ventas"
-        inferred.append("category")
-
-    metodo = parsed.get("payment_method")
-    if not metodo:
-        metodo = "Efectivo"
-        inferred.append("payment_method")
-
-    tp = parsed.get("third_party") or {}
-    if not (tp.get("name") or "").strip():
-        # Mismo default que el formulario web cuando no hay tercero
-        tp = {"identification_type": "NIT", "identification_number": "999999999",
-              "name": "Sin especificar"}
-        inferred.append("third_party")
-    else:
-        tp = {
-            "identification_type": tp.get("identification_type") or "NIT",
-            "identification_number": (tp.get("identification_number") or "").strip() or "999999999",
-            "name": (tp.get("name") or "").strip(),
-        }
-        if tp["identification_type"] not in ("NIT", "CC"):
-            tp["identification_type"] = "NIT"
-
-    payload = {
-        "portfolio_name": portfolio_name,
-        "type": tipo,
-        "amount": amount,
-        "concept": (parsed.get("concept") or "").strip(),
-        "payment_method": metodo,
-        "category": categoria,
-        "third_party": tp,
-        "transaction_date": date.today().isoformat(),
-        # Misma inferencia determinista de IVA del endpoint web /structure
-        "apply_iva": categoria in ("Servicios", "Infraestructura"),
-        "apply_gmf": False,
-    }
-    return payload, sorted(set(inferred))
-
-
-def compute_missing(payload: dict):
-    """Campos sin los cuales el borrador NO se puede confirmar."""
-    missing = []
-    if not payload.get("amount") or payload["amount"] <= 0:
-        missing.append("monto")
-    if not (payload.get("concept") or "").strip():
-        missing.append("concepto")
-    return missing
-
-
-def _fmt_money(v) -> str:
-    try:
-        return "$" + f"{float(v):,.0f}".replace(",", ".")
-    except (ValueError, TypeError):
-        return "$?"
 
 
 def render_summary(draft_id: int, payload: dict, inferred=None, missing=None) -> str:
@@ -372,31 +300,20 @@ def _crear_borrador(cur, link, texto, msg, msg_row_id):
     # El portafolio se valida ANTES de llamar al LLM: si el default del chat no
     # existe (config vieja), se corrige aquí y no al confirmar — el humano lo ve
     # en el resumen, que es donde debe enterarse.
-    portafolio, port_corregido = _resolver_portafolio(cur, link["default_portfolio"])
+    portafolio, _ = _resolver_portafolio(cur, link["default_portfolio"])
     if portafolio is None:
         return ("No hay portafolios creados en FIN-SYS. Crea uno en la web antes "
                 "de registrar movimientos por chat.")
 
     parsed = structure_text_only(texto, portafolio)
 
-    payload, inferred = build_payload(parsed, portafolio)
-    if port_corregido:
-        inferred.append("portfolio_name")
-
-    # El LLM propone el método de pago con una lista genérica que no conoce tus
-    # cuentas reales. Aquí manda lo que el usuario DIJO, cruzado contra
-    # user_accounts: evita que "pagué desde Bancolombia" termine en Efectivo.
-    metodo, metodo_explicito = _resolver_metodo_pago(cur, texto, payload["payment_method"])
-    payload["payment_method"] = metodo
-    if metodo_explicito:
-        inferred = [f for f in inferred if f != "payment_method"]
-    elif "payment_method" not in inferred:
-        inferred.append("payment_method")
-
-    inferred = sorted(set(inferred))
-    missing = compute_missing(payload)
-    payload["inferred_fields"] = inferred
-    payload["missing_fields"] = missing
+    # Misma inferencia que la Ingestión por Voz de la web (draft_builder):
+    # portafolio validado, método de pago cruzado con las cuentas reales
+    # (lo que el usuario DIJO manda sobre lo que el LLM propuso) y account_id.
+    draft = build_draft(cur, parsed, texto, portafolio)
+    payload = draft["payload"]
+    inferred = draft["inferred_fields"]
+    missing = draft["missing_fields"]
 
     media_db = None
     if msg.get("media_path"):
@@ -518,10 +435,14 @@ def _ejecutar_confirmacion(conn, cur, draft_id, payload, media_path):
     if not re.match(r"^\d{4}-\d{2}-\d{2}$", str(payload.get("transaction_date") or "")):
         return _revertir(conn, cur, draft_id, "Fecha inválida en el borrador (se espera YYYY-MM-DD).")
 
-    # 4. Cuenta desde payment_method (nunca confirmar sin cuenta → deuda DT-01)
+    # 4. Cuenta desde payment_method (nunca confirmar sin cuenta → deuda DT-01).
+    #    Se re-resuelve al confirmar: las cuentas pueden haber cambiado desde
+    #    que se creó el borrador.
     account_id, err = _resolver_cuenta(cur, payload.get("payment_method"))
     if err:
-        return _revertir(conn, cur, draft_id, err)
+        return _revertir(conn, cur, draft_id,
+                         err + " Descarta el borrador y reenvía la operación "
+                               "nombrando una de tus cuentas.")
 
     # 5. Contrato oficial + pipeline oficial (el mismo de la web)
     from routers.schemas import TransactionInput
@@ -631,82 +552,3 @@ def _explicar_no_tomable(cur, draft_id, chat_link_id, hub_user_id, accion="confi
         return (f"El borrador #{draft_id} está en estado ERROR. "
                 "Revísalo en la Bandeja web o descártalo.")
     return f"No se pudo {accion} el borrador #{draft_id} (estado: {status})."
-
-
-def _norm(s: str) -> str:
-    """minúsculas sin tildes — para comparar 'Crédito' con 'credito'."""
-    import unicodedata
-    s = unicodedata.normalize("NFD", (s or "").strip().lower())
-    return "".join(c for c in s if unicodedata.category(c) != "Mn")
-
-
-def _resolver_portafolio(cur, preferido):
-    """→ (nombre_real, fue_corregido). None si no hay portafolios."""
-    cur.execute("SELECT name FROM portfolios ORDER BY id")
-    nombres = [r[0] for r in cur.fetchall()]
-    if not nombres:
-        return None, False
-    if preferido in nombres:
-        return preferido, False
-    objetivo = _norm(preferido)
-    for n in nombres:
-        if _norm(n) == objetivo:
-            return n, False
-    return nombres[0], True     # el más antiguo = el principal
-
-
-def _resolver_metodo_pago(cur, texto, sugerido):
-    """Cruza lo que el usuario DIJO contra user_accounts.
-
-    → (metodo, explicito). explicito=True cuando el nombre de una cuenta real
-    aparece en el texto del usuario: eso manda sobre la propuesta del LLM,
-    cuyo prompt usa una lista genérica ajena a las cuentas de este FinSys.
-    """
-    cur.execute("SELECT name FROM user_accounts ORDER BY id")
-    cuentas = [r[0] for r in cur.fetchall()]
-    if not cuentas:
-        return sugerido, False
-
-    t = _norm(texto)
-    # 1. Nombre completo de la cuenta mencionado en el texto
-    for nombre in cuentas:
-        if _norm(nombre) in t:
-            return nombre, True
-    # 2. Alguna palabra distintiva (>3 letras) del nombre: "Bancolombia" de
-    #    "Bancolombia Ahorros", "Nequi", "Davivienda" de "Davivienda Crédito"
-    for nombre in cuentas:
-        for palabra in _norm(nombre).split():
-            if len(palabra) > 3 and palabra in t:
-                return nombre, True
-    # 3. La propuesta del LLM, si coincide con una cuenta real
-    s = _norm(sugerido)
-    for nombre in cuentas:
-        if _norm(nombre) == s:
-            return nombre, False
-    for nombre in cuentas:
-        if s and (s in _norm(nombre) or _norm(nombre) in s):
-            return nombre, False
-    return sugerido, False
-
-
-def _resolver_cuenta(cur, payment_method):
-    """Mapea payment_method → user_accounts.id. → (account_id, error|None)."""
-    cur.execute("SELECT id, name FROM user_accounts ORDER BY id")
-    cuentas = cur.fetchall()
-    if not cuentas:
-        return None, "No hay cuentas creadas en FIN-SYS. Crea una en la web primero."
-    pm = (payment_method or "").strip().lower()
-    if not pm:
-        return None, "El borrador no tiene método de pago."
-    exactas = [c for c in cuentas if c[1].strip().lower() == pm]
-    if len(exactas) == 1:
-        return exactas[0][0], None
-    parciales = [c for c in cuentas if pm in c[1].strip().lower() or c[1].strip().lower() in pm]
-    if len(parciales) == 1:
-        return parciales[0][0], None
-    nombres = ", ".join(c[1] for c in cuentas)
-    if len(parciales) > 1:
-        return None, (f"El método de pago '{payment_method}' es ambiguo entre tus cuentas. "
-                      f"Cuentas: {nombres}. Descarta y reenvía nombrando la cuenta exacta.")
-    return None, (f"No encontré una cuenta que coincida con '{payment_method}'. "
-                  f"Cuentas disponibles: {nombres}. Descarta y reenvía nombrando una de ellas.")

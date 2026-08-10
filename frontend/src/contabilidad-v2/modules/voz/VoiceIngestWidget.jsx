@@ -99,13 +99,15 @@ export default function VoiceIngestWidget({
                 className="border-2 border-black bg-white p-2 hover:bg-brutalNeutral cursor-pointer flex flex-col justify-between transition-all"
               >
                 <div className="flex justify-between items-start">
+                  {/* Faltante ≠ inferido: solo missing_fields impide confirmar
+                      (misma semántica que el Bot IA). */}
                   <span className="text-xs bg-brutalAmber border border-black px-1 py-0.5 font-bold uppercase text-black">
-                    {d.inferred_fields?.length > 0 ? "Borrador Incompleto" : "Completo"}
+                    {d.missing_fields?.length > 0 ? "Borrador Incompleto" : "Completo"}
                   </span>
                   <span className="text-xs font-bold">${d.parsed_data?.amount}</span>
                 </div>
                 <p className="text-xs font-bold uppercase mt-2 line-clamp-1">"{d.parsed_data?.concept}"</p>
-                
+
                 {/* Mostrar transcripción raw completa en la tarjeta */}
                 {d.raw_transcript && (
                   <p className="text-[10px] text-gray-500 mt-1 italic border-l-2 border-black pl-1.5 line-clamp-2">
@@ -113,9 +115,20 @@ export default function VoiceIngestWidget({
                   </p>
                 )}
 
-                {d.inferred_fields?.length > 0 && (
+                {d.parsed_data?.payment_method && (
+                  <span className="text-[10px] text-gray-600 font-bold uppercase mt-1">
+                    {d.parsed_data.category} · {d.parsed_data.payment_method}
+                  </span>
+                )}
+
+                {d.missing_fields?.length > 0 && (
                   <span className="text-[10px] text-brutalCrimson font-bold uppercase mt-1">
-                    ⚠️ Falta: {d.inferred_fields.join(", ")}
+                    ⚠️ Falta: {d.missing_fields.join(", ")}
+                  </span>
+                )}
+                {d.missing_fields?.length === 0 && d.inferred_fields?.length > 0 && (
+                  <span className="text-[10px] text-gray-500 font-bold uppercase mt-1">
+                    ✎ Inferido: {d.inferred_fields.join(", ")}
                   </span>
                 )}
               </div>
