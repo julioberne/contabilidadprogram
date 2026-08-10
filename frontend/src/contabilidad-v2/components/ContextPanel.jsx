@@ -83,6 +83,7 @@ export default function ContextPanel({
 
   const deleteItem = async (ep, id, fn) => { if (!confirm("¿Eliminar?")) return; try { const r = await fetch(`${API_BASE}/${ep}/${id}`, {method:'DELETE'}); if(r.ok) fn(); } catch(e){} };
   const updateItem = async (ep, id, d, fn) => { try { const r = await fetch(`${API_BASE}/${ep}/${id}`, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)}); if(r.ok){setEditingId(null);fn();}} catch(e){} };
+  const createItem = async (ep, d, fn) => { const r = await fetch(`${API_BASE}/${ep}`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)}); if(!r.ok){ const err = await r.json().catch(()=>({})); throw new Error(err.detail || 'Error al crear'); } await fn(); return await r.json(); };
 
   // --- Helpers ---
   const SectionLabel = ({ text }) => <div className="text-[8px] font-mono text-gray-400 uppercase border-b border-dashed border-gray-200 pb-1 mb-1.5">{text}</div>;
@@ -185,7 +186,7 @@ export default function ContextPanel({
           allThirdParties={allThirdParties}
           editingId={editingId} setEditingId={setEditingId}
           editData={editData} setEditData={setEditData}
-          updateItem={updateItem} deleteItem={deleteItem} refreshTP={refreshTP}
+          updateItem={updateItem} deleteItem={deleteItem} createItem={createItem} refreshTP={refreshTP}
           SectionLabel={SectionLabel}
         />}
 

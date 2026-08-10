@@ -42,6 +42,8 @@ class AccountUpdateInput(BaseModel):
     type: str
     # None = no tocar el saldo (lo mantiene el motor incremental)
     current_balance: Optional[float] = None
+    # None = no tocar el saldo inicial (editable desde 💳 Cuentas)
+    initial_balance: Optional[float] = None
 
 
 class CxcCxpInput(BaseModel):

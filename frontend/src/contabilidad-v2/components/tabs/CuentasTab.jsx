@@ -37,7 +37,8 @@ export default function CuentasTab({
 
   const startEdit = (acc) => {
     setEditingId(acc.id);
-    setDraft({ name: acc.name, type: acc.type, current_balance: acc.current_balance });
+    setDraft({ name: acc.name, type: acc.type, current_balance: acc.current_balance,
+               initial_balance: acc.initial_balance });
   };
 
   const saveEdit = async (id) => {
@@ -46,6 +47,10 @@ export default function CuentasTab({
       type: draft.type,
       // Solo se manda si el usuario lo tocó: si no, lo gobierna el motor incremental
       current_balance: draft.current_balance === '' ? null : Number(draft.current_balance),
+      // Saldo inicial editable — es la base del Pulso de Cuentas; tras
+      // cambiarlo, ⟳ Reconciliar recalcula el actual (inicial + transacciones)
+      initial_balance: draft.initial_balance === '' || draft.initial_balance === undefined
+        ? null : Number(draft.initial_balance),
     });
     if (ok) setEditingId(null);
   };
@@ -143,11 +148,17 @@ export default function CuentasTab({
                     </select>
                   </td>
                   <td className="p-1 border-r border-black text-center text-[9px] text-gray-400">{acc.currency || 'COP'}</td>
-                  <td className="p-1 border-r border-black">
+                  <td className="p-1 border-r border-black space-y-0.5">
                     <input type="number" step="any" value={draft.current_balance}
                       onChange={e => setDraft(d => ({ ...d, current_balance: e.target.value }))}
-                      title="Ajuste manual de saldo. Vacío = no tocar."
+                      title="Ajuste manual de saldo ACTUAL. Vacío = no tocar."
+                      placeholder="Actual"
                       className="w-full border border-black px-1 text-[10px] font-mono text-right outline-none" />
+                    <input type="number" step="any" value={draft.initial_balance}
+                      onChange={e => setDraft(d => ({ ...d, initial_balance: e.target.value }))}
+                      title="Saldo INICIAL (base del Pulso de Cuentas). Vacío = no tocar."
+                      placeholder="Inicial"
+                      className="w-full border border-dashed border-black px-1 text-[10px] font-mono text-right outline-none bg-yellow-50" />
                   </td>
                   <td className="p-1 text-center whitespace-nowrap">
                     <button onClick={() => saveEdit(acc.id)} className="px-1 hover:text-brutalGreen" title="Guardar">✔</button>

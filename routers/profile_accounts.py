@@ -58,6 +58,20 @@ def update_account(account_id: int, acc: AccountUpdateInput):
         from database_driver import actualizar_cuenta
         if not actualizar_cuenta(account_id, acc.dict()):
             raise HTTPException(status_code=404, detail="Cuenta no encontrada.")
+        # Saldo inicial: actualizar_cuenta (driver estable) no lo cubre — se
+        # maneja aquí. Editarlo NO recalcula current_balance automáticamente:
+        # para eso está ⟳ Reconciliar (inicial + transacciones reales).
+        if acc.initial_balance is not None:
+            from db_pool import get_conn, put_conn
+            conn = get_conn()
+            try:
+                cur = conn.cursor()
+                cur.execute("UPDATE user_accounts SET initial_balance = %s WHERE id = %s",
+                            (float(acc.initial_balance), account_id))
+                conn.commit()
+                cur.close()
+            finally:
+                put_conn(conn)
         return {"status": "ACTUALIZADO"}
     except HTTPException:
         raise
