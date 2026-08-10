@@ -1,19 +1,17 @@
 /* ============================================================
    AdvancedSections.jsx — Secciones colapsables del Módulo 01
-   Restauradas del monolito original (App.jsx @5ff195e L1707-2131),
-   que se perdieron en la unificación (daff300 las "movió" al
-   ContextPanel pero varias quedaron sin UI o desconectadas):
-     [+] Tercero        (también disponible en el panel derecho)
-     [%] Impuestos      (IVA / Propina / GMF / tasas custom)
-     [+] Cartera        (CXC / CXP)
-     [+] Activos        (incluye "Establecer como Activo" — sin
-                         este checkbox el bloque asset SIEMPRE
-                         viajaba null al backend)
-   Consume el TransactionDraftProvider directamente: todos los
-   setters ya existían, solo faltaba la UI.
+   Restauradas del monolito original (App.jsx @5ff195e):
+     [+] Tercero      (nombre, NIT/CC, contacto)
+     [%] Impuestos    (IVA / Propina / GMF / tasas custom)
+     [+] Etiquetas    (tag_definitions — mismas del panel derecho)
+   Cartera y Activos se retiraron del formulario por decisión del
+   usuario (2026-08-10): no se evidencian en el libro mayor; sus
+   flujos viven en el panel derecho (📒 Cartera / 📦 Recursos).
+   Consume el TransactionDraftProvider directamente.
    ============================================================ */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTransactionDraft } from '../../engine/TransactionDraftProvider.jsx';
+import { API } from '../../../config';
 
 function Section({ icon, title, badge, open, onToggle, children }) {
   return (
@@ -48,10 +46,10 @@ function Check({ checked, onChange, children }) {
 
 export default function AdvancedSections() {
   const d = useTransactionDraft();
-  const [open, setOpen] = useState({ tercero: false, impuestos: false, cartera: false, activos: false });
+  const [open, setOpen] = useState({ tercero: false, impuestos: false, etiquetas: false });
   const toggle = (k) => setOpen(o => ({ ...o, [k]: !o[k] }));
 
-  // Creador inline de tasas custom (port del monolito L1907-1930)
+  // Creador inline de tasas custom (port del monolito)
   const [taxName, setTaxName] = useState("");
   const [taxRate, setTaxRate] = useState("");
   const [taxType, setTaxType] = useState("ADDITIVE");
@@ -64,9 +62,34 @@ export default function AdvancedSections() {
     setTaxName(""); setTaxRate("");
   };
 
+  // Etiquetas: mismas tag_definitions del panel derecho (GET /api/tags)
+  const [allTags, setAllTags] = useState([]);
+  const [newTag, setNewTag] = useState("");
+  const fetchTags = () => {
+    fetch(`${API}/tags`).then(r => r.ok ? r.json() : []).then(data => {
+      setAllTags(Array.isArray(data) ? data : []);
+    }).catch(() => {});
+  };
+  useEffect(() => { fetchTags(); }, []);
+  const createTag = () => {
+    const name = newTag.trim();
+    if (!name) return;
+    fetch(`${API}/tags`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }).then(() => {
+      setNewTag("");
+      fetchTags();
+      d.setSelectedTags(prev => prev.includes(name) ? prev : [...prev, name]);
+    }).catch(() => {});
+  };
+
   const impuestosActivos =
     (d.applyIva ? 1 : 0) + (d.applyPropina ? 1 : 0) + (d.applyGmf ? 1 : 0) +
     (d.customTaxesList || []).filter(t => t.checked).length;
+
+  const tagsFiltradas = allTags.filter(t =>
+    !d.tagSearch || t.name.toLowerCase().includes(d.tagSearch.toLowerCase()));
 
   return (
     <div className="space-y-2">
@@ -153,82 +176,47 @@ export default function AdvancedSections() {
         </div>
       </Section>
 
-      {/* ── [+] CARTERA (CXC / CXP) ─────────────────────────── */}
-      <Section icon="📒" title="Cartera (CxC / CxP)" open={open.cartera} onToggle={() => toggle('cartera')}
-               badge={d.cxcCxpEnabled ? d.cxcCxpType : null}>
-        <Check checked={d.cxcCxpEnabled} onChange={d.setCxcCxpEnabled}>
-          Registrar en cartera (cuenta por cobrar / pagar)
-        </Check>
-        {d.cxcCxpEnabled && (
-          <>
-            <div className="grid grid-cols-2 gap-1">
-              {["CXC", "CXP"].map(t => (
-                <button key={t} type="button" onClick={() => d.setCxcCxpType(t)}
-                        className={`py-1.5 text-xs font-bold uppercase border-2 border-black transition-all ${d.cxcCxpType === t ? "bg-black text-white" : "bg-white hover:bg-brutalNeutral"}`}>
-                  {t === "CXC" ? "CXC — Me deben" : "CXP — Yo debo"}
-                </button>
-              ))}
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className={labelCls}>Fecha de Vencimiento*</label>
-                <input type="date" value={d.cxcCxpDueDate} onChange={e => d.setCxcCxpDueDate(e.target.value)} className={inputCls} />
+      {/* ── [+] ETIQUETAS ───────────────────────────────────── */}
+      <Section icon="🏷️" title="Etiquetas" open={open.etiquetas} onToggle={() => toggle('etiquetas')}
+               badge={(d.selectedTags || []).length > 0 ? `${d.selectedTags.length} sel.` : null}>
+        <input type="text" value={d.tagSearch || ""} onChange={e => d.setTagSearch(e.target.value)}
+               placeholder="🔍 Filtrar etiquetas..." className={inputCls} />
+        <div className="max-h-28 overflow-y-auto space-y-0.5">
+          {tagsFiltradas.length === 0 && (
+            <p className="text-[10px] text-gray-500 uppercase">Sin etiquetas — crea la primera abajo</p>
+          )}
+          {tagsFiltradas.map(tag => {
+            const sel = (d.selectedTags || []).includes(tag.name);
+            return (
+              <div key={tag.id}
+                   onClick={() => d.setSelectedTags(prev =>
+                     sel ? prev.filter(t => t !== tag.name) : [...prev, tag.name])}
+                   className={`flex items-center gap-1.5 px-2 py-1 cursor-pointer border ${sel ? 'border-black bg-brutalGreen' : 'border-gray-300 bg-white hover:bg-brutalNeutral'}`}>
+                <span className="text-[10px] font-mono">{sel ? '☑' : '☐'}</span>
+                <span className="w-2.5 h-2.5 border border-black" style={{ backgroundColor: tag.color || '#000' }}></span>
+                <span className="text-[10px] font-bold uppercase font-mono">{tag.name}</span>
               </div>
-              <div>
-                <label className={labelCls}>Plazo</label>
-                <select value={d.cxcCxpTerm} onChange={e => d.setCxcCxpTerm(e.target.value)} className={inputCls}>
-                  <option value="Corto">Corto</option>
-                  <option value="Mediano">Mediano</option>
-                  <option value="Largo">Largo</option>
-                </select>
-              </div>
-            </div>
-            <div>
-              <label className={labelCls}>Valor Parcial (opcional — vacío = total)</label>
-              <input type="number" value={d.cxcCxpValue} onChange={e => d.setCxcCxpValue(e.target.value)}
-                     placeholder="Monto abonado/adeudado" className={inputCls} />
-            </div>
-          </>
+            );
+          })}
+        </div>
+        {(d.selectedTags || []).length > 0 && (
+          <div className="flex flex-wrap gap-1 border-t-2 border-dashed border-black pt-1">
+            {d.selectedTags.map(t => (
+              <span key={t} className="bg-black text-white px-1.5 py-0.5 text-[9px] font-bold uppercase inline-flex items-center gap-1">
+                {t}
+                <button type="button" onClick={() => d.setSelectedTags(prev => prev.filter(x => x !== t))}
+                        className="text-gray-400 hover:text-red-300">×</button>
+              </span>
+            ))}
+          </div>
         )}
-      </Section>
-
-      {/* ── [+] GESTIÓN DE ACTIVOS ──────────────────────────── */}
-      <Section icon="🏗️" title="Gestión de Activos" open={open.activos} onToggle={() => toggle('activos')}
-               badge={d.assetEnabled && d.assetEstablecerActivo ? d.assetName || "activo" : null}>
-        <Check checked={d.assetEnabled} onChange={d.setAssetEnabled}>
-          Esta transacción involucra un activo/recurso
-        </Check>
-        {d.assetEnabled && (
-          <>
-            <div>
-              <label className={labelCls}>Nombre del Activo</label>
-              <input type="text" value={d.assetName} onChange={e => d.setAssetName(e.target.value)}
-                     placeholder="ej. Portátil Lenovo, Moto AKT" className={inputCls} />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className={labelCls}>Valor de Compra</label>
-                <input type="number" value={d.assetValue} onChange={e => d.setAssetValue(e.target.value)}
-                       disabled={d.assetVincularImporte} placeholder="Monto"
-                       className={inputCls + (d.assetVincularImporte ? " opacity-50" : "")} />
-              </div>
-              <div>
-                <label className={labelCls}>Etiqueta</label>
-                <input type="text" value={d.assetTag} onChange={e => d.setAssetTag(e.target.value)}
-                       placeholder="ej. TECNOLOGIA" className={inputCls} />
-              </div>
-            </div>
-            <Check checked={d.assetVincularImporte} onChange={d.setAssetVincularImporte}>
-              Vincular al importe de la transacción
-            </Check>
-            <Check checked={d.assetEstablecerActivo} onChange={d.setAssetEstablecerActivo}>
-              Establecer como Activo (patrimonio) — requerido para que se registre
-            </Check>
-            <Check checked={d.assetRecurrente} onChange={d.setAssetRecurrente}>
-              Genera ingreso pasivo recurrente
-            </Check>
-          </>
-        )}
+        <div className="flex gap-1 border-t-2 border-dashed border-black pt-1.5">
+          <input type="text" value={newTag} onChange={e => setNewTag(e.target.value)}
+                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); createTag(); } }}
+                 placeholder="+ Nueva etiqueta..." className={inputCls} />
+          <button type="button" onClick={createTag}
+                  className="bg-black text-white border-2 border-black px-3 text-[10px] font-bold uppercase hover:bg-brutalGreen hover:text-black transition-all">+</button>
+        </div>
       </Section>
 
     </div>

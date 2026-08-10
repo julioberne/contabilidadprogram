@@ -6,12 +6,20 @@
 import { useState, useEffect, useCallback } from 'react';
 import { API } from '../../../config';
 import { flattenTree } from './flattenTree.js';
+import AccountsPulse from './AccountsPulse.jsx';
 const LS_KEY = 'finsys_dashboard_collapsed';
 
+/* Moneda con decimales, formato colombiano: $1.234.567,89
+   Antes se truncaba a 0 decimales, así que los centavos desaparecían de la
+   vista aunque el libro diario sí los mostraba. */
 const fmt = (val) => {
-  if (val === null || val === undefined || isNaN(val)) return '$0';
-  return `$${Number(val).toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  if (val === null || val === undefined || isNaN(val)) return '—';
+  return `$${Number(val).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
+
+/* Una empresa sin portafolio contable vinculado no tiene cifras. Mostrar $0
+   mentiría (se lee como "no facturó"); esto dice la verdad. */
+const SIN_VINCULAR = '—';
 
 const TYPE_ICONS = { HOLDING: '🏛️', EMPRESA: '🏢', SUB_EMPRESA: '📍', PROYECTO: '📐', TAREA: '📋' };
 
@@ -29,66 +37,70 @@ export default function DashboardPanel({
     try { return localStorage.getItem(LS_KEY) === 'true'; } catch { return false; }
   });
   const [entities, setEntities] = useState([]);
-  const [balances, setBalances] = useState({});
+  const [totals, setTotals] = useState({ ingresos: 0, gastos: 0, balance: 0 });
+  const [unlinkedCount, setUnlinkedCount] = useState(0);
+  const [portfolios, setPortfolios] = useState([]);
+  const [linking, setLinking] = useState(null);   // id de la entidad guardando
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     try { localStorage.setItem(LS_KEY, String(collapsed)); } catch {}
   }, [collapsed]);
 
-  /* ── Cargar entities ────────────────────────────────────── */
-  const fetchEntities = useCallback(async () => {
+  /* ── Consolidado real, en UNA sola llamada ─────────────────
+     Antes esto eran N peticiones a /dashboard-data?portfolio=<nombre-de-la-
+     entidad>. El nombre de una entidad no es el nombre de un portafolio
+     contable, así que la API respondía 200 con ceros + el patrimonio GLOBAL:
+     cada fila mostraba el mismo número y el total lo multiplicaba por N
+     (6 empresas × $2.100.000 = "$12.600.000" que no existía).
+     Ahora el backend resuelve el vínculo por entities.portfolio_id, suma cada
+     portafolio una sola vez y marca como no vinculadas las que no tienen. */
+  const fetchConsolidated = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/org/entities/selector`);
+      const res = await fetch(`${API}/org/consolidated`);
       if (!res.ok) throw new Error('fetch failed');
-      setEntities(await res.json());
+      const d = await res.json();
+      setEntities(d.entities || []);
+      setTotals(d.totals || { ingresos: 0, gastos: 0, balance: 0 });
+      setUnlinkedCount(d.unlinked_count || 0);
+      setPortfolios(d.portfolios || []);
     } catch {
+      // Fallback: al menos listar las empresas, sin cifras inventadas
       try {
-        const res2 = await fetch(`${API}/ct/entities`);
-        if (res2.ok) setEntities(flattenTree(await res2.json()));
+        const res2 = await fetch(`${API}/org/entities/selector`);
+        if (res2.ok) setEntities(await res2.json());
+        else {
+          const res3 = await fetch(`${API}/ct/entities`);
+          if (res3.ok) setEntities(flattenTree(await res3.json()));
+        }
       } catch (_) {}
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { fetchEntities(); }, [fetchEntities]);
+  useEffect(() => { fetchConsolidated(); }, [fetchConsolidated]);
 
-  /* ── Cargar balances por empresa ─────────────────────────── */
-  useEffect(() => {
-    if (entities.length === 0) return;
-    const names = [...new Set(entities.map(e => e.name))];
-    Promise.allSettled(
-      names.map(async (pName) => {
-        try {
-          const res = await fetch(`${API}/dashboard-data?portfolio=${encodeURIComponent(pName)}`);
-          if (res.ok) {
-            const d = await res.json();
-            setBalances(prev => ({
-              ...prev,
-              [pName]: {
-                ingresos: d.balance?.total_ingresos_cop ?? 0,
-                gastos: d.balance?.total_gastos_cop ?? 0,
-                balance: d.balance?.balance_neto_cop ?? 0,
-                patrimonio: d.balance?.patrimonio_cop ?? 0,
-              },
-            }));
-          }
-        } catch (_) {}
-      })
-    );
-  }, [entities]);
-
-  /* ── Sumatoria ──────────────────────────────────────────── */
-  const totals = Object.values(balances).reduce(
-    (acc, b) => ({
-      ingresos: acc.ingresos + (b.ingresos || 0),
-      gastos: acc.gastos + (b.gastos || 0),
-      balance: acc.balance + (b.balance || 0),
-      patrimonio: acc.patrimonio + (b.patrimonio || 0),
-    }),
-    { ingresos: 0, gastos: 0, balance: 0, patrimonio: 0 }
-  );
+  /* ── Vincular / desvincular empresa ↔ portafolio ───────────
+     Se edita desde la propia fila: es donde el usuario ve el problema.
+     portfolio_id null = desvincular (el backend acepta el null explícito). */
+  const handleLink = useCallback(async (entityId, value) => {
+    setLinking(entityId);
+    try {
+      const res = await fetch(`${API}/org/entities/${entityId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ portfolio_id: value ? Number(value) : null }),
+      });
+      if (!res.ok) throw new Error('No se pudo guardar el vínculo');
+      await fetchConsolidated();   // recalcula cifras y agregados del árbol
+      onCompaniesChanged?.();
+    } catch (e) {
+      alert(e.message || 'No se pudo guardar el vínculo.');
+    } finally {
+      setLinking(null);
+    }
+  }, [fetchConsolidated, onCompaniesChanged]);
 
   const industryLabel = activeCompany?.industry && activeCompany.industry !== 'ESTANDAR'
     ? activeCompany.industry : null;
@@ -109,10 +121,19 @@ export default function DashboardPanel({
 
   /* ── Expandido: lista de empresas + accesos rápidos ──────── */
   return (
+    <>
     <div style={S.container}>
       {/* Header */}
       <div style={S.header}>
         <span style={S.headerLabel}>▼ CONSOLIDADO · {entities.length} EMPRESAS</span>
+        {unlinkedCount > 0 && (
+          <span
+            style={{ fontSize: 8, color: '#b45309', background: '#fef3c7', border: '1px solid #fbbf24', padding: '0 4px', letterSpacing: 0.5 }}
+            title="Estas empresas no tienen un portafolio contable vinculado, así que no aportan cifras al consolidado."
+          >
+            {unlinkedCount} SIN VINCULAR
+          </span>
+        )}
         <span style={{ flex: 1 }} />
         {/* Accesos rápidos inline */}
         <QBtn label="📝 Registro" onClick={() => onQuickAction?.('registro')} />
@@ -127,10 +148,10 @@ export default function DashboardPanel({
           <thead>
             <tr style={{ background: '#f5f5f5', borderBottom: '1px solid #ddd' }}>
               <th style={S.th}>EMPRESA</th>
+              <th style={S.th}>PORTAFOLIO</th>
               <th style={{ ...S.th, textAlign: 'right' }}>INGRESOS</th>
               <th style={{ ...S.th, textAlign: 'right' }}>GASTOS</th>
               <th style={{ ...S.th, textAlign: 'right' }}>BALANCE</th>
-              <th style={{ ...S.th, textAlign: 'right' }}>PATRIMONIO</th>
             </tr>
           </thead>
           <tbody>
@@ -138,7 +159,8 @@ export default function DashboardPanel({
               <tr><td colSpan={5} style={{ ...S.td, textAlign: 'center', color: '#aaa' }}>Cargando...</td></tr>
             ) : (
               entities.map(entity => {
-                const b = balances[entity.name] || {};
+                const linked = entity.linked;              // vínculo propio
+                const hasFigures = entity.has_figures;     // propio + hijas
                 const isActive = entity.id === activeCompany?.id;
                 return (
                   <tr
@@ -164,10 +186,40 @@ export default function DashboardPanel({
                         }}>{entity.industry}</span>
                       )}
                     </td>
-                    <td style={{ ...S.td, textAlign: 'right', color: '#00c853' }}>{fmt(b.ingresos)}</td>
-                    <td style={{ ...S.td, textAlign: 'right', color: '#d50000' }}>{fmt(b.gastos)}</td>
-                    <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, color: (b.balance || 0) >= 0 ? '#00c853' : '#d50000' }}>{fmt(b.balance)}</td>
-                    <td style={{ ...S.td, textAlign: 'right', color: '#ff8f00' }}>{fmt(b.patrimonio)}</td>
+                    <td style={{ ...S.td, whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
+                      <select
+                        value={entity.portfolio_id ?? ''}
+                        disabled={linking === entity.id}
+                        onChange={e => handleLink(entity.id, e.target.value)}
+                        title={linked
+                          ? `Contabilidad de: ${entity.portfolio_name}`
+                          : 'Sin portafolio contable. Elige uno para que esta empresa aporte cifras.'}
+                        style={{
+                          fontFamily: '"IBM Plex Mono", monospace', fontSize: 9,
+                          padding: '1px 2px', maxWidth: 140,
+                          border: `1px solid ${linked ? '#ccc' : '#fbbf24'}`,
+                          background: linked ? '#fff' : '#fffbeb',
+                          color: linked ? '#333' : '#b45309',
+                          cursor: linking === entity.id ? 'wait' : 'pointer',
+                        }}
+                      >
+                        <option value="">— sin vincular —</option>
+                        {portfolios.map(p => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td style={{ ...S.td, textAlign: 'right', color: hasFigures ? '#00c853' : '#ccc' }}>{hasFigures ? fmt(entity.ingresos) : SIN_VINCULAR}</td>
+                    <td style={{ ...S.td, textAlign: 'right', color: hasFigures ? '#d50000' : '#ccc' }}>{hasFigures ? fmt(entity.gastos) : SIN_VINCULAR}</td>
+                    <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, color: !hasFigures ? '#ccc' : (entity.balance || 0) >= 0 ? '#00c853' : '#d50000' }}>
+                      {hasFigures ? fmt(entity.balance) : SIN_VINCULAR}
+                      {entity.aggregated && (
+                        <span
+                          style={{ fontSize: 7, color: '#6366f1', marginLeft: 3, verticalAlign: 'super' }}
+                          title={`Incluye ${entity.scope_count} portafolio(s) de esta empresa y sus dependientes.`}
+                        >∑</span>
+                      )}
+                    </td>
                   </tr>
                 );
               })
@@ -178,16 +230,21 @@ export default function DashboardPanel({
             <tfoot>
               <tr style={{ borderTop: '2px solid #000', background: '#0a0a14', color: '#fff', fontWeight: 700 }}>
                 <td style={{ ...S.td, letterSpacing: 2, fontSize: 9 }}>∑ TOTAL CONSOLIDADO</td>
+                {/* Cada portafolio cuenta una sola vez aunque varias empresas
+                    apunten al mismo — antes se sumaba fila por fila. */}
+                <td style={{ ...S.td, fontSize: 8, color: '#888' }}>{entities.length - unlinkedCount} vinculada(s)</td>
                 <td style={{ ...S.td, textAlign: 'right', color: '#4ade80' }}>{fmt(totals.ingresos)}</td>
                 <td style={{ ...S.td, textAlign: 'right', color: '#f87171' }}>{fmt(totals.gastos)}</td>
                 <td style={{ ...S.td, textAlign: 'right', color: totals.balance >= 0 ? '#4ade80' : '#f87171' }}>{fmt(totals.balance)}</td>
-                <td style={{ ...S.td, textAlign: 'right', color: '#fbbf24' }}>{fmt(totals.patrimonio)}</td>
               </tr>
             </tfoot>
           )}
         </table>
       </div>
     </div>
+    {/* Pulso de cuentas: saldo inicial → Δ movimientos → actual, por cuenta */}
+    <AccountsPulse />
+    </>
   );
 }
 
