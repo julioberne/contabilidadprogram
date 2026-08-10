@@ -2,6 +2,7 @@
 import React from 'react';
 import CoaSelector from './CoaSelector';
 import IndustryWidgets from './IndustryWidgets';
+import AdvancedSections from './AdvancedSections';
 
 export default function TransactionForm({
   // Calculator state
@@ -489,7 +490,10 @@ export default function TransactionForm({
                 />
               </div>
 
-              {/* ═══ Secciones colapsables movidas al ContextPanel (panel derecho) ═══ */}
+              {/* ═══ Secciones avanzadas restauradas del monolito (tercero,
+                   impuestos, cartera, activos) — AdvancedSections consume el
+                   TransactionDraftProvider directamente ═══ */}
+              <AdvancedSections />
 
               {/* Sección Evidencia / Subir Archivo - Integrada a Módulo 01 */}
               <div className="border-2 border-black p-2 bg-white space-y-1 shadow-brutal">

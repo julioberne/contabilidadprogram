@@ -62,11 +62,13 @@ class TestBuildPayload(unittest.TestCase):
         payload, _ = bot_driver.build_payload({"amount": "cuarenta"}, "P")
         self.assertIsNone(payload["amount"])
 
-    def test_iva_inferido_por_categoria(self):
-        p1, _ = bot_driver.build_payload({"category": "Servicios", "amount": 1}, "P")
-        p2, _ = bot_driver.build_payload({"category": "Alimentación", "amount": 1}, "P")
-        self.assertTrue(p1["apply_iva"])
-        self.assertFalse(p2["apply_iva"])
+    def test_impuestos_jamas_se_autoaplican(self):
+        # Una categoría inferida por el LLM no es autorización humana para
+        # gravar: el neto debe ser igual al monto dicho por el usuario.
+        for categoria in ("Servicios", "Infraestructura", "Alimentación"):
+            p, _ = bot_driver.build_payload({"category": categoria, "amount": 1}, "P")
+            self.assertFalse(p["apply_iva"], categoria)
+            self.assertFalse(p["apply_gmf"], categoria)
 
     def test_tercero_explicito_se_conserva(self):
         parsed = {"third_party": {"identification_type": "CC",

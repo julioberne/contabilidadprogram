@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { API } from '../../config';
-const REFRESH_INTERVAL_MS = 30000;
+// 15s: las transacciones creadas por el Bot IA (proceso externo) deben
+// reflejarse en saldos/consolidado/libro sin recargar la página.
+const REFRESH_INTERVAL_MS = 15000;
 
 const DEFAULT_CAJA_VIVA = {
   total_ingresos: 0,

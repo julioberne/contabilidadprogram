@@ -21,9 +21,6 @@ from datetime import date
 
 TIPOS_VALIDOS = ("INGRESO", "GASTO", "TRANSFERENCIA")
 
-# Categorías con IVA por defecto (misma inferencia que ya usaba la web)
-CATEGORIAS_CON_IVA = ("Servicios", "Infraestructura")
-
 
 def norm(s: str) -> str:
     """minúsculas sin tildes — para comparar 'Crédito' con 'credito'."""
@@ -94,7 +91,11 @@ def build_payload(parsed: dict, portfolio_name: str):
         "category": categoria,
         "third_party": tp,
         "transaction_date": date.today().isoformat(),
-        "apply_iva": categoria in CATEGORIAS_CON_IVA,
+        # Los impuestos JAMÁS se auto-aplican: una categoría inferida por el LLM
+        # no es autorización humana para gravar (caso real: "correas de perro"
+        # → Infraestructura → +19% sin que el usuario lo pidiera). El IVA/GMF
+        # se activan explícitamente en el formulario web o en la bandeja.
+        "apply_iva": False,
         "apply_gmf": False,
         "is_recurring": bool(parsed.get("is_recurring", False)),
     }
