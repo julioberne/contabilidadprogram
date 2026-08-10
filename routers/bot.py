@@ -19,11 +19,12 @@ router = APIRouter(tags=["Bot IA"])
 _CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 
-def _uid(user: dict) -> int:
-    try:
-        return int(user.get("uid") or 0)
-    except (ValueError, TypeError):
+def _uid(user: dict) -> str:
+    """hub_users.id es UUID — el token lo transporta como string."""
+    uid = (user.get("uid") or "").strip()
+    if not uid:
         raise HTTPException(status_code=401, detail="Sesión sin uid válido.")
+    return uid
 
 
 @router.post("/api/bot/link-code")

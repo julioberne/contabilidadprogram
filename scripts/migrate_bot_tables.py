@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS bot_chat_links (
     id SERIAL PRIMARY KEY,
     channel TEXT NOT NULL CHECK (channel IN ('telegram','whatsapp')),
     chat_id TEXT NOT NULL,
-    hub_user_id INTEGER NOT NULL REFERENCES hub_users(id) ON DELETE CASCADE,
+    -- hub_users.id es UUID (no serial) — verificado en la BD viva
+    hub_user_id UUID NOT NULL REFERENCES hub_users(id) ON DELETE CASCADE,
     default_portfolio TEXT DEFAULT 'Personal',
     status TEXT NOT NULL DEFAULT 'ACTIVO' CHECK (status IN ('ACTIVO','BLOQUEADO')),
     display_name TEXT,
@@ -40,7 +41,7 @@ CREATE TABLE IF NOT EXISTS bot_chat_links (
 
 CREATE TABLE IF NOT EXISTS bot_link_codes (
     code_hash TEXT PRIMARY KEY,
-    hub_user_id INTEGER NOT NULL REFERENCES hub_users(id) ON DELETE CASCADE,
+    hub_user_id UUID NOT NULL REFERENCES hub_users(id) ON DELETE CASCADE,
     expires_at TIMESTAMPTZ NOT NULL,
     used BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW()
@@ -49,7 +50,7 @@ CREATE TABLE IF NOT EXISTS bot_link_codes (
 CREATE TABLE IF NOT EXISTS transaction_drafts (
     id SERIAL PRIMARY KEY,
     chat_link_id INTEGER REFERENCES bot_chat_links(id) ON DELETE SET NULL,
-    user_id INTEGER REFERENCES hub_users(id) ON DELETE SET NULL,
+    user_id UUID REFERENCES hub_users(id) ON DELETE SET NULL,
     channel TEXT,
     portfolio_name TEXT,
     status TEXT NOT NULL DEFAULT 'BORRADOR'
@@ -60,7 +61,7 @@ CREATE TABLE IF NOT EXISTS transaction_drafts (
     media_path TEXT,
     external_message_id TEXT,
     error TEXT,
-    confirmed_transaction_id INTEGER,
+    confirmed_transaction_id BIGINT,   -- transactions.id es bigint
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     confirmed_at TIMESTAMPTZ

@@ -346,15 +346,20 @@ def _flujo_no_vinculado(cur, msg, cmd, arg):
         return "Código inválido o expirado. Genera uno nuevo en FIN-SYS (web) — dura 10 minutos."
 
     hub_user_id = row[0]
+    # Portafolio por defecto: uno REAL de esta instalación (nunca un literal
+    # que podría no existir y bloquear la confirmación más tarde).
+    portafolio, _ = _resolver_portafolio(cur, "")
     cur.execute("""
-        INSERT INTO bot_chat_links (channel, chat_id, hub_user_id, status)
-        VALUES (%s, %s, %s, 'ACTIVO')
+        INSERT INTO bot_chat_links (channel, chat_id, hub_user_id, status, default_portfolio)
+        VALUES (%s, %s, %s, 'ACTIVO', %s)
         ON CONFLICT (channel, chat_id)
-            DO UPDATE SET hub_user_id = EXCLUDED.hub_user_id, status = 'ACTIVO'
-    """, (msg["channel"], str(msg["chat_id"]), hub_user_id))
+            DO UPDATE SET hub_user_id = EXCLUDED.hub_user_id, status = 'ACTIVO',
+                          default_portfolio = EXCLUDED.default_portfolio
+    """, (msg["channel"], str(msg["chat_id"]), hub_user_id, portafolio))
     cur.execute("SELECT name FROM hub_users WHERE id = %s", (hub_user_id,))
     nombre = (cur.fetchone() or ["?"])[0]
-    return f"✅ Chat vinculado a {nombre}.\n\n{AYUDA}"
+    extra = f"\nPortafolio por defecto: {portafolio}" if portafolio else ""
+    return f"✅ Chat vinculado a {nombre}.{extra}\n\n{AYUDA}"
 
 
 def _crear_borrador(cur, link, texto, msg, msg_row_id):
@@ -363,9 +368,32 @@ def _crear_borrador(cur, link, texto, msg, msg_row_id):
         return "No recibí contenido. Cuéntame el movimiento (\"gasté 20.000 en taxi\") o /ayuda."
 
     from ai_engine import structure_text_only
-    parsed = structure_text_only(texto, link["default_portfolio"])
 
-    payload, inferred = build_payload(parsed, link["default_portfolio"])
+    # El portafolio se valida ANTES de llamar al LLM: si el default del chat no
+    # existe (config vieja), se corrige aquí y no al confirmar — el humano lo ve
+    # en el resumen, que es donde debe enterarse.
+    portafolio, port_corregido = _resolver_portafolio(cur, link["default_portfolio"])
+    if portafolio is None:
+        return ("No hay portafolios creados en FIN-SYS. Crea uno en la web antes "
+                "de registrar movimientos por chat.")
+
+    parsed = structure_text_only(texto, portafolio)
+
+    payload, inferred = build_payload(parsed, portafolio)
+    if port_corregido:
+        inferred.append("portfolio_name")
+
+    # El LLM propone el método de pago con una lista genérica que no conoce tus
+    # cuentas reales. Aquí manda lo que el usuario DIJO, cruzado contra
+    # user_accounts: evita que "pagué desde Bancolombia" termine en Efectivo.
+    metodo, metodo_explicito = _resolver_metodo_pago(cur, texto, payload["payment_method"])
+    payload["payment_method"] = metodo
+    if metodo_explicito:
+        inferred = [f for f in inferred if f != "payment_method"]
+    elif "payment_method" not in inferred:
+        inferred.append("payment_method")
+
+    inferred = sorted(set(inferred))
     missing = compute_missing(payload)
     payload["inferred_fields"] = inferred
     payload["missing_fields"] = missing
@@ -434,6 +462,7 @@ def confirmar_draft(draft_id: int, chat_link_id=None, hub_user_id=None) -> str:
         # database_driver JAMÁS debe recibir una confirmación.
         cur.execute("SELECT 1")
 
+        # hub_users.id es UUID → el cast del filtro de propiedad debe serlo también
         cur.execute("""
             UPDATE transaction_drafts
                SET status = 'PROCESANDO', updated_at = NOW()
@@ -441,9 +470,11 @@ def confirmar_draft(draft_id: int, chat_link_id=None, hub_user_id=None) -> str:
                AND (status = 'BORRADOR'
                     OR (status = 'PROCESANDO' AND updated_at < NOW() - INTERVAL '5 minutes'))
                AND (%s::int IS NULL OR chat_link_id = %s)
-               AND (%s::int IS NULL OR user_id = %s)
+               AND (%s::uuid IS NULL OR user_id = %s)
             RETURNING payload, media_path
-        """, (draft_id, chat_link_id, chat_link_id, hub_user_id, hub_user_id))
+        """, (draft_id, chat_link_id, chat_link_id,
+              str(hub_user_id) if hub_user_id else None,
+              str(hub_user_id) if hub_user_id else None))
         row = cur.fetchone()
         conn.commit()                    # la toma del borrador queda firme YA
         if not row:
@@ -548,9 +579,11 @@ def descartar_draft(draft_id: int, chat_link_id=None, hub_user_id=None) -> str:
                SET status = 'DESCARTADO', updated_at = NOW()
              WHERE id = %s AND status IN ('BORRADOR', 'ERROR')
                AND (%s::int IS NULL OR chat_link_id = %s)
-               AND (%s::int IS NULL OR user_id = %s)
+               AND (%s::uuid IS NULL OR user_id = %s)
             RETURNING id
-        """, (draft_id, chat_link_id, chat_link_id, hub_user_id, hub_user_id))
+        """, (draft_id, chat_link_id, chat_link_id,
+              str(hub_user_id) if hub_user_id else None,
+              str(hub_user_id) if hub_user_id else None))
         row = cur.fetchone()
         conn.commit()
         if row:
@@ -579,8 +612,13 @@ def _explicar_no_tomable(cur, draft_id, chat_link_id, hub_user_id, accion="confi
     if not row:
         return f"No existe el borrador #{draft_id}. (/borradores para ver los tuyos)"
     status, owner_link, owner_user, tx_id = row
-    es_dueno = ((chat_link_id is not None and owner_link == chat_link_id)
-                or (hub_user_id is not None and owner_user == hub_user_id))
+    # Misma semántica que el UPDATE: sin filtro de propiedad (ambos None) no
+    # hay restricción de dueño; si se pasa uno, debe coincidir.
+    if chat_link_id is None and hub_user_id is None:
+        es_dueno = True
+    else:
+        es_dueno = ((chat_link_id is not None and owner_link == chat_link_id)
+                    or (hub_user_id is not None and str(owner_user) == str(hub_user_id)))
     if not es_dueno:
         return f"El borrador #{draft_id} no pertenece a este chat/usuario."
     if status == "CONFIRMADO":
@@ -593,6 +631,62 @@ def _explicar_no_tomable(cur, draft_id, chat_link_id, hub_user_id, accion="confi
         return (f"El borrador #{draft_id} está en estado ERROR. "
                 "Revísalo en la Bandeja web o descártalo.")
     return f"No se pudo {accion} el borrador #{draft_id} (estado: {status})."
+
+
+def _norm(s: str) -> str:
+    """minúsculas sin tildes — para comparar 'Crédito' con 'credito'."""
+    import unicodedata
+    s = unicodedata.normalize("NFD", (s or "").strip().lower())
+    return "".join(c for c in s if unicodedata.category(c) != "Mn")
+
+
+def _resolver_portafolio(cur, preferido):
+    """→ (nombre_real, fue_corregido). None si no hay portafolios."""
+    cur.execute("SELECT name FROM portfolios ORDER BY id")
+    nombres = [r[0] for r in cur.fetchall()]
+    if not nombres:
+        return None, False
+    if preferido in nombres:
+        return preferido, False
+    objetivo = _norm(preferido)
+    for n in nombres:
+        if _norm(n) == objetivo:
+            return n, False
+    return nombres[0], True     # el más antiguo = el principal
+
+
+def _resolver_metodo_pago(cur, texto, sugerido):
+    """Cruza lo que el usuario DIJO contra user_accounts.
+
+    → (metodo, explicito). explicito=True cuando el nombre de una cuenta real
+    aparece en el texto del usuario: eso manda sobre la propuesta del LLM,
+    cuyo prompt usa una lista genérica ajena a las cuentas de este FinSys.
+    """
+    cur.execute("SELECT name FROM user_accounts ORDER BY id")
+    cuentas = [r[0] for r in cur.fetchall()]
+    if not cuentas:
+        return sugerido, False
+
+    t = _norm(texto)
+    # 1. Nombre completo de la cuenta mencionado en el texto
+    for nombre in cuentas:
+        if _norm(nombre) in t:
+            return nombre, True
+    # 2. Alguna palabra distintiva (>3 letras) del nombre: "Bancolombia" de
+    #    "Bancolombia Ahorros", "Nequi", "Davivienda" de "Davivienda Crédito"
+    for nombre in cuentas:
+        for palabra in _norm(nombre).split():
+            if len(palabra) > 3 and palabra in t:
+                return nombre, True
+    # 3. La propuesta del LLM, si coincide con una cuenta real
+    s = _norm(sugerido)
+    for nombre in cuentas:
+        if _norm(nombre) == s:
+            return nombre, False
+    for nombre in cuentas:
+        if s and (s in _norm(nombre) or _norm(nombre) in s):
+            return nombre, False
+    return sugerido, False
 
 
 def _resolver_cuenta(cur, payment_method):
