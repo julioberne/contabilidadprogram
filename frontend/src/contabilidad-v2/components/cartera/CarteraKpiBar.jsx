@@ -21,7 +21,7 @@ export default function CarteraKpiBar({ kpi, kpiOpen, setKpiOpen, alerts, alerts
             ].map(k => (
               <div key={k.label} className={`p-1.5 text-center ${k.bg}`}>
                 <div className="text-[7px] text-gray-500 uppercase font-mono font-bold">{k.label}</div>
-                <div className={`text-[10px] font-bold font-mono ${k.cls}`}>${Number(k.value).toLocaleString('es-CO', {maximumFractionDigits:0})}</div>
+                <div className={`text-[10px] font-bold font-mono ${k.cls}`}>${Number(k.value || 0).toLocaleString('es-CO', {maximumFractionDigits:0})}</div>
               </div>
             ))}
           </div>

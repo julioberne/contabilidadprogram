@@ -44,17 +44,30 @@ def get_cartera_summary():
                 COALESCE(SUM(remaining_balance) FILTER (WHERE type='CXC'), 0) as pendiente_cxc,
                 COALESCE(SUM(remaining_balance) FILTER (WHERE type='CXP'), 0) as pendiente_cxp,
                 COUNT(*) FILTER (WHERE status='PAGADO') as pagados,
-                COUNT(*) FILTER (WHERE status='VENCIDO') as vencidos
+                COUNT(*) FILTER (WHERE status='VENCIDO') as vencidos,
+                COALESCE(SUM(remaining_balance) FILTER (
+                    WHERE status NOT IN ('PAGADO', 'CANCELADO') AND due_date < CURRENT_DATE
+                ), 0) as vencido_monto,
+                COALESCE(SUM(remaining_balance) FILTER (
+                    WHERE status NOT IN ('PAGADO', 'CANCELADO')
+                    AND due_date >= CURRENT_DATE AND due_date <= CURRENT_DATE + INTERVAL '7 days'
+                ), 0) as proximo_monto
             FROM cxp_cxc_ledger;
         """)
         row = cur.fetchone()
         cur.close()
         release_db_connection(conn)
         return {
+            # Conteos (uso interno / futuros paneles)
             "total_cxc": row[0], "total_cxp": row[1],
             "monto_cxc": float(row[2]), "monto_cxp": float(row[3]),
             "pendiente_cxc": float(row[4]), "pendiente_cxp": float(row[5]),
-            "pagados": row[6], "vencidos": row[7]
+            "pagados": row[6], "vencidos": row[7],
+            # Montos — consumidos por CarteraKpiBar.jsx (cxc/cxp = saldo pendiente,
+            # no el conteo; antes el frontend leía estos nombres de un shape que
+            # nunca existía y siempre daba NaN)
+            "cxc_total": float(row[4]), "cxp_total": float(row[5]),
+            "vencido_total": float(row[8]), "proximo_total": float(row[9]),
         }
     except Exception as e:
         if conn:

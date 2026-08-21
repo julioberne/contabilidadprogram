@@ -1,5 +1,5 @@
 // TercerosTab.jsx — Extracted from ContextPanel.jsx
-import React from 'react';
+import React, { useState } from 'react';
 
 export default function TercerosTab({
   search, setSearch,
@@ -7,9 +7,32 @@ export default function TercerosTab({
   allThirdParties,
   editingId, setEditingId,
   editData, setEditData,
-  updateItem, deleteItem, refreshTP,
+  updateItem, deleteItem, createItem, refreshTP,
   SectionLabel,
 }) {
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState('');
+
+  const handleCreate = async () => {
+    if (!tercero.name?.trim()) { setCreateError('El nombre es obligatorio.'); return; }
+    setCreating(true);
+    setCreateError('');
+    try {
+      await createItem('third-parties', {
+        name: tercero.name,
+        identification_type: tercero.idType || 'NIT',
+        identification_number: tercero.idNumber || '',
+        email: tercero.email || '',
+        phone: tercero.phone || '',
+        website: tercero.address || '',
+      }, refreshTP);
+    } catch (e) {
+      setCreateError(e.message || 'Error al crear el tercero.');
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
     <>
       {/* --- Form: Identificación de Tercero --- */}
@@ -46,6 +69,11 @@ export default function TercerosTab({
           <input type="tel" value={tercero.phone || ''} onChange={e => tercero.setPhone?.(e.target.value)} placeholder="Teléfono" className="border border-black px-2 py-1 text-[10px] font-mono outline-none" />
           <input type="text" value={tercero.address || ''} onChange={e => tercero.setAddress?.(e.target.value)} placeholder="Dirección" className="col-span-2 border border-black px-2 py-1 text-[10px] font-mono outline-none" />
         </div>
+        <button type="button" onClick={handleCreate} disabled={creating}
+          className="w-full border border-black bg-brutalGreen px-2 py-1 text-[10px] font-bold uppercase hover:bg-black hover:text-white transition-all disabled:opacity-50">
+          {creating ? 'Creando…' : '✓ Crear Tercero'}
+        </button>
+        {createError && <div className="text-[9px] text-red-600 font-mono">{createError}</div>}
       </div>
       {/* --- BD: third_parties --- */}
       <SectionLabel text={`third_parties · ${allThirdParties.length} registros`} />

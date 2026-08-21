@@ -31,6 +31,7 @@ class OrgEntityUpdateInput(BaseModel):
     industry: Optional[str] = None
     status: Optional[str] = None
     parent_id: Optional[int] = None
+    portfolio_id: Optional[int] = None
 
 
 class OrgEntityIndustryInput(BaseModel):
@@ -46,6 +47,22 @@ def org_get_entities_selector():
     try:
         from fin_sys_core.org_driver import get_entities_for_selector
         return get_entities_for_selector()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/org/consolidated")
+def org_get_consolidated():
+    """Consolidado real por entidad (cifras del portafolio vinculado).
+
+    Reemplaza el patrón anterior del frontend, que pedía N veces
+    /api/dashboard-data?portfolio=<nombre-de-la-entidad>: el nombre de una
+    entidad no es el nombre de un portafolio, así que todas las filas recibían
+    el mismo payload vacío y el total lo multiplicaba por N.
+    """
+    try:
+        from fin_sys_core.org_driver import get_consolidated_by_entity
+        return get_consolidated_by_entity()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -81,9 +98,16 @@ def org_update_entity(entity_id: int, body: OrgEntityUpdateInput):
     """Actualiza campos de una entidad existente."""
     try:
         from fin_sys_core.org_driver import update_entity_basic
-        # Construir dict solo con campos que el usuario envió
-        data = {k: v for k, v in body.dict().items() if v is not None}
+        # Solo los campos que el cliente envió de verdad. Antes se filtraba por
+        # `is not None`, lo que hacía imposible poner un campo en NULL: mandar
+        # {"portfolio_id": null} para desvincular una empresa se descartaba en
+        # silencio y la API respondía 200 como si hubiera funcionado.
+        data = body.dict(exclude_unset=True)
+        if not data:
+            raise HTTPException(status_code=400, detail="No se enviaron campos para actualizar.")
         return update_entity_basic(entity_id=entity_id, data=data)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

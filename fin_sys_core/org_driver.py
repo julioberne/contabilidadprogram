@@ -137,6 +137,143 @@ def get_entities_for_selector() -> List[Dict[str, Any]]:
 
 
 # ═══════════════════════════════════════════════════════════
+# 1b. CONSOLIDADO REAL POR ENTIDAD
+# ═══════════════════════════════════════════════════════════
+
+def get_consolidated_by_entity() -> Dict[str, Any]:
+    """Cifras reales por entidad, leídas del portafolio contable vinculado.
+
+    Cada entidad reporta lo de su `entities.portfolio_id`. Las entidades sin
+    vínculo devuelven `linked: False` y cifras en None — deliberadamente NO en
+    cero: un cero se lee como "esta empresa no facturó", cuando la verdad es
+    "esta empresa no está conectada a ninguna contabilidad".
+
+    El total suma cada portafolio UNA vez aunque varias entidades apunten al
+    mismo, para no duplicar dinero.
+
+    `patrimonio_global_cop` va aparte y sin desglose por empresa a propósito:
+    `user_accounts` no tiene `portfolio_id`, así que el patrimonio es del
+    sistema entero. Repartirlo por empresa sería inventarlo — que es justo lo
+    que hacía la versión anterior (mostraba el patrimonio global en cada fila
+    y luego lo sumaba N veces).
+    """
+    from ledger_math import calculate_caja_viva
+
+    entities = get_entities_for_selector()
+
+    conn = get_conn()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute("SELECT id, name FROM portfolios ORDER BY id ASC;")
+        portfolios = {r["id"]: r["name"] for r in cur.fetchall()}
+
+        cur.execute("""
+            SELECT id, name, type, currency, initial_balance, current_balance
+            FROM user_accounts ORDER BY id ASC;
+        """)
+        accounts = [dict(r) for r in cur.fetchall()]
+
+        # Solo se consulta lo que alguna entidad realmente usa
+        vinculados = sorted({
+            e["portfolio_id"] for e in entities
+            if e.get("portfolio_id") in portfolios
+        })
+
+        por_portafolio: Dict[int, Dict[str, float]] = {}
+        for pid in vinculados:
+            cur.execute("""
+                SELECT type, net_value, transaction_currency
+                FROM transactions WHERE portfolio_id = %s;
+            """, (pid,))
+            txs = [dict(r) for r in cur.fetchall()]
+            # Misma función que usa el resto del módulo: si cambia la regla de
+            # qué cuenta como ingreso, cambia en un solo lugar.
+            t = calculate_caja_viva(txs, accounts)
+            por_portafolio[pid] = {
+                "ingresos": t["total_ingresos_cop"],
+                "gastos": t["total_gastos_cop"],
+                "balance": t["balance_neto_cop"],
+            }
+
+        cur.close()
+    finally:
+        put_conn(conn)
+
+    # ── Agregación jerárquica ──────────────────────────────────
+    # Un holding reporta toda su rama, igual que los KPIs del Control Tower:
+    # "Mi Holding Principal" debe mostrar lo de sus empresas hijas, no cero.
+    # Se acumulan los portafolios del subárbol en un SET para que un mismo
+    # portafolio no se cuente dos veces si dos hijas apuntan al mismo.
+    hijos: Dict[Optional[int], List[int]] = {}
+    for e in entities:
+        hijos.setdefault(e.get("parent_id"), []).append(e["id"])
+    por_id = {e["id"]: e for e in entities}
+
+    def portafolios_del_subarbol(eid: int, visitados: Optional[set] = None) -> set:
+        if visitados is None:
+            visitados = set()
+        if eid in visitados:  # guarda por si parent_id llegara a ciclar
+            return set()
+        visitados.add(eid)
+        acc = set()
+        pid = por_id[eid].get("portfolio_id")
+        if pid in por_portafolio:
+            acc.add(pid)
+        for h in hijos.get(eid, []):
+            acc |= portafolios_del_subarbol(h, visitados)
+        return acc
+
+    filas = []
+    for e in entities:
+        propio = e.get("portfolio_id")
+        alcance = portafolios_del_subarbol(e["id"])
+
+        cifras = None
+        if alcance:
+            cifras = {"ingresos": 0.0, "gastos": 0.0, "balance": 0.0}
+            for pid in alcance:
+                for k in cifras:
+                    cifras[k] += por_portafolio[pid][k]
+
+        filas.append({
+            "id": e["id"],
+            "name": e["name"],
+            "type": e.get("type"),
+            "industry": e.get("industry"),
+            "level": e.get("level", 0),
+            "parent_id": e.get("parent_id"),
+            # Vínculo PROPIO (lo que edita el selector de la UI)
+            "portfolio_id": propio,
+            "portfolio_name": portfolios.get(propio),
+            "linked": propio in por_portafolio,
+            # Cifras del SUBÁRBOL (propio + descendientes, sin duplicar)
+            "has_figures": cifras is not None,
+            "aggregated": len(alcance) > (1 if propio in alcance else 0),
+            "scope_count": len(alcance),
+            "ingresos": cifras["ingresos"] if cifras else None,
+            "gastos": cifras["gastos"] if cifras else None,
+            "balance": cifras["balance"] if cifras else None,
+        })
+
+    totales = {"ingresos": 0.0, "gastos": 0.0, "balance": 0.0}
+    for c in por_portafolio.values():  # una vez por portafolio, no por fila
+        totales["ingresos"] += c["ingresos"]
+        totales["gastos"] += c["gastos"]
+        totales["balance"] += c["balance"]
+
+    return {
+        "entities": filas,
+        "totals": totales,
+        "patrimonio_global_cop": calculate_caja_viva([], accounts)["patrimonio_cop"],
+        "linked_count": sum(1 for f in filas if f["linked"]),
+        "unlinked_count": sum(1 for f in filas if not f["linked"]),
+        # Para el selector de vinculación del frontend
+        "portfolios": [{"id": pid, "name": nombre} for pid, nombre in portfolios.items()],
+    }
+
+
+# ═══════════════════════════════════════════════════════════
 # 2. CREAR ENTIDAD BÁSICA
 # ═══════════════════════════════════════════════════════════
 
@@ -193,7 +330,10 @@ def update_entity_basic(entity_id: int, data: dict) -> Dict[str, Any]:
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
         # Construir SET dinámico solo con campos presentes
-        campos_permitidos = ["name", "type", "industry", "status", "parent_id"]
+        # portfolio_id se podía fijar al crear la entidad pero no cambiar después,
+        # así que una empresa mal vinculada (o sin vincular) quedaba atrapada y su
+        # fila del consolidado nunca podía mostrar cifras reales.
+        campos_permitidos = ["name", "type", "industry", "status", "parent_id", "portfolio_id"]
         sets = []
         valores = []
         for campo in campos_permitidos:
@@ -223,7 +363,7 @@ def update_entity_basic(entity_id: int, data: dict) -> Dict[str, Any]:
         print(f"⚠️ [ORG_DRIVER] Fallback mock en update_entity_basic: {e}")
         for ent in MOCK_ENTITIES:
             if ent["id"] == entity_id:
-                for campo in ["name", "type", "industry", "status", "parent_id"]:
+                for campo in ["name", "type", "industry", "status", "parent_id", "portfolio_id"]:
                     if campo in data:
                         ent[campo] = data[campo]
                 return ent
