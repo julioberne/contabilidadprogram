@@ -5,44 +5,36 @@
 
 ---
 
-## Estado: 21 Ago 2026 — MÓDULO 09 (BOT IA) EN MVP · SIN MERGE NI DEPLOY
+## Estado: 21 Ago 2026 — MÓDULO 09 EN MVP · MERGEADO A `master` · **FALTA EL PUSH**
 
 **Fase actual**: los módulos 01–08c están en producción y el **Módulo 09 (Bot IA / Telegram)
 está terminado a nivel MVP**, junto con el cierre del Módulo 01 (Registro completo) y el
 consolidado real por empresa.
 
-**Lo importante de hoy**: ese avance de agosto **no está en `master` ni en producción**.
+**Lo único que falta para que agosto llegue a producción**: un `git push origin master`.
 
-| Dónde | Commit | Fecha | Qué sirve |
-|---|---|---|---|
-| `master` / `origin/master` | `64badb6` | 29 jul | **Lo que corre en producción** (http://159.223.156.50:8080, responde 200) |
-| `modulo-09-bot-ia` (rama activa del worktree principal) | `f5559f7` | 10 ago | 7 commits de agosto sin merge |
-| Working tree | sin commit | 29-30 jul | Consolidado por entidad + fixes de TestSprite (ver abajo) |
+| Dónde | Commit | Estado |
+|---|---|---|
+| `master` local | `4895324` | ✅ merge fast-forward hecho (todo agosto + WIP + docs) |
+| `origin/master` | `64badb6` (29 jul) | ⏳ **sin actualizar** — el push lo bloqueó el clasificador de permisos |
+| Producción :8080 | `64badb6` | ⏳ sigue sirviendo el build del 29 jul |
+| Working tree | limpio | — |
 
-### ⚠️ Desfase frontend↔backend a cerrar PRIMERO
-
-Hay código **commiteado** que depende de código **sin commitear**:
-
-- `DashboardPanel.jsx` (commit `e8692b7`) llama `GET /api/org/consolidated` — ese endpoint
-  solo existe en el working tree (`routers/org.py` + `org_driver.get_consolidated_by_entity`).
-- `ContextPanel.jsx` (commit `f5559f7`) ya expone el helper `createItem`, pero el botón que lo
-  usa vive sin commitear en `TercerosTab.jsx`.
-
-**Consecuencia**: desplegar la rama tal como está commiteada rompe el panel de empresas (404).
-El WIP **no se puede descartar**; hay que commitearlo.
-
-### WIP sin commit (verificado en su momento, listo para commit)
-
-```
-fin_sys_core/org_driver.py         consolidado real por entidad + portfolio_id editable
-routers/org.py                     GET /api/org/consolidated + exclude_unset (permite desvincular)
-routers/cartera.py                 cxc_total/cxp_total/vencido_total/proximo_total (fix TC021)
-frontend/.../cartera/CarteraKpiBar.jsx    fallback anti-NaN
-frontend/.../tabs/TercerosTab.jsx         boton "Crear Tercero" (fix TC025)
-.gitignore                         ignora testsprite_tests/tmp/config.json
+```powershell
+git push origin master     # <- lo corre Andrés; dispara el webhook de Dokploy (ojo DT-10)
 ```
 
-Sin trackear: `docs/PRD.md` (fuente de verdad de negocio) y `testsprite_tests/` (30 casos + reporte).
+### Cerrado en la sesión del 21 ago
+
+- **Desfase frontend↔backend resuelto** (`bc86acf`): `DashboardPanel.jsx` ya llamaba
+  `GET /api/org/consolidated` y `ContextPanel.jsx` ya exponía `createItem`, pero el endpoint
+  y el botón de `TercerosTab.jsx` seguían sin commitear. Desplegar así habría dado 404.
+- **Vinculación entidad ↔ portafolio aplicada** (ver más abajo): el panel de empresas ya no
+  muestra $0.
+- **Datos `TS-TEST-*` eliminados** de la BD real, revirtiendo saldos con la función de la app.
+- **`.gitignore` corregido**: el patrón de TestSprite usaba backslashes y no ignoraba nada.
+  Ahora quedan fuera `tmp/` (API key en `config.json`), los `TC*.py` y `standard_prd.json`,
+  que traen la contraseña del admin hardcodeada. Se versionan solo el reporte y el plan.
 
 ---
 
@@ -76,13 +68,26 @@ Sin trackear: `docs/PRD.md` (fuente de verdad de negocio) y `testsprite_tests/` 
 
 | # | Hallazgo | Estado |
 |---|---|---|
-| 1 | Consolidado de empresas en $0 (TC003): las entidades CT no tienen `portfolio_id` y sus nombres no coinciden con los portafolios | 🟡 **Abierto — decisión de negocio.** La UI para vincular ya está construida (WIP); falta que Andrés haga el mapeo |
-| 2 | "O crear nuevo" en Terceros no creaba nada (TC025) | ✅ Corregido (vive en el WIP) |
-| 3 | Cartera mostraba `$NaN` (TC021) | ✅ Corregido (vive en el WIP) |
+| 1 | Consolidado de empresas en $0 (TC003) | ✅ **Resuelto 21 ago** — vinculación aplicada (ver abajo) |
+| 2 | "O crear nuevo" en Terceros no creaba nada (TC025) | ✅ Corregido y commiteado (`bc86acf`) |
+| 3 | Cartera mostraba `$NaN` (TC021) | ✅ Corregido y commiteado (`bc86acf`) |
 | 4 | KPIs de Control Tower "sin cargar" (TC019) | ❌ Falso positivo, descartado |
 | 5 | Libro Diario sin buscador (TC022) | 🟡 Abierto — brecha de spec, decidir si se agrega |
-| 6 | `module_flags` acumula filas duplicadas por toggle (no hace upsert) | 🟡 Abierto — cosmético de backend |
-| 7 | Datos `TS-TEST-*` en la BD real (2 TX + 1 tarea) | 🟡 Pendiente de limpieza |
+| 6 | `module_flags` acumula filas duplicadas por toggle (no hace upsert) | 🟡 Abierto — cosmético de backend (DT-12) |
+| 7 | Datos `TS-TEST-*` en la BD real (2 TX + 1 tarea) | ✅ **Eliminados 21 ago** con reversión de saldos |
+
+### Vinculación entidad ↔ portafolio (decidida por Andrés, 21 ago)
+
+| Entidad (Control Tower) | Portafolio (contabilidad) |
+|---|---|
+| Mi Holding Principal (1) | Negocio Principal (4) |
+| GRUPO EMPRESARIAL PEGASUS SAS (14) | EMPRESA INFANTIL PEGASUS (2) |
+| URBANIZACION BONAIRE (17) | Negocio A (1) — único con movimientos |
+| CONSTRUCTORA BLU SAS (16) · PRESCOLAR PEGASUS SAS (15) · IMPORTEX AMARU (18) | **sin vincular a propósito** |
+| — | MI EMPRESA (3) queda libre (portafolio vacío, sin dueño claro) |
+
+Las no vinculadas muestran "sin vincular", **nunca $0** — un cero se leería como "esta empresa
+no facturó". El holding agrega su subárbol sin contar dos veces el mismo portafolio.
 
 ---
 
@@ -100,7 +105,7 @@ Sin trackear: `docs/PRD.md` (fuente de verdad de negocio) y `testsprite_tests/` 
 ```
 ❌ Frontend (React/Vite)     → :5173 y :5174 CAÍDOS
 ❌ Backend (FastAPI)          → :8000 CAÍDO
-✅ PostgreSQL (Supabase)      → 13 TXs | 6 entidades CT | 5 cuentas | 4 portafolios
+✅ PostgreSQL (Supabase)      → 11 TXs (tras borrar las TS-TEST) | 6 entidades CT (3 vinculadas) | 5 cuentas | 4 portafolios
 ✅ Motor Matemático            → IVA=19.000 | GMF=400
 ⚠️  Control Tower API           → OMITIDO (backend caído)
 ⚠️  Project Hub API             → OMITIDO (backend caído)
@@ -120,16 +125,16 @@ python scripts/health_check.py                                       # Re-verifi
 
 ## Orden de Trabajo — Próxima Sesión
 
-1. **Cerrar el desfase** — commitear el WIP (consolidado + fixes de TestSprite). Sin esto,
-   cualquier deploy rompe el panel de empresas.
-2. **Merge `modulo-09-bot-ia` → `master` + deploy** — llevar a producción el Módulo 09 y el
-   Módulo 01 completo. Verificar que el webhook disparó (DT-10).
-3. **Vincular entidades CT ↔ portafolios** (`entities.portfolio_id`) desde la UI ya construida —
-   cierra el gap #1 de TestSprite. Requiere que Andrés diga qué empresa es qué portafolio.
-4. **Limpiar los `TS-TEST-*`** de la BD real.
-5. **Re-correr TestSprite** sobre el build con los fixes (y avanzar TC031–TC050).
-6. Opcionales: buscador del Libro Diario (TC022) · upsert de `module_flags` · Módulo 10 Trading ·
-   Fase 5 de remediación (DT-11).
+1. **`git push origin master`** (lo corre Andrés) y verificar que el webhook de Dokploy disparó;
+   si no, deploy manual `POST /api/compose.deploy` (DT-10). Confirmar con
+   `curl -sI http://159.223.156.50:8080/` que el build es nuevo, y que
+   `GET /api/org/consolidated` responde en producción.
+2. **Re-correr TestSprite** sobre el build con los fixes (y avanzar TC031–TC050).
+3. Buscador del Libro Diario (TC022) · upsert de `module_flags` (DT-12).
+4. Módulo 10 Trading · Fase 5 de remediación (DT-11).
+
+✅ Hechos el 21 ago: commit del WIP · merge a `master` en local · vinculación
+entidad↔portafolio · limpieza de los `TS-TEST-*`.
 
 ---
 
@@ -197,8 +202,8 @@ Tablas de BD existentes                 ← NO alterar schema sin aprobación ex
 | DT-10 | Webhook GitHub→Dokploy poco confiable: el push a master puede NO desplegar | Alta |
 | DT-11 | Fase 5 de la remediación sin ejecutar: print→logging, lifespan (=DT-02), TRM 4000 hardcodeada, float→Decimal en capa Python | Media |
 | DT-12 | `module_flags` inserta fila nueva por toggle en vez de upsert (5 filas para `bot`) | Baja |
-| DT-13 | Rama `modulo-09-bot-ia` sin merge a master → producción 3 semanas atrás | **Alta** |
-| DT-14 | Entidades del Control Tower sin `portfolio_id` → consolidado por empresa en $0 | **Alta** |
+| DT-13 | ~~Rama sin merge~~ → merge hecho en local; **falta `git push origin master` + verificar deploy** | **Alta** |
+| ~~DT-14~~ | ~~Entidades CT sin `portfolio_id` → consolidado en $0~~ ✅ **RESUELTO 2026-08-21** | — |
 | DT-15 | Renombrar `contabilidad-v2/` → `contabilidad/` (Vite lock en Windows: detener el watcher) | Baja |
 | DT-16 | Rotar el GitHub PAT del provider de Dokploy (quedó expuesto en una sesión) | Media |
 

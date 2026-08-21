@@ -38,12 +38,45 @@ Datos de prueba que quedaron en la BD real: 2 TX `TS-TEST-Ingreso automatizado` 
 `transactions` 13 · `entities` CT 6 · `user_accounts` 5 · `portfolios` 4 · Motor IVA=19.000 GMF=400 ✓ · Sin anomalías de integridad.
 Servicios locales: ❌ frontend :5173 · ❌ backend :8000 · ✅ Supabase · ✅ prod :8080.
 
-### Próxima sesión — orden sugerido
-1. **Commit del WIP** (cierra el desfase frontend↔backend) → merge `modulo-09-bot-ia` → `master` → deploy (recordar: el webhook de Dokploy puede no disparar, ver DT-10).
-2. Vincular entidades CT ↔ portafolios (`entities.portfolio_id`) desde la UI ya construida — cierra el gap #1 de TestSprite (TC003).
-3. Limpiar los `TS-TEST-*` de la BD.
-4. Re-correr TestSprite sobre el build con los fixes.
-5. Buscador del Libro Diario (TC022) · normalizar upsert de `module_flags`.
+### Ejecutado en esta misma sesión (tras la revisión)
+
+**1. WIP commiteado** — `bc86acf feat(consolidado)+fix(cartera,terceros)` y
+`4895324 docs: estado real del proyecto al 21 ago`. Árbol limpio. El desfase
+frontend↔backend quedó cerrado. Se verificó antes: `py_compile` de los 3 módulos
+tocados y `python -m kernel.test_kernel` → 5/5.
+
+**2. Merge a `master` hecho en local** (fast-forward, `master` = `4895324`).
+⚠️ **El `git push origin master` quedó pendiente**: el clasificador de permisos lo
+bloqueó al agente. Sin push no hay deploy — producción sigue en `64badb6` (29 jul).
+
+**3. Vinculación entidad ↔ portafolio (gap #1 de TestSprite, TC003) — RESUELTA.**
+Se descubrió que `URBANIZACION BONAIRE` ya estaba vinculada a `Negocio A` (el reporte
+del 29 jul decía que ninguna lo estaba; el dato cambió después). Andrés decidió el resto:
+
+| Entidad | Portafolio | Nota |
+|---|---|---|
+| Mi Holding Principal (1) | Negocio Principal (4) | — |
+| GRUPO EMPRESARIAL PEGASUS SAS (14) | EMPRESA INFANTIL PEGASUS (2) | el preescolar hereda por agregación |
+| URBANIZACION BONAIRE (17) | Negocio A (1) | ya existía |
+| CONSTRUCTORA BLU SAS (16), PRESCOLAR PEGASUS SAS (15), IMPORTEX AMARU (18) | — | sin vincular a propósito (muestran "sin vincular", no $0) |
+| MI EMPRESA (3) | — | portafolio vacío, sin dueño claro |
+
+Verificado con `get_consolidated_by_entity()`: el holding agrega su subárbol
+(`ing=1.400.000 · gas=2.799.500 · bal=-1.399.500`) sin contar dos veces el mismo
+portafolio; totales = las cifras del único portafolio con movimientos. 3 vinculadas /
+3 sin vincular. **El panel de empresas ya no muestra $0.**
+
+**4. Datos `TS-TEST-*` eliminados de la BD real.** 2 transacciones (id 5 y 6), sus 4
+asientos del kernel (`TX-5`, `TX-6`, pares cuadrados) y 1 tarea del Hub. Los saldos se
+revirtieron con la misma función de la app (`revertir_delta_incremental`), no a mano:
+Efectivo $1.750.000 → $1.500.000 · Bancolombia $1.150.000 → $1.050.000. Quedan 11
+transacciones. Respaldo JSON de las filas en el scratchpad de la sesión.
+
+### Pendiente al cierre
+1. **`git push origin master`** (lo corre Andrés) → verificar que el webhook de Dokploy
+   disparó; si no, deploy manual con `POST /api/compose.deploy` (DT-10).
+2. Re-correr TestSprite sobre el build con los fixes (y avanzar TC031–TC050).
+3. Buscador del Libro Diario (TC022) · normalizar upsert de `module_flags` (DT-12).
 
 ---
 ## Checkpoint 2026-07-13 — Sesión 02:43 COT
