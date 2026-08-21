@@ -15,10 +15,12 @@ consolidado real por empresa.
 
 | Dónde | Commit | Estado |
 |---|---|---|
-| `master` local | `4895324` | ✅ merge fast-forward hecho (todo agosto + WIP + docs) |
+| `master` local | ver `git log -1` | ✅ todo agosto + WIP + docs + cherry-pick del package-lock |
 | `origin/master` | `64badb6` (29 jul) | ⏳ **sin actualizar** — el push lo bloqueó el clasificador de permisos |
 | Producción :8080 | `64badb6` | ⏳ sigue sirviendo el build del 29 jul |
 | Working tree | limpio | — |
+
+**El desarrollo continúa en `master`**: la rama `modulo-09-bot-ia` se eliminó tras el merge.
 
 ```powershell
 git push origin master     # <- lo corre Andrés; dispara el webhook de Dokploy (ojo DT-10)
@@ -206,6 +208,9 @@ Tablas de BD existentes                 ← NO alterar schema sin aprobación ex
 | ~~DT-14~~ | ~~Entidades CT sin `portfolio_id` → consolidado en $0~~ ✅ **RESUELTO 2026-08-21** | — |
 | DT-15 | Renombrar `contabilidad-v2/` → `contabilidad/` (Vite lock en Windows: detener el watcher) | Baja |
 | DT-16 | Rotar el GitHub PAT del provider de Dokploy (quedó expuesto en una sesión) | Media |
+| DT-17 | GitHub tiene `main` como rama por defecto, pero `main` solo es el "Initial commit" vacío: **todo el proyecto vive en `master`**. PRs y clones nuevos apuntan a una rama sin código | Media |
+| DT-18 | 4 worktrees obsoletos y 6 ramas `claude/*` + `gilded-mask` colgando del commit raíz huérfano; borrarlos requiere correr los comandos a mano (el clasificador los bloquea al agente) | Baja |
+| DT-19 | `uploads/`: 10 audios huérfanos (875 KB) que ninguna transacción referencia; decidir si se conservan | Baja |
 
 ---
 

@@ -1,5 +1,11 @@
 # Documentación de Estado — FIN-SYS OS v2.0
 
+> ⚠️ **DOCUMENTO HISTÓRICO — no refleja el estado actual.** Retrato del proyecto al
+> 13 Jul 2026. Desde entonces pasaron la unificación de Contabilidad, la remediación de
+> auditoría, la corrida de TestSprite y el Módulo 09 (Bot IA).
+> **Estado vigente**: `memory-bank/activeContext.md` y el último checkpoint de
+> `docs/checkpoints.md`. Se conserva por trazabilidad, no como referencia.
+
 **Generado:** 13 Jul 2026 · 02:43 COT  
 **Verificación en vivo:** `python scripts/health_check.py` ejecutado en esta sesión
 

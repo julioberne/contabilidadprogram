@@ -72,11 +72,37 @@ revirtieron con la misma función de la app (`revertir_delta_incremental`), no a
 Efectivo $1.750.000 → $1.500.000 · Bancolombia $1.150.000 → $1.050.000. Quedan 11
 transacciones. Respaldo JSON de las filas en el scratchpad de la sesión.
 
+**5. Limpieza y purga del repositorio.**
+
+- **Trabajo rescatado antes de purgar**: la rama `claude/testsprite-project-testing-f23abb`
+  tenía un commit que NO estaba en master (`b77df03`, refresco de `frontend/package-lock.json`
+  con `@emnapi/runtime`). Se aplicó con cherry-pick (`5659c29`); verificado que el contenido
+  del lock ahora es idéntico. Recién entonces la rama quedó descartable.
+- **Ramas**: `modulo-09-bot-ia` eliminada (ya fusionada; el desarrollo sigue en `master`).
+  Las 6 ramas `claude/*` y `gilded-mask` cuelgan de un commit raíz huérfano (`f38f62a`
+  "Initial commit", solo un README, autoría `julioberne`) — **no contienen trabajo**.
+- **Purgado**: 11 carpetas `__pycache__` + 108 `.pyc`, y `testsprite_tests/tmp/mcp.log`
+  (3.1 MB de log). El repo sin `.venv`/`node_modules` quedó en ~14 MB de fuentes.
+- **`uploads/` auditado contra la BD**: 17 archivos, 7 referenciados como evidencia por
+  transacciones (los 7 presentes en disco, sin enlaces rotos) y **10 huérfanos** (8 `.webm`
+  de voz web + 2 `.ogg` de Telegram, 875 KB) que ninguna transacción referencia. **No se
+  borraron**: son audio real del usuario, la decisión es suya.
+
+**Bloqueado al agente por el clasificador de permisos** (hay que correrlo a mano):
+`git push origin master`, `git worktree remove`, `git branch -D` y `POST /api/compose.deploy`.
+
+**Inconsistencia detectada, requiere decisión**: el repo de GitHub tiene `main` como rama
+por defecto, pero `main` es solo el "Initial commit" vacío — **todo el proyecto vive en
+`master`**. Los PRs y clones nuevos apuntan por defecto a una rama sin código.
+
 ### Pendiente al cierre
 1. **`git push origin master`** (lo corre Andrés) → verificar que el webhook de Dokploy
    disparó; si no, deploy manual con `POST /api/compose.deploy` (DT-10).
-2. Re-correr TestSprite sobre el build con los fixes (y avanzar TC031–TC050).
-3. Buscador del Libro Diario (TC022) · normalizar upsert de `module_flags` (DT-12).
+2. Borrar los 4 worktrees obsoletos y las 6 ramas `claude/*` + `gilded-mask` (comandos en
+   la conversación de la sesión; ninguna tiene trabajo tras el cherry-pick).
+3. Decidir sobre `main` vs `master` en GitHub (DT-17) y sobre los 10 audios huérfanos.
+4. Re-correr TestSprite sobre el build con los fixes (y avanzar TC031–TC050).
+5. Buscador del Libro Diario (TC022) · normalizar upsert de `module_flags` (DT-12).
 
 ---
 ## Checkpoint 2026-07-13 — Sesión 02:43 COT
