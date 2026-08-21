@@ -44,3 +44,10 @@ uploads/
 
 # Scripts de sesión temporales (deploy utilities, debug scripts, logs)
 scratch/
+
+# TestSprite: temporales (mcp.log, config.json con la API key) y los tests generados,
+# que traen la contraseña del admin hardcodeada. Se versionan solo el reporte y el plan.
+# Ojo: git NO entiende patrones con backslash — deben ir con "/".
+testsprite_tests/tmp/
+testsprite_tests/TC*.py
+testsprite_tests/standard_prd.json

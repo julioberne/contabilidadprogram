@@ -2,6 +2,50 @@
 
 ---
 
+## Checkpoint 2026-08-21 — Revisión de estado (sin código nuevo)
+
+**Fase**: Módulo 09 (Bot IA) en MVP funcional + Módulo 01 (Registro) completado.
+**Riesgo abierto**: todo eso vive SOLO en la rama `modulo-09-bot-ia` y NO está en `master` ni en producción.
+
+### Dónde está el trabajo
+- `master` / `origin/master` = `64badb6` (29 jul). **Producción sirve esto** (responde 200).
+- `modulo-09-bot-ia` = `f5559f7` (10 ago) — **7 commits adelante de master, sin merge**:
+  - `49e9626` COA: reglas EGRESO→GASTO + fallback ingreso 4120→417505
+  - `591907b` **Módulo 09 MVP Telegram** — borradores persistentes + confirmación determinista (`bot_driver.py`, `bot_telegram.py`, `routers/bot.py`, `transaction_service.py`, migración de tablas, 3 suites de tests)
+  - `39e96a7` bot: tipos UUID, portafolio real, método de pago dicho por el usuario (`scripts/bot_link_code.py`)
+  - `151b33d` voz web ⇄ bot unificados sobre `draft_builder.py`; asiento en procesos externos; `scripts/repair_missing_journal.py`
+  - `f5be434` impuestos solo con autorización humana + Módulo 01 completo (`AdvancedSections.jsx`)
+  - `e8692b7` registro+consolidado: etiquetas por industria, `AccountsPulse`, menos ruido
+  - `f5559f7` cuentas: saldo inicial editable + pulso con movimientos reales y descuadres
+
+### WIP sin commit (⚠️ NO descartar — hay código commiteado que depende de él)
+| Archivo | Qué aporta | Por qué es crítico |
+|---|---|---|
+| `fin_sys_core/org_driver.py` | `get_consolidated_by_entity()` — cifras reales por entidad, agregación jerárquica sin duplicar portafolios; `portfolio_id` editable en `update_entity_basic` | `DashboardPanel.jsx` **ya commiteado** llama `GET /api/org/consolidated` |
+| `routers/org.py` | endpoint `/api/org/consolidated` + `exclude_unset` (permite desvincular con `null`) | **El endpoint no existe en HEAD** → desplegar la rama hoy = 404 y panel de empresas roto |
+| `routers/cartera.py` | `cxc_total`, `cxp_total`, `vencido_total`, `proximo_total` en `/api/cartera/summary` | fix TC021 (Cartera mostraba `$NaN`) |
+| `TercerosTab.jsx` | botón "✓ Crear Tercero" | fix TC025; su helper `createItem` **ya está commiteado** en `ContextPanel.jsx` |
+| `CarteraKpiBar.jsx` | fallback `Number(k.value \|\| 0)` | defensa anti-NaN |
+| `.gitignore` | ignora `testsprite_tests/tmp/config.json` | higiene |
+
+Sin trackear: `docs/PRD.md` (fuente de verdad de negocio, 29 jul) y `testsprite_tests/` (30 casos + reporte).
+
+### TestSprite — última corrida (29 jul, 30/50 casos)
+✅ 25 · ❌ 5 → **83.33%**. De los 5 fallos: 1 falso positivo (KPIs CT), 2 corregidos (TC021, TC025 — los fixes son parte del WIP de arriba), 1 vacío de datos (TC003, entidades CT sin `portfolio_id`), 1 brecha de spec (TC022, Libro Diario sin buscador).
+Datos de prueba que quedaron en la BD real: 2 TX `TS-TEST-Ingreso automatizado` + 1 tarea `TS-TEST-Prepare monthly review`.
+
+### Estado BD (health_check en vivo, 21 ago 16:57 COT)
+`transactions` 13 · `entities` CT 6 · `user_accounts` 5 · `portfolios` 4 · Motor IVA=19.000 GMF=400 ✓ · Sin anomalías de integridad.
+Servicios locales: ❌ frontend :5173 · ❌ backend :8000 · ✅ Supabase · ✅ prod :8080.
+
+### Próxima sesión — orden sugerido
+1. **Commit del WIP** (cierra el desfase frontend↔backend) → merge `modulo-09-bot-ia` → `master` → deploy (recordar: el webhook de Dokploy puede no disparar, ver DT-10).
+2. Vincular entidades CT ↔ portafolios (`entities.portfolio_id`) desde la UI ya construida — cierra el gap #1 de TestSprite (TC003).
+3. Limpiar los `TS-TEST-*` de la BD.
+4. Re-correr TestSprite sobre el build con los fixes.
+5. Buscador del Libro Diario (TC022) · normalizar upsert de `module_flags`.
+
+---
 ## Checkpoint 2026-07-13 — Sesión 02:43 COT
 
 **Estado**: ⚠️ Servicios locales caídos | BD + motor OK | Contabilidad v2 WIP

@@ -1,0 +1,1768 @@
+[
+  {
+    "id": "TC001",
+    "title": "Sign in to the authenticated shell",
+    "description": "A valid employee can sign in and reach the home shell with the sidebar and launchpad available.",
+    "category": "Global Login",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the authenticated shell is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the home launchpad is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC002",
+    "title": "Create and review a transaction in Libro Diario",
+    "description": "An accounting user can register a transaction and see it appear in the Libro Diario ledger.",
+    "category": "Contabilidad",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the Contabilidad module from the launchpad"
+      },
+      {
+        "type": "action",
+        "description": "Fill in a valid transaction amount into the amount field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the transaction form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the transaction appears in the Libro Diario ledger"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the ledger remains visible after the transaction is created"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC003",
+    "title": "Create a transaction and see it in the ledger",
+    "description": "This verifies that a user can register a valid accounting transaction and see it appear in Libro Diario.",
+    "category": "Accounting - Transaction Registration",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /contabilidad"
+      },
+      {
+        "type": "action",
+        "description": "Fill in a valid amount in the transaction amount field"
+      },
+      {
+        "type": "action",
+        "description": "Fill in a description in the transaction description field"
+      },
+      {
+        "type": "action",
+        "description": "Select an account for the transaction"
+      },
+      {
+        "type": "action",
+        "description": "Select a transaction type"
+      },
+      {
+        "type": "action",
+        "description": "Submit the transaction form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the new transaction is displayed in the Libro Diario"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the transaction was added to the ledger totals"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC004",
+    "title": "Keep the signed-in shell after reload",
+    "description": "A signed-in user can refresh the page and remain inside the authenticated shell.",
+    "category": "Session Persistence and Logout",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Reload the page"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the authenticated shell is still displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the sidebar is still displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC005",
+    "title": "Log out from the global header",
+    "description": "A signed-in user can end the session and return to the login screen.",
+    "category": "Session Persistence and Logout",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the logout control in the global header"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the login form is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the authenticated shell is no longer displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC006",
+    "title": "Switch RRHH workspace and project",
+    "description": "A signed-in user can change the RRHH workspace and project and stay inside the hub.",
+    "category": "RRHH",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the RRHH module from the launchpad"
+      },
+      {
+        "type": "action",
+        "description": "Select a different workspace from the RRHH sidebar"
+      },
+      {
+        "type": "action",
+        "description": "Select a different project from the RRHH sidebar"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the RRHH hub remains displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the selected workspace and project are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC007",
+    "title": "Inspect Control Tower hierarchy and KPI cards",
+    "description": "An admin or owner can open Control Tower and view the corporate entity tree alongside KPI cards.",
+    "category": "Control Tower",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the Control Tower module from the launchpad"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the corporate entity tree is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the KPI cards are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC008",
+    "title": "Switch between enabled modules from the sidebar",
+    "description": "A signed-in user can move from one module to another using the sidebar and see the new module content.",
+    "category": "Shell Navigation and Deep Links",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the Contabilidad entry in the sidebar"
+      },
+      {
+        "type": "action",
+        "description": "Click the RRHH entry in the sidebar"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the RRHH module is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the accounting module is no longer displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC009",
+    "title": "Inspect the control tower entity tree and KPI cards",
+    "description": "Verifies that an admin can open Control Tower and review the corporate entity tree together with KPI cards.",
+    "category": "Control Tower - Entity Tree and KPI Cards",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /tower"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the entity tree is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify KPI cards are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC010",
+    "title": "Open Contabilidad from the home launchpad",
+    "description": "A signed-in user can launch the accounting module from the home shell and see the accounting workspace open.",
+    "category": "Shell Navigation and Deep Links",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the Contabilidad module from the launchpad"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the accounting module is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the accounting dashboard context is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC011",
+    "title": "Open the admin console as owner",
+    "description": "Verifies that an authenticated owner can open the admin console and see the administration panel render.",
+    "category": "Admin Console and Users",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /admin"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the administration panel is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC012",
+    "title": "Open Contabilidad directly and keep it on reload",
+    "description": "A signed-in user can open the accounting module from a deep link and retain that view after refreshing.",
+    "category": "Shell Navigation and Deep Links",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /contabilidad"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Reload the page"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the accounting module is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the ledger view is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC013",
+    "title": "Select a portfolio and see its dashboard context update",
+    "description": "This verifies that an employee can choose a company portfolio in Contabilidad and see the dashboard context refresh for that selection.",
+    "category": "Accounting - Company and Dashboard",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /contabilidad"
+      },
+      {
+        "type": "action",
+        "description": "Select a company in the portfolio selector"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the dashboard metrics are displayed for the selected portfolio"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the financial status badge is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC014",
+    "title": "Create a new RRHH task",
+    "description": "Verifies that a user can open the task modal, save a new task, and see it appear on the board.",
+    "category": "RRHH - Tasks Board",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /rrhh?view=tasks"
+      },
+      {
+        "type": "action",
+        "description": "Open the task modal"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the task title with Prepare monthly review"
+      },
+      {
+        "type": "action",
+        "description": "Save the task"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the new task appears on the board"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a success confirmation is visible"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC015",
+    "title": "Reject invalid login credentials",
+    "description": "A user entering incorrect credentials sees a login error and remains on the sign-in screen.",
+    "category": "Global Login",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with invalid@example.com"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with invalid-password"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a login error message is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the login form is still displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC016",
+    "title": "Switch accounting context tabs",
+    "description": "Verifies that an authenticated user can move through the accounting context tabs and see each section render its content.",
+    "category": "Accounting - Context Panel Tabs",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /contabilidad"
+      },
+      {
+        "type": "action",
+        "description": "Click the third parties tab in the context panel"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the third parties content is displayed"
+      },
+      {
+        "type": "action",
+        "description": "Click the bank accounts tab in the context panel"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the bank accounts content is displayed"
+      },
+      {
+        "type": "action",
+        "description": "Click the tags tab in the context panel"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the tags content is displayed"
+      },
+      {
+        "type": "action",
+        "description": "Click the taxes tab in the context panel"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the taxes content is displayed"
+      },
+      {
+        "type": "action",
+        "description": "Click the assets tab in the context panel"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the assets content is displayed"
+      },
+      {
+        "type": "action",
+        "description": "Click the cartera tab in the context panel"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the cartera ledger content is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC017",
+    "title": "Manage RRHH tasks in the board view",
+    "description": "A signed-in user can open the RRHH tasks board and see task columns or a list of tasks.",
+    "category": "RRHH",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the RRHH module from the launchpad"
+      },
+      {
+        "type": "action",
+        "description": "Open the tasks view in RRHH"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the tasks board is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify task items are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC018",
+    "title": "Disable a module and see navigation update",
+    "description": "Verifies that an authenticated admin can toggle a module off in Module Feature Flags and see the shell navigation reflect the change.",
+    "category": "Module Feature Flags",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /modulos"
+      },
+      {
+        "type": "action",
+        "description": "Disable an available module"
+      },
+      {
+        "type": "action",
+        "description": "Return to the home dashboard"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the disabled module is no longer shown in the shell navigation"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC019",
+    "title": "View the Control Tower KPI overview",
+    "description": "A user can open Control Tower and see the consolidated KPI cards render successfully.",
+    "category": "Control Tower - Entity Tree and KPIs",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /tower"
+      },
+      {
+        "type": "action",
+        "description": "Wait for the Control Tower view to load"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify KPI cards are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC020",
+    "title": "Switch the accounting portfolio context",
+    "description": "An accounting user can change the company or portfolio context and see the dashboard reflect the selected context.",
+    "category": "Contabilidad",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the Contabilidad module from the launchpad"
+      },
+      {
+        "type": "action",
+        "description": "Select a different company or portfolio from the context selector"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the selected accounting context is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the dashboard KPIs are displayed for the selected context"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC021",
+    "title": "Review cartera KPI bar and ledger rows",
+    "description": "Verifies that the cartera tab shows portfolio-level KPI information together with ledger rows for review.",
+    "category": "Accounting - Context Panel Tabs",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /contabilidad"
+      },
+      {
+        "type": "action",
+        "description": "Click the cartera tab in the context panel"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the cartera KPI bar is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify ledger rows are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC022",
+    "title": "Search transactions in Libro Diario",
+    "description": "This verifies that a user can search the ledger and see the visible transaction rows update to match the query.",
+    "category": "Accounting - Libro Diario Ledger",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /contabilidad"
+      },
+      {
+        "type": "action",
+        "description": "Enter a search term in the ledger search field"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the ledger rows are filtered"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify matching transactions remain visible"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC023",
+    "title": "Select a child entity in the Control Tower tree",
+    "description": "A user can expand the entity tree, select a child entity, and see the selected scope update.",
+    "category": "Control Tower - Entity Tree and KPIs",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /tower"
+      },
+      {
+        "type": "action",
+        "description": "Wait for the Control Tower view to load"
+      },
+      {
+        "type": "action",
+        "description": "Expand an entity tree node"
+      },
+      {
+        "type": "action",
+        "description": "Select a child entity from the tree"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the selected entity scope is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the entity tree remains visible"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC024",
+    "title": "Review ledger entries from the accounting context tabs",
+    "description": "An accounting user can move through the accounting context tabs and see the corresponding content load in the workspace.",
+    "category": "Contabilidad",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the Contabilidad module from the launchpad"
+      },
+      {
+        "type": "action",
+        "description": "Select the taxes tab in the accounting context panel"
+      },
+      {
+        "type": "action",
+        "description": "Select the cartera tab in the accounting context panel"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the selected accounting tab content is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the ledger workspace remains available"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC025",
+    "title": "Create a third party in accounting",
+    "description": "Verifies that a user can add a new third party from the accounting context panel and see it appear in the list.",
+    "category": "Accounting - Context Panel Tabs",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /contabilidad"
+      },
+      {
+        "type": "action",
+        "description": "Click the third parties tab in the context panel"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the third party name field with Test Supplier Alpha"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the third party identification field with 900123456"
+      },
+      {
+        "type": "action",
+        "description": "Submit the third party form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the new third party appears in the list"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a success confirmation is visible"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC026",
+    "title": "See the module feature flags list",
+    "description": "Verifies that an authenticated admin can open the module settings panel and see the available modules with their toggles.",
+    "category": "Module Feature Flags",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /modulos"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the module list is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify module toggles are available"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC027",
+    "title": "Review approvals, resources, and collaborators in Control Tower",
+    "description": "An admin or owner can open the Control Tower side panels and modals for operational review.",
+    "category": "Control Tower",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the Control Tower module from the launchpad"
+      },
+      {
+        "type": "action",
+        "description": "Open the approvals view in Control Tower"
+      },
+      {
+        "type": "action",
+        "description": "Open the resources view in Control Tower"
+      },
+      {
+        "type": "action",
+        "description": "Open the collaborators view in Control Tower"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the corresponding Control Tower panel is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the selected entity context is still displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC028",
+    "title": "Review ledger totals",
+    "description": "This verifies that the Libro Diario totals are visible to users reviewing accounting activity.",
+    "category": "Accounting - Libro Diario Ledger",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /contabilidad"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the ledger totals are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the totals summary remains visible with the ledger"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC029",
+    "title": "Open the member list and view a member profile",
+    "description": "A user can open the RRHH members view, select a member, and see that member's profile open successfully.",
+    "category": "RRHH - Members and HR Profiles",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /rrhh?view=members"
+      },
+      {
+        "type": "action",
+        "description": "Wait for the members list to load"
+      },
+      {
+        "type": "action",
+        "description": "Select a member from the list"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the member profile is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC030",
+    "title": "Review the system user table",
+    "description": "Verifies that an authenticated owner can open the admin console and see the system user table.",
+    "category": "Admin Console and Users",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /admin"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the system user table is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC031",
+    "title": "Open an RRHH member profile, notes, and calendar views",
+    "description": "A signed-in user can move through member, notes, and calendar views within the RRHH hub.",
+    "category": "RRHH",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the RRHH module from the launchpad"
+      },
+      {
+        "type": "action",
+        "description": "Open the members view in RRHH"
+      },
+      {
+        "type": "action",
+        "description": "Open a member profile"
+      },
+      {
+        "type": "action",
+        "description": "Open the notes view in RRHH"
+      },
+      {
+        "type": "action",
+        "description": "Open the calendar view in RRHH"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the RRHH calendar is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the selected member context remains available"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC032",
+    "title": "Switch RRHH tasks between kanban and list views",
+    "description": "Verifies that the tasks board can change layout between kanban and list views within the same project hub.",
+    "category": "RRHH - Tasks Board",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /rrhh?view=tasks"
+      },
+      {
+        "type": "action",
+        "description": "Switch to the list view"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the tasks are displayed in a list layout"
+      },
+      {
+        "type": "action",
+        "description": "Switch back to the kanban view"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the tasks are displayed in columns"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC033",
+    "title": "Create a child entity in Control Tower",
+    "description": "A user can create a child entity in the Control Tower tree and see the new entity appear in the hierarchy.",
+    "category": "Control Tower - Entity Tree and KPIs",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /tower"
+      },
+      {
+        "type": "action",
+        "description": "Wait for the Control Tower view to load"
+      },
+      {
+        "type": "action",
+        "description": "Create a child entity"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the new entity details"
+      },
+      {
+        "type": "action",
+        "description": "Submit the new entity"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the new entity appears in the tree"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the entity hierarchy is updated"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC034",
+    "title": "Open own account details and validate password change rules",
+    "description": "A signed-in user can review their account page and see password change validation without ending the session.",
+    "category": "Mi Cuenta",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Open the Mi Cuenta page"
+      },
+      {
+        "type": "action",
+        "description": "Submit the password change form with an invalid current password"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a password validation error is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the account details page remains displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC035",
+    "title": "Use a quick action to open a related context tab",
+    "description": "This verifies that a quick action in the accounting dashboard opens the related context tab for faster navigation.",
+    "category": "Accounting - Company and Dashboard",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /contabilidad"
+      },
+      {
+        "type": "action",
+        "description": "Use a quick action to open a related context tab"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the related context tab is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the selected tab matches the requested accounting context"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC036",
+    "title": "Select an existing third party into the draft",
+    "description": "Verifies that a user can search for a third party and add it to the current draft selection.",
+    "category": "Accounting - Context Panel Tabs",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /contabilidad"
+      },
+      {
+        "type": "action",
+        "description": "Click the third parties tab in the context panel"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the third party search field with a known third party name"
+      },
+      {
+        "type": "action",
+        "description": "Select the matching third party from the search results"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the third party is added to the draft selection"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the selected third party is shown in the current draft"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC037",
+    "title": "Review a member's payroll information",
+    "description": "A user can open a member profile and review the salary and payment history data for that member.",
+    "category": "RRHH - Members and HR Profiles",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /rrhh?view=members"
+      },
+      {
+        "type": "action",
+        "description": "Wait for the members list to load"
+      },
+      {
+        "type": "action",
+        "description": "Select a member from the list"
+      },
+      {
+        "type": "action",
+        "description": "Switch to the salary tab"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify salary information is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify payroll payment data is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC038",
+    "title": "See the users and roles table",
+    "description": "Verifies that an authenticated owner or admin can open the users panel and review the users and roles table.",
+    "category": "Admin Console and Users",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /usuarios"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the users and roles table is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC039",
+    "title": "Return the Control Tower tree to the holding root",
+    "description": "A user can navigate within the Control Tower tree and then return to the holding root using the breadcrumb.",
+    "category": "Control Tower - Entity Tree and KPIs",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /tower"
+      },
+      {
+        "type": "action",
+        "description": "Wait for the Control Tower view to load"
+      },
+      {
+        "type": "action",
+        "description": "Expand an entity tree node"
+      },
+      {
+        "type": "action",
+        "description": "Select a child entity from the tree"
+      },
+      {
+        "type": "action",
+        "description": "Use the breadcrumb to return to the holding root"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the tree scope is reset to the holding root"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the root entity remains available"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC040",
+    "title": "Open module settings and return to the shell",
+    "description": "An owner or admin can open the module settings panel, change a module availability state, and return to a shell navigation view that reflects the updated module list.",
+    "category": "Module Feature Flags",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Open the module settings panel"
+      },
+      {
+        "type": "action",
+        "description": "Toggle a module availability setting"
+      },
+      {
+        "type": "action",
+        "description": "Return to the home shell"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the shell navigation reflects the updated module availability"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the home launchpad is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC041",
+    "title": "Move an RRHH task to another status",
+    "description": "Verifies that changing a task status updates its placement in the board.",
+    "category": "RRHH - Tasks Board",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /rrhh?view=tasks"
+      },
+      {
+        "type": "action",
+        "description": "Open an existing task"
+      },
+      {
+        "type": "action",
+        "description": "Change the task status to a different column"
+      },
+      {
+        "type": "action",
+        "description": "Save the task changes"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the task appears in the new status column"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the task no longer appears in the previous status column"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC042",
+    "title": "Open approvals center and return to the tower view",
+    "description": "Verifies that an authenticated user can open the approvals center in Control Tower and close it to return to the main tower view.",
+    "category": "Control Tower - Approvals, Resources and Collaborators",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /tower"
+      },
+      {
+        "type": "action",
+        "description": "Open the approvals center"
+      },
+      {
+        "type": "action",
+        "description": "Close the approvals center"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the main Control Tower view is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC043",
+    "title": "Switch dashboard panel visibility",
+    "description": "This verifies that a user can expand and collapse the Contabilidad dashboard panel while staying in the module.",
+    "category": "Accounting - Company and Dashboard",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /contabilidad"
+      },
+      {
+        "type": "action",
+        "description": "Expand the dashboard panel"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the dashboard panel content is displayed"
+      },
+      {
+        "type": "action",
+        "description": "Collapse the dashboard panel"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the dashboard panel content is hidden"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC044",
+    "title": "Switch between member profile tabs",
+    "description": "A user can move through the member profile tabs and each tab's content is shown in the same profile view.",
+    "category": "RRHH - Members and HR Profiles",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /rrhh?view=members"
+      },
+      {
+        "type": "action",
+        "description": "Wait for the members list to load"
+      },
+      {
+        "type": "action",
+        "description": "Select a member from the list"
+      },
+      {
+        "type": "action",
+        "description": "Switch to the salary tab"
+      },
+      {
+        "type": "action",
+        "description": "Switch to the documents tab"
+      },
+      {
+        "type": "action",
+        "description": "Switch to the history tab"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the selected profile tab content is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the member profile remains open"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC045",
+    "title": "Create a note in the RRHH notes editor",
+    "description": "A user can open the notes view, wait for the editor to load, create a note, and see the note content saved in the editor view.",
+    "category": "RRHH - Notes and Calendar",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /rrhh?view=notes"
+      },
+      {
+        "type": "action",
+        "description": "Wait for the notes editor to load"
+      },
+      {
+        "type": "action",
+        "description": "Create a new note"
+      },
+      {
+        "type": "action",
+        "description": "Type a note title into the editor"
+      },
+      {
+        "type": "action",
+        "description": "Type note content into the editor"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the note editor is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the new note content is visible"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC046",
+    "title": "View my account details",
+    "description": "A signed-in user can open their account page and see their technical sheet rendered.",
+    "category": "My Account and Password Change",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login credentials with {{LOGIN_USER}} and {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /mi-cuenta"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the technical sheet is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify personal account details are displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC047",
+    "title": "See tax calculation update when IVA is enabled",
+    "description": "This verifies that enabling IVA in the transaction form updates the calculated tax amount before submission.",
+    "category": "Accounting - Transaction Registration",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /contabilidad"
+      },
+      {
+        "type": "action",
+        "description": "Fill in a valid amount in the transaction amount field"
+      },
+      {
+        "type": "action",
+        "description": "Enable IVA in the transaction form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a calculated tax value is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the tax value reflects the current transaction amount"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC048",
+    "title": "Open RRHH overview metrics",
+    "description": "Verifies that the overview sub-view renders workspace metrics for the current hub context.",
+    "category": "RRHH - Tasks Board",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /rrhh?view=overview"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the overview metrics are displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC049",
+    "title": "Open and close a calendar event",
+    "description": "A user can open the RRHH calendar, inspect an event from the grid, and close the event details modal.",
+    "category": "RRHH - Notes and Calendar",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /rrhh?view=calendar"
+      },
+      {
+        "type": "action",
+        "description": "Wait for the calendar month grid to load"
+      },
+      {
+        "type": "action",
+        "description": "Open an event from the calendar grid"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the event details modal is displayed"
+      },
+      {
+        "type": "action",
+        "description": "Close the event details modal"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the calendar grid is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC050",
+    "title": "Review resource identifiers for the selected entity",
+    "description": "Verifies that an authenticated user can open the resource identifiers modal in Control Tower and review the list for the current entity.",
+    "category": "Control Tower - Approvals, Resources and Collaborators",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the email field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /tower"
+      },
+      {
+        "type": "action",
+        "description": "Open the resource IDs modal"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the resource identifiers list is displayed"
+      }
+    ],
+    "priority": "Medium"
+  }
+]
