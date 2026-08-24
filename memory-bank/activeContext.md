@@ -15,10 +15,14 @@ consolidado real por empresa.
 
 | Dónde | Commit | Estado |
 |---|---|---|
-| `master` local | ver `git log -1` | ✅ todo agosto + WIP + docs + cherry-pick del package-lock |
-| `origin/master` | `64badb6` (29 jul) | ⏳ **sin actualizar** — el push lo bloqueó el clasificador de permisos |
-| Producción :8080 | `64badb6` | ⏳ sigue sirviendo el build del 29 jul |
+| `master` local | `2866be8` | ✅ todo agosto + WIP + docs + cherry-pick del package-lock |
+| `origin/master` | `2866be8` | ✅ **publicado el 24 ago** (12 commits, 0 pendientes) |
+| Producción :8080 | `64badb6` (29 jul) | ❌ **sin desplegar**: el webhook no disparó (3.ª vez, DT-10) |
 | Working tree | limpio | — |
+
+**Falta desplegar a mano**: panel Dokploy :3000 → compose `finsys-app` → Deploy. El token de
+`scratch/dokploy.env` da **401** (revocado/rotado), así que la vía API necesita key nueva.
+Verificar después: `Last-Modified` distinto de `29 Jul 2026` y `/api/org/consolidated` → 200.
 
 **El desarrollo continúa en `master`**: la rama `modulo-09-bot-ia` se eliminó tras el merge.
 

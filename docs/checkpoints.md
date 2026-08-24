@@ -95,12 +95,22 @@ transacciones. Respaldo JSON de las filas en el scratchpad de la sesión.
 por defecto, pero `main` es solo el "Initial commit" vacío — **todo el proyecto vive en
 `master`**. Los PRs y clones nuevos apuntan por defecto a una rama sin código.
 
+**6. Push publicado (2026-08-24).** `git push origin master` → `64badb6..2866be8`, 12 commits.
+`origin/master` y `master` sincronizados, 0 pendientes.
+
+**El webhook de Dokploy NO disparó — tercera vez (DT-10).** Verificado contra producción:
+`Last-Modified: Wed, 29 Jul 2026` y `GET /api/org/consolidated` → **404**. El deploy sigue
+sin hacerse. Además, el token de `scratch/dokploy.env` responde **401** en
+`GET /api/deployment.allByCompose`: fue revocado o rotado, así que el deploy manual por API
+necesita una key nueva del panel (:3000) o hacerse desde la UI de Dokploy.
+
 ### Pendiente al cierre
-1. **`git push origin master`** (lo corre Andrés) → verificar que el webhook de Dokploy
-   disparó; si no, deploy manual con `POST /api/compose.deploy` (DT-10).
+1. **Desplegar a mano** (el push ya está hecho): panel Dokploy :3000 → compose `finsys-app` →
+   Deploy; o `POST /api/compose.deploy` con una API key nueva. Verificar después que
+   `Last-Modified` cambió y que `GET /api/org/consolidated` responde 200 en producción.
 2. Borrar los 4 worktrees obsoletos y las 6 ramas `claude/*` + `gilded-mask` (comandos en
    la conversación de la sesión; ninguna tiene trabajo tras el cherry-pick).
-3. Decidir sobre `main` vs `master` en GitHub (DT-17) y sobre los 10 audios huérfanos.
+3. Decidir sobre `main` vs `master` en GitHub (DT-17) y sobre los 10 audios huérfanos (DT-19).
 4. Re-correr TestSprite sobre el build con los fixes (y avanzar TC031–TC050).
 5. Buscador del Libro Diario (TC022) · normalizar upsert de `module_flags` (DT-12).
 
