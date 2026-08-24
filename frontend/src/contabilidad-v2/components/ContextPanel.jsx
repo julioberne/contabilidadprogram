@@ -261,6 +261,7 @@ export default function ContextPanel({
           handleUpdateAccount={handleUpdateAccount}
           handleDeleteAccount={handleDeleteAccount}
           handleReconcile={handleReconcile}
+          refreshAccounts={refreshAccounts}
           accError={accError}
           SectionLabel={SectionLabel}
         />}

@@ -6,7 +6,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { API } from '../../../config';
 import { flattenTree } from './flattenTree.js';
-import AccountsPulse from './AccountsPulse.jsx';
 const LS_KEY = 'finsys_dashboard_collapsed';
 
 /* Moneda con decimales, formato colombiano: $1.234.567,89
@@ -161,7 +160,6 @@ export default function DashboardPanel({
 
   /* ── Expandido: lista de empresas + accesos rápidos ──────── */
   return (
-    <>
     <div style={S.container}>
       {/* Header */}
       <div style={S.header}>
@@ -313,9 +311,6 @@ export default function DashboardPanel({
         </table>
       </div>
     </div>
-    {/* Pulso de cuentas: saldo inicial → Δ movimientos → actual, por cuenta */}
-    <AccountsPulse />
-    </>
   );
 }
 
