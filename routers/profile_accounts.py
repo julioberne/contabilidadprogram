@@ -97,10 +97,14 @@ def update_profile(profile: ProfileInput):
 
 @router.get("/api/accounts")
 def list_accounts(portfolio: Optional[str] = None):
-    """Sin ?portfolio= devuelve todas; con él, las del portafolio + compartidas."""
+    """Sin ?portfolio= devuelve todas; con él, las del portafolio + compartidas.
+    Cada cuenta viene con portfolio_name, tx_delta y expected_balance — lo que
+    necesitan las tabs del Pulso de Cuentas para mostrar cualquier empresa."""
     try:
-        from database_driver import obtener_cuentas
+        from database_driver import obtener_cuentas, obtener_transacciones
+        from routers.dashboard_data import _agregar_tx_delta
         accounts = anotar_portafolio_cuentas(obtener_cuentas())
+        _agregar_tx_delta(accounts, obtener_transacciones(None))
         return filtrar_cuentas_por_portafolio(accounts, portfolio)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
