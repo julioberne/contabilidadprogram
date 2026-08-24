@@ -45,29 +45,9 @@ export default function RegistroModule() {
     }
   };
 
-  // --- Sincronizar categoría con el COA cargado ---
-  // Réplica de la lógica que en v1 corría dentro de fetchData
-  // (App.jsx:214-227): normaliza la categoría al primer postable
-  // si la actual no corresponde a una cuenta del COA.
-  const { coaFlatAccounts } = empresa;
-  const { category, setCategory } = draft;
-  useEffect(() => {
-    if (coaFlatAccounts.length > 0) {
-      const matched = coaFlatAccounts.find(acc => `${acc.code} - ${acc.name}` === category || acc.code === category);
-      if (matched) {
-        const fullVal = `${matched.code} - ${matched.name}`;
-        setCategory(fullVal);
-        setCoaSearchQuery(fullVal);
-      } else {
-        const defaultVal = `${coaFlatAccounts[0].code} - ${coaFlatAccounts[0].name}`;
-        setCategory(defaultVal);
-        setCoaSearchQuery(defaultVal);
-      }
-    } else {
-      setCoaSearchQuery("");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coaFlatAccounts]);
+  // El selector COA se retiró del Módulo 01 (irá en el módulo de contadores);
+  // la categoría ahora es un select simple alineado con posting_rules, así que
+  // ya no se normaliza contra el COA.
 
   return (
     <TransactionForm

@@ -1,8 +1,19 @@
 // TransactionForm.jsx — Extracted from App.jsx (Lines 745-1217)
 import React from 'react';
-import CoaSelector from './CoaSelector';
 import IndustryWidgets from './IndustryWidgets';
 import AdvancedSections from './AdvancedSections';
+
+/* Categorías operativas — los MISMOS nombres de las posting_rules del kernel
+   (seed_puc.py): así cada registro manual matchea su regla contable y asienta
+   en la cuenta PUC correcta sin que el usuario toque el COA. El COA como
+   selector se retiró del Módulo 01 (decisión 2026-08-24): vivirá en un módulo
+   específico para contadores. */
+const CATEGORIAS = {
+  INGRESO: ['Ventas', 'Servicios Prestados', 'Intereses', 'Otros Ingresos'],
+  GASTO: ['Alimentación', 'Transporte', 'Servicios', 'Suscripciones', 'Infraestructura',
+          'Publicidad', 'Papelería', 'Gastos Bancarios', 'Nómina', 'Otros Gastos'],
+  TRANSFERENCIA: ['Transferencia'],
+};
 
 export default function TransactionForm({
   // Calculator state
@@ -48,16 +59,19 @@ export default function TransactionForm({
   // Industry widgets
   activeCompany, activePortfolio, fetchData,
 }) {
+  // Reemplaza al selector COA: categoría operativa alineada con posting_rules
+  const opcionesCategoria = CATEGORIAS[formType] || CATEGORIAS.GASTO;
   const renderCoaSelector = () => (
-    <CoaSelector
-      coaFlatAccounts={coaFlatAccounts}
-      coaSearchQuery={coaSearchQuery}
-      setCoaSearchQuery={setCoaSearchQuery}
-      isCoaSearchFocused={isCoaSearchFocused}
-      setIsCoaSearchFocused={setIsCoaSearchFocused}
-      setCategory={setCategory}
-      handleLoadCoaTemplate={handleLoadCoaTemplate}
-    />
+    <select
+      value={category}
+      onChange={(e) => setCategory(e.target.value)}
+      className="w-full bg-white border-2 border-black p-2 text-xs font-mono outline-none"
+    >
+      {!opcionesCategoria.includes(category) && category && (
+        <option value={category}>{category}</option>
+      )}
+      {opcionesCategoria.map(c => <option key={c} value={c}>{c}</option>)}
+    </select>
   );
 
   return (
@@ -173,7 +187,13 @@ export default function TransactionForm({
                     <button
                       key={t}
                       type="button"
-                      onClick={() => setFormType(t)}
+                      onClick={() => {
+                        setFormType(t);
+                        // La categoría anterior puede no existir en el nuevo tipo
+                        if (!(CATEGORIAS[t] || []).includes(category)) {
+                          setCategory((CATEGORIAS[t] || ['Otros Gastos'])[0]);
+                        }
+                      }}
                       className={`py-1.5 text-xs font-bold uppercase border-r last:border-r-0 border-black transition-all ${
                         formType === t 
                           ? t === "INGRESO" ? "bg-brutalGreen text-black font-extrabold" : t === "GASTO" ? "bg-brutalCrimson text-white font-extrabold" : "bg-black text-white" 
@@ -257,7 +277,7 @@ export default function TransactionForm({
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-xs font-bold uppercase block mb-1">Cuenta Contable (COA)</label>
+                      <label className="text-xs font-bold uppercase block mb-1">Categoría</label>
                       {renderCoaSelector()}
                     </div>
                     <div className="flex flex-col justify-end">
@@ -357,7 +377,7 @@ export default function TransactionForm({
                       </select>
                     </div>
                     <div>
-                      <label className="text-xs font-bold uppercase block mb-1">Cuenta Contable (COA)</label>
+                      <label className="text-xs font-bold uppercase block mb-1">Categoría</label>
                       {renderCoaSelector()}
                     </div>
                   </div>

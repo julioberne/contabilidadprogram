@@ -378,17 +378,45 @@ def seed_synthetic_data(portfolio: str = "Negocio A", _admin: dict = Depends(req
 @router.post("/api/transactions/reset")
 def reset_database_endpoint(_admin: dict = Depends(require_admin)):
     """
-    Reinicia completamente la base de datos a su estado por defecto
-    (borra transacciones y terceros, y restablece las cuentas iniciales).
+    Reinicia el sistema contable a un estado LIMPIO para pruebas de integridad:
+    sin transacciones, sin asientos, sin terceros, sin borradores del bot, y
+    las cuentas conservan su estructura pero con TODOS los saldos en $0.
+
+    reset_db() (driver estable) trunca y re-siembra las cuentas con dinero de
+    fábrica (incluido un -500.000 fantasma en Davivienda); aquí se completa la
+    limpieza que el usuario espera del botón ⚠️ Reiniciar.
     """
     try:
         from database_driver import reset_db
         success = reset_db()
         if not success:
             raise HTTPException(status_code=500, detail="No se pudo reiniciar la base de datos.")
+
+        from db_pool import get_conn, put_conn
+        conn = get_conn()
+        try:
+            cur = conn.cursor()
+            # Cuentas en cero: estructura sí, dinero no.
+            cur.execute("UPDATE user_accounts SET initial_balance = 0, current_balance = 0")
+            conn.commit()
+            # Datos del bot (tablas posteriores a reset_db). La vinculación de
+            # chats (bot_chat_links) se conserva: es configuración, no datos.
+            for tabla in ("transaction_drafts", "bot_messages"):
+                try:
+                    cur.execute(f"TRUNCATE {tabla} RESTART IDENTITY")
+                    conn.commit()
+                except Exception:
+                    conn.rollback()   # instalación sin las tablas del bot
+            cur.close()
+        finally:
+            put_conn(conn)
+
         return {
             "status": "COMPLETO",
-            "message": "Base de datos y balances de cuentas reiniciados exitosamente."
+            "message": "Sistema contable limpio: sin transacciones, asientos, terceros ni "
+                       "borradores; cuentas conservadas con saldos en $0."
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
