@@ -232,11 +232,14 @@ export default function DashboardPanel({
                         <button
                           onClick={(e) => { e.stopPropagation(); toggleCollapse(entity.id); }}
                           title={colapsado ? 'Expandir subárbol' : 'Colapsar subárbol'}
-                          style={{ border: 'none', background: 'transparent', cursor: 'pointer',
-                                   fontSize: 9, padding: '0 3px 0 0', color: '#555' }}
+                          style={{ border: '1px solid #000', background: colapsado ? '#000' : '#fff',
+                                   color: colapsado ? '#fff' : '#000', cursor: 'pointer',
+                                   fontSize: 10, fontWeight: 700, width: 18, height: 16,
+                                   lineHeight: '13px', textAlign: 'center', padding: 0,
+                                   marginRight: 4, verticalAlign: 'middle' }}
                         >{colapsado ? '▸' : '▾'}</button>
                       ) : (
-                        <span style={{ display: 'inline-block', width: 12 }} />
+                        <span style={{ display: 'inline-block', width: 22 }} />
                       )}
                       {isActive && <span style={{ color: '#00c853', marginRight: 3 }}>●</span>}
                       <span style={{ fontSize: 10 }}>{TYPE_ICONS[entity.type] || '○'}</span>{' '}
