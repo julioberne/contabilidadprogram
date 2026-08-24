@@ -98,21 +98,31 @@ por defecto, pero `main` es solo el "Initial commit" vacío — **todo el proyec
 **6. Push publicado (2026-08-24).** `git push origin master` → `64badb6..2866be8`, 12 commits.
 `origin/master` y `master` sincronizados, 0 pendientes.
 
-**El webhook de Dokploy NO disparó — tercera vez (DT-10).** Verificado contra producción:
-`Last-Modified: Wed, 29 Jul 2026` y `GET /api/org/consolidated` → **404**. El deploy sigue
-sin hacerse. Además, el token de `scratch/dokploy.env` responde **401** en
-`GET /api/deployment.allByCompose`: fue revocado o rotado, así que el deploy manual por API
-necesita una key nueva del panel (:3000) o hacerse desde la UI de Dokploy.
+**El webhook de Dokploy NO disparó — tercera vez (DT-10).** Hubo que desplegar a mano desde
+el panel :3000. El token de `scratch/dokploy.env` además responde **401** en
+`GET /api/deployment.allByCompose` (revocado o rotado): la vía API necesita una key nueva.
+
+**7. PRODUCCIÓN AL DÍA (2026-08-24 · verificado en vivo).**
+`Last-Modified: Mon, 24 Aug 2026 03:47` (antes 29 jul) · `GET /api/org/consolidated` → **200**
+(antes 404) · `GET /api/cartera/summary` → 200. El consolidado responde en producción con la
+vinculación real: holding `bal=-1.399.500` agregando su subárbol, 3 entidades vinculadas y 3
+mostrando "sin vincular". **Las tres semanas de trabajo llegaron a producción.**
+
+**8. Limpieza de git — parcial.** Borradas la rama remota
+`origin/claude/testsprite-project-testing-f23abb` y las locales
+`claude/admin-dashboard-user-credentials` e `claude/ia-bot-whatsapp-telegram`. Los 4 worktrees
+obsoletos **siguen ahí**: `git worktree remove` falla sin `--force` cuando el worktree tiene
+archivos sin trackear, y mientras existan no se pueden borrar sus 4 ramas.
 
 ### Pendiente al cierre
-1. **Desplegar a mano** (el push ya está hecho): panel Dokploy :3000 → compose `finsys-app` →
-   Deploy; o `POST /api/compose.deploy` con una API key nueva. Verificar después que
-   `Last-Modified` cambió y que `GET /api/org/consolidated` responde 200 en producción.
-2. Borrar los 4 worktrees obsoletos y las 6 ramas `claude/*` + `gilded-mask` (comandos en
-   la conversación de la sesión; ninguna tiene trabajo tras el cherry-pick).
-3. Decidir sobre `main` vs `master` en GitHub (DT-17) y sobre los 10 audios huérfanos (DT-19).
-4. Re-correr TestSprite sobre el build con los fixes (y avanzar TC031–TC050).
-5. Buscador del Libro Diario (TC022) · normalizar upsert de `module_flags` (DT-12).
+1. Borrar los 4 worktrees obsoletos con `--force` y después sus 4 ramas (DT-18).
+2. Cambiar la rama por defecto de GitHub a `master`: sigue en `main`, que está vacía
+   (`origin/HEAD -> origin/main`) — DT-17.
+3. Re-correr TestSprite sobre el build nuevo (y avanzar TC031–TC050).
+4. Buscador del Libro Diario (TC022) · normalizar upsert de `module_flags` (DT-12).
+5. **DT-19 cerrada**: los 10 audios huérfanos se conservan. Ojo para el futuro — las 7
+   evidencias sí referenciadas son todas `.ogg` de Telegram, así que **nunca** borrar por
+   patrón en `uploads/`.
 
 ---
 ## Checkpoint 2026-07-13 — Sesión 02:43 COT

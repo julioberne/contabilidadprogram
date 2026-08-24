@@ -17,12 +17,13 @@ consolidado real por empresa.
 |---|---|---|
 | `master` local | `2866be8` | ✅ todo agosto + WIP + docs + cherry-pick del package-lock |
 | `origin/master` | `2866be8` | ✅ **publicado el 24 ago** (12 commits, 0 pendientes) |
-| Producción :8080 | `64badb6` (29 jul) | ❌ **sin desplegar**: el webhook no disparó (3.ª vez, DT-10) |
+| Producción :8080 | `2866be8` | ✅ **desplegada el 24 ago** (a mano desde el panel: el webhook no disparó, 3.ª vez) |
 | Working tree | limpio | — |
 
-**Falta desplegar a mano**: panel Dokploy :3000 → compose `finsys-app` → Deploy. El token de
-`scratch/dokploy.env` da **401** (revocado/rotado), así que la vía API necesita key nueva.
-Verificar después: `Last-Modified` distinto de `29 Jul 2026` y `/api/org/consolidated` → 200.
+**Verificado en vivo el 24 ago**: `Last-Modified: Mon, 24 Aug 2026 03:47` ·
+`/api/org/consolidated` → 200 con la vinculación real (holding `bal=-1.399.500`, 3 vinculadas
+/ 3 "sin vincular") · `/api/cartera/summary` → 200. El token de `scratch/dokploy.env` está
+**muerto (401)**: para desplegar, panel :3000 → compose `finsys-app` → Deploy.
 
 **El desarrollo continúa en `master`**: la rama `modulo-09-bot-ia` se eliminó tras el merge.
 
@@ -214,7 +215,8 @@ Tablas de BD existentes                 ← NO alterar schema sin aprobación ex
 | DT-16 | Rotar el GitHub PAT del provider de Dokploy (quedó expuesto en una sesión) | Media |
 | DT-17 | GitHub tiene `main` como rama por defecto, pero `main` solo es el "Initial commit" vacío: **todo el proyecto vive en `master`**. PRs y clones nuevos apuntan a una rama sin código | Media |
 | DT-18 | 4 worktrees obsoletos y 6 ramas `claude/*` + `gilded-mask` colgando del commit raíz huérfano; borrarlos requiere correr los comandos a mano (el clasificador los bloquea al agente) | Baja |
-| DT-19 | `uploads/`: 10 audios huérfanos (875 KB) que ninguna transacción referencia; decidir si se conservan | Baja |
+| ~~DT-19~~ | ~~Audios huérfanos en `uploads/`~~ ✅ **Decidido 2026-08-24: se conservan.** Nunca borrar por patrón ahí: las 7 evidencias reales son todas `.ogg` de Telegram | — |
+| DT-20 | La voz web (`.webm`) nunca queda adjunta como evidencia de la transacción; la de Telegram (`.ogg`) sí. Verificar si es deliberado | Baja |
 
 ---
 
