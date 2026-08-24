@@ -24,6 +24,7 @@ USO:
 """
 
 import os
+import threading
 import psycopg2
 from psycopg2.pool import ThreadedConnectionPool
 from psycopg2.extras import RealDictCursor
@@ -38,6 +39,8 @@ DB_PORT = os.getenv("DB_PORT", "5432")
 
 # ── Pool global ───────────────────────────────────────────────────────────────
 _pool: ThreadedConnectionPool | None = None
+_init_lock = threading.Lock()
+_init_failed = False   # si la creación del pool falló, no reintentar en cada get
 
 
 def init_pool(minconn: int = 2, maxconn: int = 10):
@@ -70,10 +73,22 @@ def init_pool(minconn: int = 2, maxconn: int = 10):
 
 def get_conn():
     """
-    Obtiene una conexión del pool.
-    Si el pool no está inicializado, crea una conexión directa (fallback).
+    Obtiene una conexión del pool (inicializándolo perezosamente la primera vez).
+
+    BUG histórico (2026-08-24): init_pool() existía pero NINGÚN entrypoint lo
+    llamaba, así que cada get_conn() caía al fallback y abría una conexión TLS
+    nueva a Supabase (~0.7s c/u) — el dashboard hacía 7-8 de esas por request.
+    La inicialización perezosa cubre server, poller del bot y scripts por igual.
     IMPORTANTE: Siempre devolver la conexión con put_conn() al terminar.
     """
+    global _init_failed
+    if _pool is None and not _init_failed:
+        with _init_lock:
+            if _pool is None and not _init_failed:
+                init_pool()
+                if _pool is None:
+                    _init_failed = True   # sin pool posible: fallback directo estable
+
     if _pool is not None:
         try:
             return _pool.getconn()
@@ -100,6 +115,12 @@ def put_conn(conn):
         return
     try:
         if _pool is not None:
+            # Higiene: jamás devolver al pool una transacción a medias — el
+            # siguiente usuario heredaría un "idle in transaction".
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             _pool.putconn(conn)
         else:
             conn.close()

@@ -92,13 +92,17 @@ def get_dashboard_data(portfolio: Optional[str] = None, limit: int = 50, offset:
 
         from routers.profile_accounts import anotar_portafolio_cuentas, filtrar_cuentas_por_portafolio
 
-        txs = obtener_transacciones(portfolio)
+        # UNA sola consulta de transacciones (cada round-trip a Supabase cuesta
+        # ~180ms desde dev local): se trae todo y el filtro por portafolio se
+        # hace en Python con el portfolio_name que ya viene en cada fila.
+        all_txs = obtener_transacciones(None)
+        txs = all_txs if not portfolio else [
+            t for t in all_txs if t.get("portfolio_name") == portfolio]
         accounts = anotar_portafolio_cuentas(obtener_cuentas())
 
         # Δ real por cuenta desde las TRANSACCIONES. Se calcula sobre TODAS las
         # cuentas (una transferencia puede cruzar portafolios) y con todas las
         # transacciones. Misma matemática que recalcular_saldos_cuentas.
-        all_txs = txs if not portfolio else obtener_transacciones(None)
         _agregar_tx_delta(accounts, all_txs)
 
         # Separación por portafolio: cada empresa ve SUS cuentas + las

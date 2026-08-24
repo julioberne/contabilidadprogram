@@ -66,26 +66,36 @@ export default function CuentasTab({
     || empresas.find(e => e.portfolio_id === portfolioActivoId)
     || null;
 
-  // ── Vínculos N:M cuenta ↔ EMPRESA ──
-  const vincular = async (accountId, entityId) => {
-    setBusy(true);
-    try {
-      await fetch(`${API}/accounts/${accountId}/links`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entity_id: Number(entityId) }),
-      });
-      refreshAccounts?.();
-      if (traerOpen) cargarOtras();
-    } finally { setBusy(false); setAddingLinkTo(null); }
+  // ── Vínculos N:M cuenta ↔ EMPRESA — con UI OPTIMISTA ──
+  // El chip cambia al instante (overlay local); el refetch corre en segundo
+  // plano. Sin esto, cada acción esperaba el refresh completo del dashboard
+  // (~6s en dev: cada consulta a Supabase us-east-2 paga ~180ms de red).
+  const [linksOverlay, setLinksOverlay] = useState({});
+  useEffect(() => { setLinksOverlay({}); }, [accounts]);   // datos frescos mandan
+  const linksDe = (acc) => linksOverlay[acc.id] ?? acc.entity_links ?? [];
+
+  const vincular = (acc, entityId) => {
+    const empresa = empresas.find(e => e.id === Number(entityId));
+    if (empresa) {
+      setLinksOverlay(o => ({
+        ...o,
+        [acc.id]: [...linksDe(acc).filter(l => l.id !== empresa.id),
+                   { id: empresa.id, name: empresa.name, type: empresa.type }],
+      }));
+    }
+    setAddingLinkTo(null);
+    fetch(`${API}/accounts/${acc.id}/links`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entity_id: Number(entityId) }),
+    }).then(() => { refreshAccounts?.(); if (traerOpen) cargarOtras(); })
+      .catch(() => refreshAccounts?.());
   };
 
-  const desvincular = async (accountId, entityId) => {
-    setBusy(true);
-    try {
-      await fetch(`${API}/accounts/${accountId}/links?entity_id=${entityId}`,
-                  { method: 'DELETE' });
-      refreshAccounts?.();
-    } finally { setBusy(false); }
+  const desvincular = (acc, entityId) => {
+    setLinksOverlay(o => ({ ...o, [acc.id]: linksDe(acc).filter(l => l.id !== entityId) }));
+    fetch(`${API}/accounts/${acc.id}/links?entity_id=${entityId}`, { method: 'DELETE' })
+      .then(() => refreshAccounts?.())
+      .catch(() => refreshAccounts?.());
   };
 
   // Cuentas de otras empresas que se pueden traer a la empresa activa
@@ -233,7 +243,7 @@ export default function CuentasTab({
           )}
           {otrasCuentas?.map(a => (
             <button key={a.id} disabled={busy || !empresaActiva}
-                    onClick={() => vincular(a.id, empresaActiva.id)}
+                    onClick={() => vincular(a, empresaActiva.id)}
                     title={`Hoy pertenece a: ${a.entity_links.map(l => l.name).join(', ')}`}
                     className="border border-black bg-white px-2 py-0.5 mr-1 mb-1 text-[9px] font-mono font-bold hover:bg-black hover:text-white">
               ＋ {a.name} <span className="font-normal text-gray-500">({a.entity_links.map(l => l.name).join(', ')})</span>
@@ -255,7 +265,7 @@ export default function CuentasTab({
             const saldo = Number(acc.current_balance || 0);
             const negativo = saldo < 0;
             const alerta = negativo && !esCuentaCredito(acc);
-            const links = acc.entity_links || [];
+            const links = linksDe(acc);
             const desfase = desfaseDe(acc);
             const cuadra = Math.abs(desfase) <= 1;
             const linkDisponibles = empresas.filter(e => !links.some(l => l.id === e.id));
@@ -307,14 +317,14 @@ export default function CuentasTab({
                       <span key={l.id}
                             className="inline-flex items-center gap-0.5 text-[8px] px-1 mr-0.5 border border-black bg-brutalGreen">
                         {TYPE_ICONS[l.type] || ''} {l.name}
-                        <button onClick={() => desvincular(acc.id, l.id)} disabled={busy}
+                        <button onClick={() => desvincular(acc, l.id)} disabled={busy}
                                 title={`Quitar de ${l.name}${links.length === 1 ? ' (volverá a ser compartida)' : ''}`}
                                 className="hover:text-red-700">×</button>
                       </span>
                     ))}
                     {addingLinkTo === acc.id ? (
                       <select autoFocus defaultValue="" onBlur={() => setAddingLinkTo(null)}
-                              onChange={e => { if (e.target.value) vincular(acc.id, e.target.value); }}
+                              onChange={e => { if (e.target.value) vincular(acc, e.target.value); }}
                               className="text-[8px] border border-black font-mono">
                         <option value="" disabled>vincular a empresa…</option>
                         {linkDisponibles.map(e2 => (
