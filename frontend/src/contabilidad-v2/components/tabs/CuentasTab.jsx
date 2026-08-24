@@ -6,11 +6,13 @@
 //   · DESFASE: esperado (inicial + transacciones) vs saldo real del banco —
 //     la diferencia identifica ajustes manuales o gastos financieros no
 //     contemplados. ⟳ Reconciliar alinea el libro DESPUÉS de revisarla.
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { API } from '../../../config';
 import { useEmpresa } from '../../engine/EmpresaProvider.jsx';
 
 const TIPOS = ['Ahorros', 'Corriente', 'Crédito', 'Efectivo', 'Billetera', 'Crypto'];
+// Iconos del árbol de Control Tower — los vínculos van a EMPRESAS, no a portafolios
+const TYPE_ICONS = { HOLDING: '🏛️', EMPRESA: '🏢', SUB_EMPRESA: '📍', PROYECTO: '📐', TAREA: '📋' };
 
 /** Las cuentas de crédito viven en negativo por diseño; el resto no debería. */
 export const esCuentaCredito = (acc) => String(acc?.type || '').toLowerCase().startsWith('créd')
@@ -44,39 +46,57 @@ export default function CuentasTab({
   const [addingLinkTo, setAddingLinkTo] = useState(null);   // fila con "+" abierto
   const [traerOpen, setTraerOpen] = useState(false);        // panel 🔗 traer cuenta
   const [otrasCuentas, setOtrasCuentas] = useState(null);   // null = sin cargar
+  const [empresas, setEmpresas] = useState([]);             // árbol de Control Tower
   const [busy, setBusy] = useState(false);
-  const { portfolios = [], activePortfolio } = useEmpresa();
+  const { portfolios = [], activePortfolio, activeCompany } = useEmpresa();
 
-  // ── Vínculos N:M cuenta ↔ portafolio ──
-  const vincular = async (accountId, portfolioName) => {
+  // Árbol de empresas (los vínculos de cuentas van a EMPRESAS del árbol;
+  // los portafolios son presupuestos dentro de ellas)
+  useEffect(() => {
+    fetch(`${API}/org/entities/selector`)
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setEmpresas(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  }, []);
+
+  // Empresa activa: la seleccionada en el consolidado, o la dueña del
+  // presupuesto (portafolio) activo
+  const portfolioActivoId = portfolios.find(p => p.name === activePortfolio)?.id;
+  const empresaActiva = (activeCompany && empresas.find(e => e.id === activeCompany.id))
+    || empresas.find(e => e.portfolio_id === portfolioActivoId)
+    || null;
+
+  // ── Vínculos N:M cuenta ↔ EMPRESA ──
+  const vincular = async (accountId, entityId) => {
     setBusy(true);
     try {
       await fetch(`${API}/accounts/${accountId}/links`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ portfolio_name: portfolioName }),
+        body: JSON.stringify({ entity_id: Number(entityId) }),
       });
       refreshAccounts?.();
       if (traerOpen) cargarOtras();
     } finally { setBusy(false); setAddingLinkTo(null); }
   };
 
-  const desvincular = async (accountId, portfolioName) => {
+  const desvincular = async (accountId, entityId) => {
     setBusy(true);
     try {
-      await fetch(`${API}/accounts/${accountId}/links?portfolio_name=${encodeURIComponent(portfolioName)}`,
+      await fetch(`${API}/accounts/${accountId}/links?entity_id=${entityId}`,
                   { method: 'DELETE' });
       refreshAccounts?.();
     } finally { setBusy(false); }
   };
 
-  // Cuentas de otras empresas que se pueden traer al portafolio activo
+  // Cuentas de otras empresas que se pueden traer a la empresa activa
   const cargarOtras = async () => {
     try {
       const r = await fetch(`${API}/accounts`);
       if (!r.ok) return;
       const todas = await r.json();
       setOtrasCuentas(todas.filter(a =>
-        a.portfolio_links?.length && !a.portfolio_links.includes(activePortfolio)));
+        a.entity_links?.length &&
+        (!empresaActiva || !a.entity_links.some(l => l.id === empresaActiva.id))));
     } catch { setOtrasCuentas([]); }
   };
 
@@ -162,9 +182,9 @@ export default function CuentasTab({
         </div>
       )}
 
-      {/* ═══ ALTA (nace vinculada al portafolio activo) ═══ */}
+      {/* ═══ ALTA (nace vinculada a la empresa activa) ═══ */}
       <div className="border border-black p-2 bg-brutalBg space-y-1.5">
-        <SectionLabel text={`Agregar nueva cuenta financiera → ${activePortfolio || 'compartida'}`} />
+        <SectionLabel text={`Agregar nueva cuenta financiera → ${empresaActiva?.name || 'compartida'}`} />
         <form onSubmit={handleAddAccount} className="space-y-1">
           <input type="text" value={newAccName} onChange={e => setNewAccName(e.target.value)} placeholder="Nombre (ej: Bancolombia)" className="w-full border border-black px-2 py-1 text-[10px] font-mono outline-none" required />
           <div className="grid grid-cols-2 gap-1">
@@ -199,11 +219,11 @@ export default function CuentasTab({
         </div>
       </div>
 
-      {/* Panel: traer cuentas de otras empresas al portafolio activo */}
+      {/* Panel: traer cuentas de otras empresas a la empresa activa */}
       {traerOpen && (
         <div className="border border-black bg-amber-50 p-2 space-y-1">
           <div className="text-[8px] font-mono font-bold uppercase text-amber-800">
-            Vincular a {activePortfolio || '—'}:
+            Vincular a {empresaActiva ? `${TYPE_ICONS[empresaActiva.type] || ''} ${empresaActiva.name}` : '— (selecciona una empresa en el consolidado)'}:
           </div>
           {otrasCuentas === null && <div className="text-[9px] font-mono text-gray-500">Cargando…</div>}
           {otrasCuentas?.length === 0 && (
@@ -212,11 +232,11 @@ export default function CuentasTab({
             </div>
           )}
           {otrasCuentas?.map(a => (
-            <button key={a.id} disabled={busy || !activePortfolio}
-                    onClick={() => vincular(a.id, activePortfolio)}
-                    title={`Hoy visible en: ${a.portfolio_links.join(', ')}`}
+            <button key={a.id} disabled={busy || !empresaActiva}
+                    onClick={() => vincular(a.id, empresaActiva.id)}
+                    title={`Hoy pertenece a: ${a.entity_links.map(l => l.name).join(', ')}`}
                     className="border border-black bg-white px-2 py-0.5 mr-1 mb-1 text-[9px] font-mono font-bold hover:bg-black hover:text-white">
-              ＋ {a.name} <span className="font-normal text-gray-500">({a.portfolio_links.join(', ')})</span>
+              ＋ {a.name} <span className="font-normal text-gray-500">({a.entity_links.map(l => l.name).join(', ')})</span>
             </button>
           ))}
         </div>
@@ -235,10 +255,10 @@ export default function CuentasTab({
             const saldo = Number(acc.current_balance || 0);
             const negativo = saldo < 0;
             const alerta = negativo && !esCuentaCredito(acc);
-            const links = acc.portfolio_links || [];
+            const links = acc.entity_links || [];
             const desfase = desfaseDe(acc);
             const cuadra = Math.abs(desfase) <= 1;
-            const linkDisponibles = portfolios.filter(p => !links.includes(p.name));
+            const linkDisponibles = empresas.filter(e => !links.some(l => l.id === e.id));
 
             if (editingId === acc.id) {
               return (
@@ -281,14 +301,14 @@ export default function CuentasTab({
                   <div className="mt-0.5">
                     {links.length === 0 && (
                       <span className="text-[8px] px-1 border border-dashed border-gray-400 text-gray-500"
-                            title="Compartida: visible en todos los portafolios">🌐 todas</span>
+                            title="Compartida: visible en todas las empresas">🌐 todas</span>
                     )}
-                    {links.map(name => (
-                      <span key={name}
+                    {links.map(l => (
+                      <span key={l.id}
                             className="inline-flex items-center gap-0.5 text-[8px] px-1 mr-0.5 border border-black bg-brutalGreen">
-                        {name}
-                        <button onClick={() => desvincular(acc.id, name)} disabled={busy}
-                                title={`Quitar de ${name}${links.length === 1 ? ' (volverá a ser compartida)' : ''}`}
+                        {TYPE_ICONS[l.type] || ''} {l.name}
+                        <button onClick={() => desvincular(acc.id, l.id)} disabled={busy}
+                                title={`Quitar de ${l.name}${links.length === 1 ? ' (volverá a ser compartida)' : ''}`}
                                 className="hover:text-red-700">×</button>
                       </span>
                     ))}
@@ -296,13 +316,17 @@ export default function CuentasTab({
                       <select autoFocus defaultValue="" onBlur={() => setAddingLinkTo(null)}
                               onChange={e => { if (e.target.value) vincular(acc.id, e.target.value); }}
                               className="text-[8px] border border-black font-mono">
-                        <option value="" disabled>vincular a…</option>
-                        {linkDisponibles.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                        <option value="" disabled>vincular a empresa…</option>
+                        {linkDisponibles.map(e2 => (
+                          <option key={e2.id} value={e2.id}>
+                            {' '.repeat((e2.level || 0) * 2)}{TYPE_ICONS[e2.type] || ''} {e2.name}
+                          </option>
+                        ))}
                       </select>
                     ) : (
                       linkDisponibles.length > 0 && (
                         <button onClick={() => setAddingLinkTo(acc.id)} disabled={busy}
-                                title="Vincular esta cuenta a otra empresa/portafolio"
+                                title="Vincular esta cuenta a una empresa del árbol"
                                 className="text-[8px] px-1 border border-black bg-white hover:bg-black hover:text-white">＋</button>
                       )
                     )}

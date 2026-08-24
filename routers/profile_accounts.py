@@ -11,14 +11,13 @@ router = APIRouter(tags=["Perfil & Cuentas"])
 
 
 def anotar_portafolio_cuentas(accounts):
-    """Anota los vínculos N:M cuenta ↔ portafolio en cada cuenta (dict).
+    """Anota los vínculos cuenta ↔ EMPRESA (entities del árbol Control Tower).
 
-    Modelo (scripts/migrate_account_links.py): una cuenta SIN vínculos es
-    compartida GLOBAL (visible en todos los portafolios); con vínculos, solo
-    es visible en esos. Se hace aquí para no tocar database_driver.
+    Modelo (scripts/migrate_account_entity_links.py): la cuenta pertenece a
+    EMPRESAS/proyectos, no a portafolios — los portafolios son presupuestos
+    dentro de las empresas. Sin vínculos = compartida GLOBAL.
 
-      portfolio_links → lista de nombres de portafolio vinculados
-      portfolio_name  → compat: el nombre si hay exactamente 1 vínculo
+      entity_links → [{id, name, type}] de las empresas vinculadas
     """
     try:
         from db_pool import get_conn, put_conn
@@ -26,86 +25,80 @@ def anotar_portafolio_cuentas(accounts):
         try:
             cur = conn.cursor()
             cur.execute("""
-                SELECT l.account_id, p.name
-                FROM account_portfolio_links l JOIN portfolios p ON p.id = l.portfolio_id
-                ORDER BY p.name
+                SELECT l.account_id, e.id, e.name, e.type
+                FROM account_entity_links l JOIN entities e ON e.id = l.entity_id
+                ORDER BY e.name
             """)
             mapa = {}
-            for acc_id, pname in cur.fetchall():
-                mapa.setdefault(acc_id, []).append(pname)
+            for acc_id, eid, ename, etype in cur.fetchall():
+                mapa.setdefault(acc_id, []).append({"id": eid, "name": ename, "type": etype})
             cur.close()
         finally:
             put_conn(conn)
         for a in accounts:
-            links = mapa.get(a.get("id"), [])
-            a["portfolio_links"] = links
-            a["portfolio_name"] = links[0] if len(links) == 1 else None
-            a["portfolio_id"] = None   # legado 1:1, ya no gobierna
+            a["entity_links"] = mapa.get(a.get("id"), [])
     except Exception:
         # Sin la tabla (instalación sin migrar) todas quedan compartidas
         for a in accounts:
-            a.setdefault("portfolio_links", [])
-            a.setdefault("portfolio_name", None)
-            a.setdefault("portfolio_id", None)
+            a.setdefault("entity_links", [])
     return accounts
 
 
 def filtrar_cuentas_por_portafolio(accounts, portfolio):
-    """Visibles para un portafolio: las vinculadas a él + las compartidas."""
+    """Visibles en un portafolio: las de EMPRESAS cuyo presupuesto es ese
+    portafolio + las compartidas (sin vínculos). La visibilidad contable se
+    DERIVA del árbol: cuenta → empresa → presupuesto (entities.portfolio_id)."""
     if not portfolio:
         return accounts
+    try:
+        from db_pool import get_conn, put_conn
+        conn = get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT e.id FROM entities e
+                JOIN portfolios p ON p.id = e.portfolio_id
+                WHERE p.name = %s
+            """, (portfolio,))
+            entity_ids = {r[0] for r in cur.fetchall()}
+            cur.close()
+        finally:
+            put_conn(conn)
+    except Exception:
+        entity_ids = set()
     return [a for a in accounts
-            if not a.get("portfolio_links") or portfolio in a["portfolio_links"]]
+            if not a.get("entity_links")
+            or any(l["id"] in entity_ids for l in a["entity_links"])]
 
 
-def _link_cuenta(account_id, portfolio_name):
+def _link_cuenta(account_id, entity_id):
     from db_pool import get_conn, put_conn
     conn = get_conn()
     try:
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO account_portfolio_links (account_id, portfolio_id)
-            SELECT %s, id FROM portfolios WHERE name = %s
-            ON CONFLICT DO NOTHING
-            RETURNING account_id
-        """, (account_id, portfolio_name))
-        creado = cur.fetchone() is not None
+            INSERT INTO account_entity_links (account_id, entity_id)
+            VALUES (%s, %s) ON CONFLICT DO NOTHING
+        """, (account_id, int(entity_id)))
         conn.commit()
         cur.close()
-        return creado
     finally:
         put_conn(conn)
 
 
-def _unlink_cuenta(account_id, portfolio_name):
+def _unlink_cuenta(account_id, entity_id):
     from db_pool import get_conn, put_conn
     conn = get_conn()
     try:
         cur = conn.cursor()
         cur.execute("""
-            DELETE FROM account_portfolio_links
-            WHERE account_id = %s
-              AND portfolio_id = (SELECT id FROM portfolios WHERE name = %s)
-        """, (account_id, portfolio_name))
+            DELETE FROM account_entity_links
+            WHERE account_id = %s AND entity_id = %s
+        """, (account_id, int(entity_id)))
         conn.commit()
         cur.close()
     finally:
         put_conn(conn)
-
-
-def _set_portfolio_cuenta(account_id, portfolio_name):
-    """Compat del PUT 1:1: '' = compartida (sin vínculos); nombre = SOLO ese."""
-    from db_pool import get_conn, put_conn
-    conn = get_conn()
-    try:
-        cur = conn.cursor()
-        cur.execute("DELETE FROM account_portfolio_links WHERE account_id = %s", (account_id,))
-        conn.commit()
-        cur.close()
-    finally:
-        put_conn(conn)
-    if portfolio_name:
-        _link_cuenta(account_id, portfolio_name)
 
 
 # ==============================================================================
@@ -153,13 +146,28 @@ def add_account(acc: AccountInput):
     try:
         from database_driver import crear_cuenta
         new_id = crear_cuenta(acc.dict())
-        # La cuenta nace en el portafolio activo (crear_cuenta no conoce la
-        # columna; se asigna aquí). Sin portfolio → compartida.
+        # La cuenta nace vinculada a la(s) EMPRESA(s) cuyo presupuesto es el
+        # portafolio activo (el form manda el portafolio; la dueña real es la
+        # empresa del árbol). Sin empresa resoluble → compartida.
         if acc.portfolio:
             try:
-                _set_portfolio_cuenta(new_id, acc.portfolio)
+                from db_pool import get_conn, put_conn
+                conn = get_conn()
+                try:
+                    cur = conn.cursor()
+                    cur.execute("""
+                        SELECT e.id FROM entities e
+                        JOIN portfolios p ON p.id = e.portfolio_id
+                        WHERE p.name = %s
+                    """, (acc.portfolio,))
+                    entity_ids = [r[0] for r in cur.fetchall()]
+                    cur.close()
+                finally:
+                    put_conn(conn)
+                for eid in entity_ids:
+                    _link_cuenta(new_id, eid)
             except Exception as e:
-                print(f"⚠️ Cuenta {new_id} creada pero sin portafolio asignado: {e}")
+                print(f"⚠️ Cuenta {new_id} creada pero sin empresa vinculada: {e}")
         return {"status": "CREADO", "account_id": new_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -185,9 +193,6 @@ def update_account(account_id: int, acc: AccountUpdateInput):
                 cur.close()
             finally:
                 put_conn(conn)
-        # Reasignación de portafolio: None = no tocar, "" = compartida
-        if acc.portfolio_name is not None:
-            _set_portfolio_cuenta(account_id, acc.portfolio_name.strip())
         return {"status": "ACTUALIZADO"}
     except HTTPException:
         raise
@@ -197,23 +202,23 @@ def update_account(account_id: int, acc: AccountUpdateInput):
 
 @router.post("/api/accounts/{account_id}/links")
 def link_account(account_id: int, body: dict):
-    """Vincula la cuenta a un portafolio más (N:M). body: {portfolio_name}."""
-    portfolio_name = (body or {}).get("portfolio_name", "").strip()
-    if not portfolio_name:
-        raise HTTPException(status_code=422, detail="portfolio_name requerido")
+    """Vincula la cuenta a una EMPRESA del árbol (N:M). body: {entity_id}."""
+    entity_id = (body or {}).get("entity_id")
+    if not entity_id:
+        raise HTTPException(status_code=422, detail="entity_id requerido")
     try:
-        _link_cuenta(account_id, portfolio_name)
-        return {"status": "VINCULADA", "portfolio_name": portfolio_name}
+        _link_cuenta(account_id, entity_id)
+        return {"status": "VINCULADA", "entity_id": int(entity_id)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/api/accounts/{account_id}/links")
-def unlink_account(account_id: int, portfolio_name: str):
+def unlink_account(account_id: int, entity_id: int):
     """Quita un vínculo. Sin vínculos restantes la cuenta vuelve a ser compartida."""
     try:
-        _unlink_cuenta(account_id, portfolio_name.strip())
-        return {"status": "DESVINCULADA", "portfolio_name": portfolio_name}
+        _unlink_cuenta(account_id, entity_id)
+        return {"status": "DESVINCULADA", "entity_id": entity_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
