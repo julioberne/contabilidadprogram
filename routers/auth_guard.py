@@ -21,8 +21,10 @@ import time
 
 from fastapi import Depends, Header, HTTPException
 
-# TTL de la sesión: 12 horas
-TOKEN_TTL_SECONDS = 12 * 60 * 60
+# TTL de la sesión: 7 días. Con 12h la sesión moría a media jornada y los
+# botones admin (⚠️ Reiniciar / ⚡ Semillar) fallaban con 401 sin que fuera
+# obvio por qué (caso real 2026-08-10).
+TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60
 
 
 def _secret() -> bytes:

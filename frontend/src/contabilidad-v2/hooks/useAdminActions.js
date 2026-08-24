@@ -23,6 +23,8 @@ export function useAdminActions() {
       if (res.ok) {
         alert("✅ Datos sintéticos creados con éxito. Se indujo un estado de insolvencia para probar alertas.");
         fetchData();
+      } else if (res.status === 401) {
+        alert("🔒 Tu sesión expiró. Cierra sesión (SALIR) y vuelve a entrar para usar los botones de administración.");
       } else {
         alert(`❌ Error al semillar datos: ${data.detail}`);
       }
@@ -44,6 +46,8 @@ export function useAdminActions() {
       if (res.ok) {
         alert("✅ Base de datos contable y cuentas reiniciadas con éxito.");
         fetchData();
+      } else if (res.status === 401) {
+        alert("🔒 Tu sesión expiró. Cierra sesión (SALIR) y vuelve a entrar para usar los botones de administración.");
       } else {
         alert(`❌ Error al reiniciar base de datos: ${data.detail}`);
       }

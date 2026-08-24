@@ -23,7 +23,9 @@ const fmt = (v, currency = 'COP') => {
 };
 
 export default function AccountsPulse() {
-  const { accounts = [] } = useEmpresa();
+  // accounts ya viene filtrado por el backend: cuentas del portafolio activo
+  // + compartidas (separación multi-empresa)
+  const { accounts = [], activePortfolio } = useEmpresa();
   if (!accounts.length) return null;
 
   // Tolerancia de 1 peso para redondeos
@@ -41,7 +43,7 @@ export default function AccountsPulse() {
         borderBottom: '1px solid #ddd', background: '#fafafa',
       }}>
         <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 2, color: '#888', textTransform: 'uppercase' }}>
-          💳 PULSO DE CUENTAS · INICIAL → MOVIMIENTOS → ACTUAL
+          💳 PULSO DE CUENTAS · {activePortfolio || 'TODAS'} <span style={{ color: '#bbb' }}>(+ compartidas)</span>
         </span>
         {descuadres.length > 0 && (
           <span title="El saldo actual no coincide con inicial + transacciones: hubo un ajuste manual o falta Reconciliar (💳 Cuentas → ⟳)."

@@ -1,5 +1,6 @@
 // CuentasTab.jsx — Panel de Cuentas: saldos, CRUD y control de disponible
 import React, { useState } from 'react';
+import { useEmpresa } from '../../engine/EmpresaProvider.jsx';
 
 const TIPOS = ['Ahorros', 'Corriente', 'Crédito', 'Efectivo', 'Billetera', 'Crypto'];
 
@@ -25,6 +26,8 @@ export default function CuentasTab({
 }) {
   const [editingId, setEditingId] = useState(null);
   const [draft, setDraft] = useState({});
+  // Portafolios reales para asignar cuentas (separación multi-empresa)
+  const { portfolios = [], activePortfolio } = useEmpresa();
 
   // Totales por moneda — sin esto no hay forma de ver el disponible real
   const totales = accounts.reduce((acc, a) => {
@@ -38,7 +41,8 @@ export default function CuentasTab({
   const startEdit = (acc) => {
     setEditingId(acc.id);
     setDraft({ name: acc.name, type: acc.type, current_balance: acc.current_balance,
-               initial_balance: acc.initial_balance });
+               initial_balance: acc.initial_balance,
+               portfolio_name: acc.portfolio_name || '' });
   };
 
   const saveEdit = async (id) => {
@@ -51,6 +55,8 @@ export default function CuentasTab({
       // cambiarlo, ⟳ Reconciliar recalcula el actual (inicial + transacciones)
       initial_balance: draft.initial_balance === '' || draft.initial_balance === undefined
         ? null : Number(draft.initial_balance),
+      // '' = compartida (todos los portafolios); nombre = solo ese portafolio
+      portfolio_name: draft.portfolio_name ?? null,
     });
     if (ok) setEditingId(null);
   };
@@ -92,7 +98,7 @@ export default function CuentasTab({
 
       {/* ═══ ALTA ═══ */}
       <div className="border border-black p-2 bg-brutalBg space-y-1.5">
-        <SectionLabel text="Agregar nueva cuenta financiera" />
+        <SectionLabel text={`Agregar nueva cuenta financiera → ${activePortfolio || 'compartida'}`} />
         <form onSubmit={handleAddAccount} className="space-y-1">
           <input type="text" value={newAccName} onChange={e => setNewAccName(e.target.value)} placeholder="Nombre (ej: Bancolombia)" className="w-full border border-black px-2 py-1 text-[10px] font-mono outline-none" required />
           <div className="grid grid-cols-2 gap-1">
@@ -161,6 +167,12 @@ export default function CuentasTab({
                       className="w-full border border-dashed border-black px-1 text-[10px] font-mono text-right outline-none bg-yellow-50" />
                   </td>
                   <td className="p-1 text-center whitespace-nowrap">
+                    <select value={draft.portfolio_name} onChange={e => setDraft(d => ({ ...d, portfolio_name: e.target.value }))}
+                      title="Portafolio dueño de la cuenta. Compartida = visible en todos."
+                      className="w-full border border-black text-[8px] font-mono mb-0.5">
+                      <option value="">— compartida —</option>
+                      {portfolios.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                    </select>
                     <button onClick={() => saveEdit(acc.id)} className="px-1 hover:text-brutalGreen" title="Guardar">✔</button>
                     <button onClick={() => setEditingId(null)} className="px-1 hover:text-red-600" title="Cancelar">✕</button>
                   </td>
@@ -172,6 +184,10 @@ export default function CuentasTab({
               <tr key={acc.id} className={alerta ? 'bg-red-50' : 'hover:bg-brutalBg'}>
                 <td className="p-1 border-r border-black font-bold">
                   {alerta && <span title="Sobregirada">⚠ </span>}{acc.name}
+                  <span className={`ml-1 text-[8px] font-normal px-1 border ${acc.portfolio_name ? 'border-black bg-brutalGreen text-black' : 'border-gray-300 text-gray-400'}`}
+                        title={acc.portfolio_name ? `Cuenta exclusiva de ${acc.portfolio_name}` : 'Compartida: visible en todos los portafolios'}>
+                    {acc.portfolio_name || 'compartida'}
+                  </span>
                 </td>
                 <td className="p-1 border-r border-black text-center text-[9px]">{acc.type}</td>
                 <td className="p-1 border-r border-black text-center">{acc.currency || 'COP'}</td>

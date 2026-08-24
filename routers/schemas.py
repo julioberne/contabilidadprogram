@@ -35,6 +35,8 @@ class AccountInput(BaseModel):
     type: str
     currency: str = "COP"
     initial_balance: float = 0.0
+    # Nombre del portafolio dueño de la cuenta. None = compartida (global).
+    portfolio: Optional[str] = None
 
 
 class AccountUpdateInput(BaseModel):
@@ -44,6 +46,8 @@ class AccountUpdateInput(BaseModel):
     current_balance: Optional[float] = None
     # None = no tocar el saldo inicial (editable desde 💳 Cuentas)
     initial_balance: Optional[float] = None
+    # None = no tocar; "" = volver COMPARTIDA; nombre = asignar a ese portafolio
+    portfolio_name: Optional[str] = None
 
 
 class CxcCxpInput(BaseModel):

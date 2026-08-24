@@ -102,6 +102,28 @@ export default function DashboardPanel({
     }
   }, [fetchConsolidated, onCompaniesChanged]);
 
+  /* ── Crear portafolio contable nuevo ───────────────────────
+     Cada portafolio es un libro contable independiente (cuentas, COA,
+     transacciones propias); las empresas se vinculan a uno desde su fila. */
+  const handleCreatePortfolio = useCallback(async () => {
+    const name = window.prompt('Nombre del nuevo portafolio contable:\n(cada portafolio es un libro independiente — luego vincúlalo a una empresa desde su fila)');
+    if (!name || !name.trim()) return;
+    try {
+      const res = await fetch(`${API}/portfolios`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), industry_type: 'ESTANDAR' }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.detail || 'No se pudo crear el portafolio');
+      await fetchConsolidated();       // el dropdown de vínculos lo muestra ya
+      onCompaniesChanged?.();
+      alert(`✅ Portafolio "${name.trim()}" creado. Vincúlalo a una empresa en la columna PORTAFOLIO.`);
+    } catch (e) {
+      alert(e.message || 'No se pudo crear el portafolio.');
+    }
+  }, [fetchConsolidated, onCompaniesChanged]);
+
   const industryLabel = activeCompany?.industry && activeCompany.industry !== 'ESTANDAR'
     ? activeCompany.industry : null;
 
@@ -134,8 +156,17 @@ export default function DashboardPanel({
             {unlinkedCount} SIN VINCULAR
           </span>
         )}
+        {/* La contabilidad activa: los módulos de abajo (registro, libro,
+            pulso de cuentas) trabajan sobre ESTE portafolio */}
+        <span
+          style={{ fontSize: 8, color: '#166534', background: '#dcfce7', border: '1px solid #4ade80', padding: '0 4px', letterSpacing: 0.5, fontWeight: 700 }}
+          title="Portafolio contable sobre el que trabajan el registro, el libro diario y el pulso de cuentas. Cambia seleccionando una empresa vinculada."
+        >
+          ▸ TRABAJANDO EN: {activePortfolio || '—'}
+        </span>
         <span style={{ flex: 1 }} />
         {/* Accesos rápidos inline */}
+        <QBtn label="＋ Portafolio" onClick={handleCreatePortfolio} />
         <QBtn label="📝 Registro" onClick={() => onQuickAction?.('registro')} />
         <QBtn label="👤 Tercero" onClick={() => onQuickAction?.('tercero')} />
         <QBtn label="📦 Recurso" onClick={() => onQuickAction?.('recurso')} />

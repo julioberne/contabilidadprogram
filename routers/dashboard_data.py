@@ -90,17 +90,23 @@ def get_dashboard_data(portfolio: Optional[str] = None, limit: int = 50, offset:
                 detail=f"Portafolio no encontrado: '{portfolio}'"
             )
 
-        txs = obtener_transacciones(portfolio)
-        accounts = obtener_cuentas()
-        totals = calculate_caja_viva(txs, accounts)
+        from routers.profile_accounts import anotar_portafolio_cuentas, filtrar_cuentas_por_portafolio
 
-        # Δ real por cuenta desde las TRANSACCIONES (todas, sin filtro de
-        # portafolio: las cuentas son globales). Misma matemática que
-        # recalcular_saldos_cuentas. Permite al frontend mostrar
-        # inicial → movimientos → esperado, y detectar descuadres cuando el
-        # saldo actual fue editado a mano.
+        txs = obtener_transacciones(portfolio)
+        accounts = anotar_portafolio_cuentas(obtener_cuentas())
+
+        # Δ real por cuenta desde las TRANSACCIONES. Se calcula sobre TODAS las
+        # cuentas (una transferencia puede cruzar portafolios) y con todas las
+        # transacciones. Misma matemática que recalcular_saldos_cuentas.
         all_txs = txs if not portfolio else obtener_transacciones(None)
         _agregar_tx_delta(accounts, all_txs)
+
+        # Separación por portafolio: cada empresa ve SUS cuentas + las
+        # compartidas (portfolio_id NULL). El patrimonio/balance del portafolio
+        # se calcula solo con esas — no todas las empresas tienen las mismas
+        # cuentas ni los mismos valores.
+        accounts = filtrar_cuentas_por_portafolio(accounts, portfolio)
+        totals = calculate_caja_viva(txs, accounts)
         
         # Paginación de transacciones
         paginated_txs = txs[offset:offset + limit] if txs else []
