@@ -184,9 +184,13 @@ export default function CuentasTab({
               <tr key={acc.id} className={alerta ? 'bg-red-50' : 'hover:bg-brutalBg'}>
                 <td className="p-1 border-r border-black font-bold">
                   {alerta && <span title="Sobregirada">⚠ </span>}{acc.name}
-                  <span className={`ml-1 text-[8px] font-normal px-1 border ${acc.portfolio_name ? 'border-black bg-brutalGreen text-black' : 'border-gray-300 text-gray-400'}`}
-                        title={acc.portfolio_name ? `Cuenta exclusiva de ${acc.portfolio_name}` : 'Compartida: visible en todos los portafolios'}>
-                    {acc.portfolio_name || 'compartida'}
+                  <span className={`ml-1 text-[8px] font-normal px-1 border ${acc.portfolio_links?.length ? 'border-black bg-brutalGreen text-black' : 'border-gray-300 text-gray-400'}`}
+                        title={acc.portfolio_links?.length
+                          ? `Visible en: ${acc.portfolio_links.join(', ')}`
+                          : 'Compartida: visible en todos los portafolios'}>
+                    {acc.portfolio_links?.length > 1
+                      ? `${acc.portfolio_links.length} portafolios`
+                      : (acc.portfolio_links?.[0] || 'compartida')}
                   </span>
                 </td>
                 <td className="p-1 border-r border-black text-center text-[9px]">{acc.type}</td>

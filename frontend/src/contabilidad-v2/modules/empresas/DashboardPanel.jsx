@@ -124,6 +124,24 @@ export default function DashboardPanel({
     }
   }, [fetchConsolidated, onCompaniesChanged]);
 
+  /* ── Jerarquía colapsable: padre ▸ hijo ▸ proyecto ▸ tarea ──
+     Las entidades llegan ordenadas jerárquicamente con parent_id + level;
+     colapsar un padre oculta TODO su subárbol. */
+  const [collapsedIds, setCollapsedIds] = useState(new Set());
+  const toggleCollapse = (id) => setCollapsedIds(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const conHijos = new Set(entities.filter(e =>
+    entities.some(h => h.parent_id === e.id)).map(e => e.id));
+  const ocultos = new Set();
+  const ocultarDescendientes = (pid) => entities
+    .filter(e => e.parent_id === pid)
+    .forEach(e => { ocultos.add(e.id); ocultarDescendientes(e.id); });
+  collapsedIds.forEach(id => ocultarDescendientes(id));
+  const entidadesVisibles = entities.filter(e => !ocultos.has(e.id));
+
   const industryLabel = activeCompany?.industry && activeCompany.industry !== 'ESTANDAR'
     ? activeCompany.industry : null;
 
@@ -189,10 +207,12 @@ export default function DashboardPanel({
             {loading ? (
               <tr><td colSpan={5} style={{ ...S.td, textAlign: 'center', color: '#aaa' }}>Cargando...</td></tr>
             ) : (
-              entities.map(entity => {
+              entidadesVisibles.map(entity => {
                 const linked = entity.linked;              // vínculo propio
                 const hasFigures = entity.has_figures;     // propio + hijas
                 const isActive = entity.id === activeCompany?.id;
+                const esPadre = conHijos.has(entity.id);
+                const colapsado = collapsedIds.has(entity.id);
                 return (
                   <tr
                     key={entity.id}
@@ -206,10 +226,27 @@ export default function DashboardPanel({
                     onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = '#f8f8f8'; }}
                     onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
                   >
-                    <td style={{ ...S.td, fontWeight: isActive ? 700 : 400, whiteSpace: 'nowrap' }}>
+                    <td style={{ ...S.td, fontWeight: isActive ? 700 : 400, whiteSpace: 'nowrap',
+                                 paddingLeft: 8 + (entity.level || 0) * 14 }}>
+                      {esPadre ? (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleCollapse(entity.id); }}
+                          title={colapsado ? 'Expandir subárbol' : 'Colapsar subárbol'}
+                          style={{ border: 'none', background: 'transparent', cursor: 'pointer',
+                                   fontSize: 9, padding: '0 3px 0 0', color: '#555' }}
+                        >{colapsado ? '▸' : '▾'}</button>
+                      ) : (
+                        <span style={{ display: 'inline-block', width: 12 }} />
+                      )}
                       {isActive && <span style={{ color: '#00c853', marginRight: 3 }}>●</span>}
                       <span style={{ fontSize: 10 }}>{TYPE_ICONS[entity.type] || '○'}</span>{' '}
                       {entity.name}
+                      {esPadre && colapsado && (
+                        <span style={{ fontSize: 7, color: '#6366f1', marginLeft: 4 }}
+                              title="Subárbol colapsado">
+                          +{entities.filter(e => { let p = e; while (p.parent_id != null) { if (p.parent_id === entity.id) return true; p = entities.find(x => x.id === p.parent_id) || {}; } return false; }).length}
+                        </span>
+                      )}
                       {entity.industry && entity.industry !== 'ESTANDAR' && (
                         <span style={{
                           fontSize: 7, background: '#1a1a2e', color: '#00ff41',

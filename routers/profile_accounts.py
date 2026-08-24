@@ -11,11 +11,14 @@ router = APIRouter(tags=["Perfil & Cuentas"])
 
 
 def anotar_portafolio_cuentas(accounts):
-    """Anota portfolio_id / portfolio_name en cada cuenta (dict).
+    """Anota los vínculos N:M cuenta ↔ portafolio en cada cuenta (dict).
 
-    Se hace aquí (y no en obtener_cuentas) para no tocar database_driver:
-    la columna user_accounts.portfolio_id la agregó
-    scripts/migrate_accounts_portfolio.py. NULL = compartida.
+    Modelo (scripts/migrate_account_links.py): una cuenta SIN vínculos es
+    compartida GLOBAL (visible en todos los portafolios); con vínculos, solo
+    es visible en esos. Se hace aquí para no tocar database_driver.
+
+      portfolio_links → lista de nombres de portafolio vinculados
+      portfolio_name  → compat: el nombre si hay exactamente 1 vínculo
     """
     try:
         from db_pool import get_conn, put_conn
@@ -23,51 +26,86 @@ def anotar_portafolio_cuentas(accounts):
         try:
             cur = conn.cursor()
             cur.execute("""
-                SELECT a.id, a.portfolio_id, p.name
-                FROM user_accounts a LEFT JOIN portfolios p ON p.id = a.portfolio_id
+                SELECT l.account_id, p.name
+                FROM account_portfolio_links l JOIN portfolios p ON p.id = l.portfolio_id
+                ORDER BY p.name
             """)
-            mapa = {r[0]: (r[1], r[2]) for r in cur.fetchall()}
+            mapa = {}
+            for acc_id, pname in cur.fetchall():
+                mapa.setdefault(acc_id, []).append(pname)
             cur.close()
         finally:
             put_conn(conn)
         for a in accounts:
-            pid, pname = mapa.get(a.get("id"), (None, None))
-            a["portfolio_id"] = pid
-            a["portfolio_name"] = pname
+            links = mapa.get(a.get("id"), [])
+            a["portfolio_links"] = links
+            a["portfolio_name"] = links[0] if len(links) == 1 else None
+            a["portfolio_id"] = None   # legado 1:1, ya no gobierna
     except Exception:
-        # Sin la columna (instalación sin migrar) todas quedan compartidas
+        # Sin la tabla (instalación sin migrar) todas quedan compartidas
         for a in accounts:
-            a.setdefault("portfolio_id", None)
+            a.setdefault("portfolio_links", [])
             a.setdefault("portfolio_name", None)
+            a.setdefault("portfolio_id", None)
     return accounts
 
 
 def filtrar_cuentas_por_portafolio(accounts, portfolio):
-    """Cuentas visibles para un portafolio: las suyas + las compartidas."""
+    """Visibles para un portafolio: las vinculadas a él + las compartidas."""
     if not portfolio:
         return accounts
     return [a for a in accounts
-            if a.get("portfolio_id") is None or a.get("portfolio_name") == portfolio]
+            if not a.get("portfolio_links") or portfolio in a["portfolio_links"]]
 
 
-def _set_portfolio_cuenta(account_id, portfolio_name):
-    """portfolio_name: '' = compartida (NULL); nombre = asignar."""
+def _link_cuenta(account_id, portfolio_name):
     from db_pool import get_conn, put_conn
     conn = get_conn()
     try:
         cur = conn.cursor()
-        if not portfolio_name:
-            cur.execute("UPDATE user_accounts SET portfolio_id = NULL WHERE id = %s", (account_id,))
-        else:
-            cur.execute("""
-                UPDATE user_accounts
-                SET portfolio_id = (SELECT id FROM portfolios WHERE name = %s)
-                WHERE id = %s
-            """, (portfolio_name, account_id))
+        cur.execute("""
+            INSERT INTO account_portfolio_links (account_id, portfolio_id)
+            SELECT %s, id FROM portfolios WHERE name = %s
+            ON CONFLICT DO NOTHING
+            RETURNING account_id
+        """, (account_id, portfolio_name))
+        creado = cur.fetchone() is not None
+        conn.commit()
+        cur.close()
+        return creado
+    finally:
+        put_conn(conn)
+
+
+def _unlink_cuenta(account_id, portfolio_name):
+    from db_pool import get_conn, put_conn
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            DELETE FROM account_portfolio_links
+            WHERE account_id = %s
+              AND portfolio_id = (SELECT id FROM portfolios WHERE name = %s)
+        """, (account_id, portfolio_name))
         conn.commit()
         cur.close()
     finally:
         put_conn(conn)
+
+
+def _set_portfolio_cuenta(account_id, portfolio_name):
+    """Compat del PUT 1:1: '' = compartida (sin vínculos); nombre = SOLO ese."""
+    from db_pool import get_conn, put_conn
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM account_portfolio_links WHERE account_id = %s", (account_id,))
+        conn.commit()
+        cur.close()
+    finally:
+        put_conn(conn)
+    if portfolio_name:
+        _link_cuenta(account_id, portfolio_name)
 
 
 # ==============================================================================
@@ -153,6 +191,29 @@ def update_account(account_id: int, acc: AccountUpdateInput):
         return {"status": "ACTUALIZADO"}
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/accounts/{account_id}/links")
+def link_account(account_id: int, body: dict):
+    """Vincula la cuenta a un portafolio más (N:M). body: {portfolio_name}."""
+    portfolio_name = (body or {}).get("portfolio_name", "").strip()
+    if not portfolio_name:
+        raise HTTPException(status_code=422, detail="portfolio_name requerido")
+    try:
+        _link_cuenta(account_id, portfolio_name)
+        return {"status": "VINCULADA", "portfolio_name": portfolio_name}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/api/accounts/{account_id}/links")
+def unlink_account(account_id: int, portfolio_name: str):
+    """Quita un vínculo. Sin vínculos restantes la cuenta vuelve a ser compartida."""
+    try:
+        _unlink_cuenta(account_id, portfolio_name.strip())
+        return {"status": "DESVINCULADA", "portfolio_name": portfolio_name}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
