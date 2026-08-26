@@ -36,7 +36,7 @@ Esta es la regla más importante del módulo Control Tower y aplica a todos los 
   - `database_driver.py` — Conexión y CRUD principal
   - `control_tower_driver.py` — Conexión y CRUD del Control Tower
   - `ai_engine.py` — Integración IA (Gemini/Groq)
-  - `test_core.py` — Suite de pruebas automáticas (siempre debe pasar 5/5)
+  - `tests/test_core.py` — Suite de pruebas automáticas (siempre debe pasar 5/5)
 - **`server.py`**: Solo enruta, no contiene lógica de negocio.
 - **`frontend/`**: Solo visualiza, no calcula.
 

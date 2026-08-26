@@ -29,11 +29,11 @@ python scripts/health_check.py
 python scripts/session_maintenance.py
 
 # 3. Tests del motor matemático (deben pasar 5/5)
-python fin_sys_core/test_core.py
+python tests/test_core.py
 
 # 4. Tests del kernel contable (partida doble Zero-COA)
-python kernel/test_kernel.py
-python kernel/test_e2e.py
+python -m kernel.test_kernel
+python tests/test_e2e.py
 ```
 
 **Checks del health_check.py (7)** — el orden importa, los posteriores se omiten si fallan los críticos:
@@ -132,9 +132,9 @@ y `PUT /api/hr/profile/v2/{user_id}`._
 # ── Backend (desde la raíz del proyecto) ──
 python server.py                              # arrancar FastAPI :8000
 python scripts/health_check.py                # health check (7 checks)
-python fin_sys_core/test_core.py              # tests motor matemático (5/5)
-python kernel/test_kernel.py                  # tests kernel Zero-COA
-python kernel/test_e2e.py                     # tests end-to-end kernel
+python tests/test_core.py                     # tests motor matemático (5/5)
+python -m kernel.test_kernel                  # tests kernel Zero-COA
+python tests/test_e2e.py                      # tests end-to-end kernel
 
 # ── Frontend (desde frontend/) ──
 npm run dev                                   # Vite dev server :5173

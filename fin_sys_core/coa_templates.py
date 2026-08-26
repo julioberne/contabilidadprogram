@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Módulo de prueba independiente para el Catálogo de Cuentas (COA) Flexible.
-Este archivo contiene la lógica para manejar jerarquías y plantillas predefinidas.
+Plantillas del Catálogo de Cuentas (COA) Flexible — datos de producción, no un test.
+Contiene la lógica para manejar jerarquías y plantillas predefinidas.
+(Renombrado 2026-08-26: antes coa_test_module.py, el nombre confundía.)
 """
 
 from typing import List, Dict, Any

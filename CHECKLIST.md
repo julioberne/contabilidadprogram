@@ -78,9 +78,11 @@ python scripts/health_check.py
 ### Verificación mínima antes de dar algo por bueno
 
 ```powershell
-python -m kernel.test_kernel                  # 5/5 partida doble
-python -m pytest tests/ -q                    # suites bot + core
-cd frontend; npm test; npm run build          # tests y build de producción
+python -m kernel.test_kernel                                                   # 5/5 partida doble
+python tests/test_core.py                                                      # 5/5 motor matemático
+python -m unittest tests.test_bot_driver tests.test_bot_confirmation tests.test_bot_resolvers
+python tests/test_e2e.py                                                       # solo con backend :8000 arriba
+cd frontend; npx vitest run; npm run build                                     # 45 tests y build de producción
 ```
 
 - `GET http://127.0.0.1:8000/docs` responde · `GET /api/org/consolidated` → 200 (si 404, backend viejo)

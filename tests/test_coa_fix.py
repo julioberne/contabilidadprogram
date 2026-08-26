@@ -7,7 +7,7 @@ if os.path.exists('.env'):
             k,v = s.split('=',1)
             os.environ[k.strip()] = v.strip()
 
-sys.path.insert(0,'.')
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fin_sys_core.db_pool import init_pool, get_conn, put_conn
 from fin_sys_core.database_driver import obtener_coa_tree
 

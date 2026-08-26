@@ -75,8 +75,8 @@ graph TD
 | `tax_motor.py` | IVA 19%, GMF 4x1000, tasas personalizadas (aditivas/deductivas) |
 | `ledger_math.py` | Caja Viva consolidada, validación de Pockets, alerta insolvencia |
 | `ai_engine.py` | Groq Whisper STT + Llama 3.3 estructuración + embeddings + búsqueda RAG pgvector |
-| `coa_test_module.py` | Catálogo de Cuentas dinámico (COA) por portafolio |
-| `test_core.py` | Suite de 5 pruebas unitarias automáticas |
+| `coa_templates.py` | Catálogo de Cuentas dinámico (COA) por portafolio |
+| `tests/test_core.py` | Suite de 5 pruebas unitarias automáticas |
 
 ---
 

@@ -34,9 +34,9 @@
 ## 🧪 1. Pruebas Unitarias Automáticas
 
 ```bash
-python -m pytest fin_sys_core/test_core.py -v
+python -m pytest tests/test_core.py -v
 # o
-python fin_sys_core/test_core.py
+python tests/test_core.py
 ```
 
 **Resultado esperado**: `Ran 5 tests in ~0.001s — OK`
@@ -263,8 +263,8 @@ contabilidadprogram/
 │   ├── ai_engine.py                ← Groq/Gemini + RAG + pgvector
 │   ├── ledger_math.py              ← Caja Viva + Pockets
 │   ├── tax_motor.py                ← IVA + GMF + personalizados
-│   ├── coa_test_module.py          ← Pruebas Catálogo de Cuentas
-│   └── test_core.py                ← Suite 5 tests unitarios
+│   └── coa_templates.py            ← Plantillas Catálogo de Cuentas
+(tests unitarios: ver tests/)
 ├── kernel/
 │   ├── __init__.py
 │   ├── kernel_event_bus.py         ← Event bus para asientos contables
@@ -308,6 +308,5 @@ contabilidadprogram/
 │   ├── session_maintenance.py
 │   ├── seed_hub.py
 │   └── seed_puc.py                 ← PUC colombiano + 17 posting rules
-├── start_backend.vbs               ← Arranque backend (doble-clic)
-└── start_frontend.vbs              ← Arranque frontend (doble-clic)
+└── .claude/launch.json             ← Arranque backend (venv + server.py :8000)
 ```

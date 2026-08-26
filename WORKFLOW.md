@@ -219,7 +219,7 @@ Cambio en BD: [ninguno / nueva tabla bot_sessions]
 
 ### FASE 3 — Verificación (ANTES del commit)
 ```
-1. python fin_sys_core/test_core.py   → 5/5 tests deben pasar
+1. python tests/test_core.py          → 5/5 tests deben pasar
 2. python scripts/health_check.py     → todos los checks deben ser ✅
 3. Si toca frontend: verificar que Vite compila sin errores (npm run build)
 4. Probar manualmente el flujo afectado
@@ -340,7 +340,7 @@ Antes de proponer cualquier commit, verificar:
 ```
 [ ] ¿El cambio fue aprobado por el usuario?
 [ ] ¿Solo se tocaron los archivos del plan aprobado?
-[ ] ¿python fin_sys_core/test_core.py pasa 5/5?
+[ ] ¿python tests/test_core.py pasa 5/5?
 [ ] ¿python scripts/health_check.py es todo ✅?
 [ ] ¿El .env NO está incluido en git add?
 [ ] ¿node_modules, __pycache__, uploads/ NO están incluidos?

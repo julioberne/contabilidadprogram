@@ -10,8 +10,10 @@ import os
 import sys
 import unittest
 
-# Registrar el directorio actual en sys.path para importaciones locales
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Registrar la raíz del repo y fin_sys_core/ en sys.path (el archivo vive en tests/)
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _ROOT)
+sys.path.insert(0, os.path.join(_ROOT, "fin_sys_core"))
 
 from tax_motor import calculate_iva, calculate_gmf, process_transaction_taxes
 from ledger_math import calculate_caja_viva, validate_pocket_budget, ExcedeLimitePocketError

@@ -1205,7 +1205,7 @@ def obtener_coa_tree(portfolio_name: str) -> List[Dict[str, Any]]:
 
 def cargar_plantilla_coa(portfolio_name: str, template_name: str = "ESTANDAR"):
     """Carga una plantilla en la base de datos para el portafolio"""
-    from coa_test_module import COA_TEMPLATES
+    from coa_templates import COA_TEMPLATES
     
     global IS_POSTGRES_ACTIVE
     if not IS_POSTGRES_ACTIVE:
