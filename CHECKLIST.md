@@ -48,6 +48,7 @@
 | DT-17 | Rama por defecto de GitHub sigue en `main` (vacía) — cambiarla a `master` en Settings | Media |
 | DT-18 | 4 worktrees obsoletos + ramas `claude/*`/`gilded-mask` del commit raíz huérfano (borrar a mano: `git worktree remove --force` + `git branch -D`) | Baja |
 | DT-20 | Voz web (`.webm`) no queda adjunta como evidencia; la de Telegram (`.ogg`) sí. ¿Deliberado? | Baja |
+| **DT-22** | **Pooler Supabase saturado**: local y prod comparten el pooler en session mode (`:5432`, límite 15 clientes); cada proceso retiene pool 2–10 y el fallback "directo" golpea al mismo pooler → `EMAXCONNSESSION`, 500s en cascada (visto en vivo 26 ago). Fix propuesto: `DB_PORT=6543` (transaction mode) en `.env` local y Dokploy — no hay LISTEN/NOTIFY ni prepared statements que lo impidan | **Alta** |
 | DT-21 | Endpoints huérfanos (stubs `NOT_IMPLEMENTED` en `routers/hr.py`): `POST /api/hr/storage/sign-upload`, `POST /api/hr/salary/calculate` — remover o activar con DT-09 | Baja |
 
 ### Funcional / calidad
