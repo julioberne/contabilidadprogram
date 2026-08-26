@@ -372,7 +372,7 @@ def summary(results):
         print(f"{RED}{BOLD}🛑 SERVICIOS CRÍTICOS CAÍDOS. Revisar arriba.{RESET}")
 
     print(f"\n{DIM}  App:  http://localhost:5173")
-    print(f"  Hub:  http://localhost:5173 → ⬡ PROJECT HUB  (andres@finsys.io / admin123)")
+    print(f"  Hub:  http://localhost:5173 → ⬡ PROJECT HUB  (andres@finsys.os / admin123)")
     print(f"  CT:   http://localhost:5173 → ⬡ CONTROL TOWER (andres@finsys.os / admin123)")
     print(f"  API:  http://localhost:8000/docs{RESET}\n")
 

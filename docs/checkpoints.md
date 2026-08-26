@@ -360,3 +360,49 @@ Diagnóstico vía API de Dokploy (token en scratch/dokploy.env), deploy manual
 con POST /api/compose.deploy, y webhook creado en GitHub (push → :3000
 /api/deploy/compose/<token>). Módulo Contabilidad unificado EN PRODUCCIÓN.
 Pendiente de seguridad: rotar el GitHub PAT del provider.
+
+---
+
+## Checkpoint 2026-08-26 — Armonización: una sola fuente de estado + purga del repo
+
+**Rama**: `claude/harmonizacion-limpieza` (worktree, desde `master`=`2aca212`). Merge y push los corre Andrés.
+
+### 1. Consolidación documental (commit `546845d`)
+De cuatro rastreadores de estado divergentes quedaron **dos con roles fijos**:
+`docs/checkpoints.md` (bitácora, un checkpoint por sesión) y `CHECKLIST.md` (estado actual +
+pendientes DT-* + arranque + accesos). `memory-bank/` se retiró: activeContext/progress/projectbrief
+→ `docs/archive/` (índice en su README), `systemPatterns.md` → `docs/system_patterns.md` (sigue vivo).
+Archivados además: `estado_proyecto_13jul2026`, `estudio_transcripcion`, `tablas_nuevas_descubiertas`,
+`implementaciones_futuras` (sus pendientes pasaron a CHECKLIST como DT-21), `guia_desarrollo_modular_seguro`,
+`IDEA.md`. Referencias actualizadas en AGENTS.md, WORKFLOW.md, api_spec.md, reglas_proyecto.md y
+`session_maintenance.py` (ya no anuncia .md que dejó de escribir en julio).
+
+### 2. Purga de archivos muertos (commit `dcc7180` — 35 archivos, −788 líneas)
+- Boilerplate Vite sin una sola referencia: `react.svg`, `vite.svg`, `hero.png`, `frontend/README.md`.
+- Migraciones de cuentas superadas: `migrate_accounts_portfolio.py` (1:1) y `migrate_account_links.py`
+  (N:M portafolio). El modelo vigente es `migrate_account_entity_links.py` (cuenta → EMPRESAS).
+- `start_*.vbs` (duplicaban `.claude/launch.json` y llamaban al python global, no al venv).
+- Carpetas `skills/` anidadas por unzip · `scratch/ct_seed_data.py` destrackeado.
+- Tests reubicados: `test_core.py`, `test_coa_fix.py`, `test_e2e.py` → `tests/` (sys.path ajustado).
+- `coa_test_module.py` → **`coa_templates.py`** (no era un test: plantillas COA de producción;
+  único import en `database_driver.py` actualizado — cambio aprobado en el plan).
+
+### 3. Compuertas de verificación (todas en verde)
+`compileall` OK · `tests/test_core.py` **5/5** · `kernel.test_kernel` **5/5** (BD real, auto-limpieza) ·
+`unittest` bot (driver 15 + resolvers 10 + confirmación) OK · vitest **45/45** · `npm run build` OK (6.7s).
+⚠️ `tests/test_e2e.py` NO se corrió: crea una TX real en la BD compartida — solo a propósito.
+
+### 4. Local en marcha + Dokploy verificado
+- Backend :8000 arriba vía `launch.json` (venv por junction en el worktree). Health check **6/7 ✅**
+  (solo falta Vite dev, no arrancado a propósito). `/docs`, `/api/org/consolidated`,
+  `/api/cartera/summary` → 200.
+- **La BD está reiniciada** (`feat(reset)` de la sesión anterior): 0 TXs, patrimonio $1.000.000,
+  2 entidades vinculadas / 4 sin vincular. No es anomalía — es el estado limpio.
+- **API nueva de Dokploy verificada**: `compose.one` y `deployment.allByCompose` → **200** con la key
+  de `scratch/dokploy.env` (la anterior daba 401). El respaldo de deploy por API queda operativo (DT-10).
+- Typo corregido en `health_check.py`: imprimía el login viejo `andres@finsys.io` (el real es `.os`).
+
+### Pendiente al cierre
+1. Andrés: merge de `claude/harmonizacion-limpieza` a `master` + `git push origin master`.
+2. Verificar si el webhook de Dokploy dispara con ese push; si no, `POST /api/compose.deploy` (DT-10).
+3. DT-17 (rama por defecto → `master`) y DT-18 (worktrees viejos) siguen manuales.

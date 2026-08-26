@@ -10,9 +10,9 @@
 
 | Dónde | Estado |
 |---|---|
-| `master` local | 8 commits adelante de `origin/master` (hasta `2aca212`: pool lazy + config arranque) — **falta push** |
+| `master` local | 8 commits adelante de `origin/master` (hasta `2aca212`) — **falta push**. Rama `claude/harmonizacion-limpieza` (armonización 26 ago) pendiente de merge |
 | `origin/master` = producción :8080 | `2866be8` — desplegado y verificado el 24 ago (`/api/org/consolidated` → 200) |
-| BD Supabase | compartida local↔prod · 11 TXs · 6 entidades CT (3 vinculadas a portafolio, 3 "sin vincular" a propósito) · 5 cuentas · 4 portafolios |
+| BD Supabase | compartida local↔prod · **reiniciada con `feat(reset)`: 0 TXs** · 6 entidades CT (2 vinculadas) · 5 cuentas · 4 portafolios · patrimonio $1.000.000 (verificado 26 ago) |
 
 ### Módulos
 
@@ -40,7 +40,7 @@
 | DT-07 | Fuentes Kanban/TaskModal (CSS classes sin aplicar) | Baja |
 | DT-08 | Integración contabilidad↔nómina (totalizar gasto nómina en COA) | Media |
 | DT-09 | Comprobante nómina: integrar con tablas contables al generarse | Baja |
-| DT-10 | Webhook GitHub→Dokploy no dispara (3 veces). API key nueva agregada 26 ago — **probar** `POST /api/compose.deploy` | **Alta** |
+| DT-10 | Webhook GitHub→Dokploy no dispara (3 veces). API key nueva **verificada 26 ago** (`compose.one` y `deployment.allByCompose` → 200): el respaldo `POST /api/compose.deploy` queda operativo. Falta confirmar si el webhook dispara en el próximo push | **Alta** |
 | DT-11 | Fase 5 remediación: print→logging, `lifespan` FastAPI, TRM 4000 hardcodeada, float→Decimal | Media |
 | DT-12 | `module_flags` inserta fila por toggle en vez de upsert | Baja |
 | DT-15 | Renombrar `contabilidad-v2/` → `contabilidad/` (parar el watcher de Vite antes: lock en Windows) | Baja |
@@ -81,7 +81,7 @@ python scripts/health_check.py
 python -m kernel.test_kernel                                                   # 5/5 partida doble
 python tests/test_core.py                                                      # 5/5 motor matemático
 python -m unittest tests.test_bot_driver tests.test_bot_confirmation tests.test_bot_resolvers
-python tests/test_e2e.py                                                       # solo con backend :8000 arriba
+python tests/test_e2e.py                                                       # ⚠️ crea una TX REAL en la BD compartida — solo a propósito, con backend arriba
 cd frontend; npx vitest run; npm run build                                     # 45 tests y build de producción
 ```
 
