@@ -145,7 +145,7 @@ Usar **Conventional Commits** siempre. El agente propone el mensaje, el humano a
 | `feat` | Nueva funcionalidad visible para el usuario |
 | `fix` | Corrección de bug |
 | `chore` | Mantenimiento: limpieza, dependencias, gitignore |
-| `docs` | Solo documentación (AGENTS.md, memory-bank, WORKFLOW.md) |
+| `docs` | Solo documentación (AGENTS.md, CHECKLIST.md, docs/, WORKFLOW.md) |
 | `perf` | Mejora de performance sin cambio de funcionalidad |
 | `refactor` | Reorganización de código sin cambio de comportamiento |
 | `test` | Agregar o corregir tests |
@@ -178,7 +178,7 @@ perf(hub): NotesApp convertido a lazy() + Suspense (code splitting)
 ### FASE 0 — Inicio de sesión (SIEMPRE)
 ```
 1. Leer AGENTS.md completo
-2. Leer memory-bank/activeContext.md
+2. Leer CHECKLIST.md (estado, pendientes) + último checkpoint de docs/checkpoints.md
 3. Correr: python scripts/health_check.py
 4. Revisar: git status (¿hay cambios pendientes sin commitear?)
 5. Confirmar con el usuario qué módulo o tarea se trabajará hoy
@@ -235,13 +235,9 @@ Cambio en BD: [ninguno / nueva tabla bot_sessions]
 
 ### FASE 5 — Cierre de sesión
 ```
-1. Actualizar memory-bank/activeContext.md con:
-   - Qué se hizo hoy
-   - Qué archivos se tocaron
-   - Estado de salud del sistema
-   - Opciones para la próxima sesión
-2. Actualizar memory-bank/progress.md si cambió el estado de algún módulo
-3. Agregar checkpoint a docs/checkpoints.md
+1. Agregar checkpoint a docs/checkpoints.md (qué se hizo, cómo se verificó)
+2. Actualizar CHECKLIST.md: tabla de estado, pendientes cerrados/nuevos
+3. Nada más — no hay otros .md de estado (los históricos viven en docs/archive/)
 ```
 
 ---
@@ -284,7 +280,7 @@ SENTRY_DSN
 
 Solo si el commit:
 - Solo modifica archivos en `.gitignore` (no llegan al repo)
-- Solo modifica `memory-bank/` o `docs/` (el Dockerfile no los copia)
+- Solo modifica `docs/` o los .md de la raíz (el Dockerfile no los copia)
 
 ### Verificar deploy en producción
 ```bash
@@ -349,7 +345,7 @@ Antes de proponer cualquier commit, verificar:
 [ ] ¿El .env NO está incluido en git add?
 [ ] ¿node_modules, __pycache__, uploads/ NO están incluidos?
 [ ] ¿El mensaje de commit sigue Conventional Commits?
-[ ] ¿memory-bank/activeContext.md está actualizado?
+[ ] ¿CHECKLIST.md y docs/checkpoints.md están actualizados?
 ```
 
 ---
@@ -377,11 +373,10 @@ mock_db.json
 |---|---|---|
 | `AGENTS.md` | Reglas del proyecto, permisos, stack | Cada sesión |
 | `WORKFLOW.md` (este) | Metodología de trabajo, git, deploy | Cada sesión |
-| `memory-bank/activeContext.md` | Estado actual, archivos permitidos HOY | Cada sesión |
-| `memory-bank/progress.md` | Estado por módulo, deuda técnica | Al inicio de sesión |
-| `docs/implementaciones_futuras.md` | Backlog priorizado de módulos | Al planificar nuevo módulo |
-| `docs/checkpoints.md` | Historial de sesiones | Al buscar qué se hizo antes |
-| `CHECKLIST.md` | Verificaciones rápidas de arranque | Al iniciar el sistema |
+| `CHECKLIST.md` | Estado actual, pendientes (DT-*), arranque y accesos | Cada sesión |
+| `docs/checkpoints.md` | Historial de sesiones (bitácora) | Al buscar qué se hizo antes |
+| `docs/PRD.md` | Intención de negocio (fuente de verdad) | Al planificar |
+| `docs/system_patterns.md` | Decisiones de arquitectura | Al tocar diseño |
 
 ---
 

@@ -1,115 +1,109 @@
-# Checklist de Inicio de Sesión — FIN-SYS OS v2.0
+# CHECKLIST — FIN-SYS OS v2.0
 
-> Ejecutar SIEMPRE al iniciar un nuevo objetivo o tras un reinicio del sistema.
-> Última actualización: 21 Ago 2026 — 17:05 COT
-
-## Comandos Rápidos
-
-```bash
-# Health check completo
-python scripts/health_check.py
-
-# Mantenimiento + actualización .md
-python scripts/session_maintenance.py
-
-# Solo verificar estado
-python scripts/session_maintenance.py --check
-```
+> **Único archivo de estado vivo.** Aquí: qué hay, qué falta, cómo arrancar.
+> Lo que ya pasó (con verificación) va a `docs/checkpoints.md` — un checkpoint por sesión.
+> Última actualización: **26 Ago 2026**.
 
 ---
 
-## 0. Verificación de Git (HACER PRIMERO)
+## 1. Estado actual
 
-Hoy hay trabajo sin cerrar y es fácil pisarlo:
-
-```powershell
-git status                          # ¿sigue el WIP del consolidado por entidad?
-git log master..HEAD --oneline      # ¿la rama sigue sin merge a master?
-```
-
-- [ ] Rama actual: `modulo-09-bot-ia` (worktree principal)
-- [ ] **NO descartar el working tree**: `DashboardPanel.jsx` (ya commiteado) llama
-      `GET /api/org/consolidated`, endpoint que solo existe sin commitear en `routers/org.py`
-- [ ] Recordar: **producción sirve `master`**, que va tres semanas atrás (DT-13)
-
----
-
-## Arranque Rápido del Sistema
-
-```powershell
-# Backend (desde raíz del proyecto)
-python -m uvicorn server:app --host 127.0.0.1 --port 8000 --reload
-
-# Frontend (desde carpeta frontend/)
-npm run dev -- --port 5173
-```
-
-Esperar: `VITE v8.x ready → http://localhost:5173`
-
----
-
-## Verificaciones Manuales
-
-### 1. Servidores
-- [ ] **Frontend (React/Vite)**: `http://localhost:5173` carga la app
-- [ ] **Backend (FastAPI)**: `http://127.0.0.1:8000/docs` responde
-- [ ] **Producción**: `http://159.223.156.50:8080` responde 200
-
-### 2. Base de Datos
-- [ ] **Supabase PostgreSQL**: conectado (proyecto `sciorfjvdqxvcwgvnmbv`, us-east-2)
-- [ ] `IS_POSTGRES_ACTIVE` = `True` (no en modo simulación)
-- [ ] Ojo: la BD es **compartida entre local y producción** — un borrado local borra en prod
-
-### 3. Motor Matemático y Kernel
-- [ ] `python fin_sys_core/test_core.py` → `Ran 5 tests — OK`
-- [ ] IVA=19.000 | GMF=400
-- [ ] `python -m kernel.test_kernel` → 5/5
-
-### 4. Login (post-remediación de julio)
-- [ ] Login único del shell: **`andres@finsys.os` / `admin123`** (rol owner)
-- [ ] Las cuentas demo `@finsys.io` **ya no existen**: si un doc las menciona, está obsoleto
-
-### 5. Control Tower (Módulo 07)
-- [ ] `GET /api/ct/entities` → árbol de entidades (6 al 21 ago)
-- [ ] `GET /api/ct/entities/1/kpis` → responde con KPIs
-
-### 6. Módulo Principal (01–06)
-- [ ] `GET /api/portfolios` → 4 portafolios
-- [ ] `GET /api/accounts` → 5 cuentas
-- [ ] `GET /api/transactions` → ≥13 registros
-- [ ] `GET /api/cartera/summary` → incluye `cxc_total`, `cxp_total`, `vencido_total`, `proximo_total`
-- [ ] `GET /api/org/consolidated` → responde (si da 404, el WIP no está aplicado)
-
-### 7. Project Hub / RRHH (Módulos 08 y 08c)
-- [ ] TaskBoard y COMPENDIO cargan
-- [ ] MemberProfile → pestañas Documentos e Historial funcionan
-- [ ] Generar comprobante → aparece en Documentos con ícono 🧾
-
-### 8. Módulo 09 — Bot IA (solo en rama)
-- [ ] `python -m pytest tests/test_bot_driver.py tests/test_bot_confirmation.py tests/test_bot_resolvers.py`
-- [ ] Tablas del bot migradas: `python scripts/migrate_bot_tables.py` (idempotente)
-- [ ] Vincular chat↔usuario si hace falta: `python scripts/bot_link_code.py`
-
----
-
-## Estado Esperado de la BD (verificado 21 Ago 2026 — 16:57 COT)
-
-| Tabla | Registros |
+| Dónde | Estado |
 |---|---|
-| `portfolios` | 4 |
-| `user_accounts` | 5 |
-| `transactions` | 13 (2 son `TS-TEST-*`, pendientes de limpieza) |
-| `entities` (CT) | 6 — ninguna con `portfolio_id` poblado (DT-14) |
-| `hub_workspaces` | 1+ |
-| `hub_tasks` | 21 (1 es `TS-TEST-*`) |
-| `hr_payment_records` | 13 |
-| `hr_documents` | 6 |
+| `master` local | 8 commits adelante de `origin/master` (hasta `2aca212`: pool lazy + config arranque) — **falta push** |
+| `origin/master` = producción :8080 | `2866be8` — desplegado y verificado el 24 ago (`/api/org/consolidated` → 200) |
+| BD Supabase | compartida local↔prod · 11 TXs · 6 entidades CT (3 vinculadas a portafolio, 3 "sin vincular" a propósito) · 5 cuentas · 4 portafolios |
+
+### Módulos
+
+| # | Módulo | Estado | Ruta |
+|---|---|---|---|
+| 01–06 | Contabilidad (unificado) | ✅ COMPLETO | `frontend/src/contabilidad-v2/` |
+| 07 | Control Tower | ✅ COMPLETO | `frontend/src/control-tower/` |
+| 08 / 08c | Project Hub · RRHH/Empresas | ✅ EN USO | `frontend/src/project-hub/` |
+| — | Zero-COA Kernel | ✅ Fase 1+2 | `kernel/` |
+| 09 | Bot IA (Telegram + Groq) | ✅ MVP en producción · faltan etapas C, B.5, D–F | `fin_sys_core/bot_*.py`, `routers/bot.py` |
+| 10 | Trading NASDAQ | 🔵 PLANIFICADO | — |
+| 11 | Reportes PDF/Excel · Facturación B2B | 🔵 PLANIFICADO | — |
 
 ---
 
-## Documentos a leer al empezar
+## 2. Pendientes abiertos
 
-1. `memory-bank/activeContext.md` — qué se puede tocar hoy y qué está abierto
-2. `docs/checkpoints.md` — checkpoint más reciente (21 ago 2026)
-3. `docs/PRD.md` — intención de negocio (fuente de verdad, no técnica)
-4. `testsprite_tests/testsprite-mcp-test-report.md` — hallazgos E2E abiertos
+### Deuda técnica
+
+| ID | Problema | Prioridad |
+|---|---|---|
+| DT-01 | Balance Efectivo -$11.2M (TXs legacy sin `account_id`) | Media |
+| DT-03 | CT: CXP/CXC en KPIs parcial | Media |
+| DT-06 | Bundle ~1.7MB sin code splitting (meta: chunk principal <500KB) | Media |
+| DT-07 | Fuentes Kanban/TaskModal (CSS classes sin aplicar) | Baja |
+| DT-08 | Integración contabilidad↔nómina (totalizar gasto nómina en COA) | Media |
+| DT-09 | Comprobante nómina: integrar con tablas contables al generarse | Baja |
+| DT-10 | Webhook GitHub→Dokploy no dispara (3 veces). API key nueva agregada 26 ago — **probar** `POST /api/compose.deploy` | **Alta** |
+| DT-11 | Fase 5 remediación: print→logging, `lifespan` FastAPI, TRM 4000 hardcodeada, float→Decimal | Media |
+| DT-12 | `module_flags` inserta fila por toggle en vez de upsert | Baja |
+| DT-15 | Renombrar `contabilidad-v2/` → `contabilidad/` (parar el watcher de Vite antes: lock en Windows) | Baja |
+| DT-16 | Rotar el GitHub PAT del provider de Dokploy (expuesto en una sesión) | Media |
+| DT-17 | Rama por defecto de GitHub sigue en `main` (vacía) — cambiarla a `master` en Settings | Media |
+| DT-18 | 4 worktrees obsoletos + ramas `claude/*`/`gilded-mask` del commit raíz huérfano (borrar a mano: `git worktree remove --force` + `git branch -D`) | Baja |
+| DT-20 | Voz web (`.webm`) no queda adjunta como evidencia; la de Telegram (`.ogg`) sí. ¿Deliberado? | Baja |
+| DT-21 | Endpoints huérfanos (stubs `NOT_IMPLEMENTED` en `routers/hr.py`): `POST /api/hr/storage/sign-upload`, `POST /api/hr/salary/calculate` — remover o activar con DT-09 | Baja |
+
+### Funcional / calidad
+
+- [ ] **TC022** — Libro Diario sin buscador (brecha de spec TestSprite; decidir si se agrega)
+- [ ] **TestSprite**: re-correr sobre el build actual y avanzar TC031–TC050 (última corrida 29 jul: 25/30 ✅)
+- [ ] **Bot IA**: etapas C, B.5 y D–F del plan del Módulo 09
+- [ ] Módulo 10 Trading (cuando Andrés lo priorice)
+
+---
+
+## 3. Arranque rápido
+
+```powershell
+# Backend (raíz del proyecto — SIEMPRE el venv, no el python global)
+.venv\Scripts\python.exe server.py
+
+# Frontend (desde frontend/)
+npm run dev -- --port 5173
+
+# Salud completa (7 checks)
+python scripts/health_check.py
+```
+
+- Si `:8000` está ocupado → hay uvicorn huérfano: `Get-NetTCPConnection -LocalPort 8000 | Select OwningProcess` y matar ese PID.
+- Con Claude Code: `preview_start` con la config `finsys-backend` (`.claude/launch.json`).
+
+### Verificación mínima antes de dar algo por bueno
+
+```powershell
+python -m kernel.test_kernel                  # 5/5 partida doble
+python -m pytest tests/ -q                    # suites bot + core
+cd frontend; npm test; npm run build          # tests y build de producción
+```
+
+- `GET http://127.0.0.1:8000/docs` responde · `GET /api/org/consolidated` → 200 (si 404, backend viejo)
+- Ojo: la BD es **compartida con producción** — un borrado local borra en prod.
+
+---
+
+## 4. Referencia (accesos y deploy)
+
+- **Login shell y Control Tower**: `andres@finsys.os` / `admin123` (las cuentas `@finsys.io` no existen; doc que las mencione está obsoleto). Otras: `and123@gmail.com`, `testuser@finsys.os` (member).
+- **Supabase**: proyecto `sciorfjvdqxvcwgvnmbv` (us-east-2) · bucket `hr-docs` (público).
+- **Producción**: http://159.223.156.50:8080 · Panel Dokploy :3000 · compose único `finsys-app`.
+- **Deploy** = `git push origin master` (lo corre Andrés) → webhook Dokploy. Si no dispara (DT-10): `POST /api/compose.deploy` con la key de `scratch/dokploy.env`, o panel :3000 → Deploy.
+- **Workspace Hub**: Inversiones FIN-SYS (`37888f92-8bef-4528-b187-2064c6f0049c`).
+
+### Zero-Impact Policy (regla de oro)
+
+Funcionalidad nueva = archivos nuevos. **Prohibido sin aprobación explícita**:
+`fin_sys_core/database_driver.py` · `fin_sys_core/control_tower_driver.py` ·
+`frontend/src/control-tower/*` · `.env` · alterar schema de tablas existentes.
+
+### Cierre de sesión (obligatorio)
+
+1. Agregar checkpoint a `docs/checkpoints.md` (qué se hizo, cómo se verificó).
+2. Actualizar **este archivo**: tabla de estado, pendientes cerrados/nuevos.
+3. Nada más — los demás .md no se tocan por rutina (los históricos viven en `docs/archive/`).

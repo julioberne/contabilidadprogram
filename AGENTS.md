@@ -45,9 +45,9 @@ python kernel/test_e2e.py
 6. Project Hub API (workspaces, usuarios, tareas, notas)
 7. Integridad de datos (workspaces sin nombre, portafolios <4, cuentas bancarias = 0)
 
-**Contexto vivo de la sesión**: leer `memory-bank/activeContext.md` para saber en qué módulo se trabaja HOY y qué archivos están permitidos/prohibidos. Ese archivo se actualiza cada sesión; los conteos ahí son más frescos que los de este `AGENTS.md`.
+**Contexto vivo de la sesión**: leer `CHECKLIST.md` (raíz) — estado actual, pendientes y arranque — y el último checkpoint de `docs/checkpoints.md`. Se actualizan cada sesión; sus conteos son más frescos que los de este `AGENTS.md`.
 
-**Deuda técnica**: ver tabla DT-01..DT-09 en `memory-bank/activeContext.md` (DT-01 = balance -$11.2M por TXs legacy sin `account_id`; DT-04/DT-05 = MD5/SHA-256 pendientes de migrar a bcrypt).
+**Deuda técnica**: ver la tabla DT-* en `CHECKLIST.md` (DT-01 = balance -$11.2M por TXs legacy sin `account_id`; DT-04/DT-05 ya resueltas — bcrypt desde 2026-07-26).
 
 ---
 
@@ -116,7 +116,7 @@ Existen en el código pero **no tienen consumidor activo** en el frontend
 _Eliminados (2026-07-26, ya no existen en el código): `PUT /api/hr/salary/v2/{user_id}`
 y `PUT /api/hr/profile/v2/{user_id}`._
 
-> **Regla**: Mantenerlos hasta la sesión de limpieza técnica (ver `docs/implementaciones_futuras.md` → ENDPOINTS_HUERFANOS).
+> **Regla**: Mantenerlos hasta la sesión de limpieza técnica (DT-21 en `CHECKLIST.md`).
 
 ### PROTOCOLO OBLIGATORIO ANTES DE CUALQUIER CAMBIO
 1. **Listar** exactamente qué archivos se van a modificar y por qué
@@ -185,6 +185,6 @@ npm run build                                 # build producción
 
 ## Contexto de Memoria
 
-> Leer `memory-bank/activeContext.md` para saber en qué módulo se está trabajando HOY
-> y cuáles archivos están permitidos/prohibidos en la sesión actual.
-> Ese archivo se actualiza cada sesión — es más fresco que este `AGENTS.md` para conteos y deuda técnica.
+> Leer `CHECKLIST.md` (raíz) para el estado actual, pendientes y archivos prohibidos,
+> y `docs/checkpoints.md` para lo que pasó en sesiones anteriores.
+> Se actualizan cada sesión — son más frescos que este `AGENTS.md` para conteos y deuda técnica.

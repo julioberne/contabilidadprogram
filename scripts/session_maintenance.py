@@ -6,7 +6,7 @@ Ejecutar al INICIO y al FINAL de cada sesión de trabajo.
 Funciones:
   1. 🔍 Verificar estado completo del sistema
   2. 🧹 Limpiar artefactos temporales (datos sintéticos, test docs)
-  3. 📝 Actualizar memory-bank/*.md con info actual de la BD
+  3. 📝 Docs de estado (checkpoints.md + CHECKLIST.md) — mantenimiento MANUAL
   4. 📊 Actualizar docs/*.md con métricas y avances
   5. 🔐 Audit de cambios en archivos clave
   6. 📋 Generar resumen de sesión para checkpoint futuro
@@ -352,17 +352,17 @@ def section_cleanup(results):
     return cleaned
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SECCIÓN 3 — ACTUALIZAR memory-bank/*.md
+# SECCIÓN 3 — DOCS DE ESTADO (desactivada: se mantienen a mano)
 # ══════════════════════════════════════════════════════════════════════════════
 def section_update_memory_bank(results):
-    header("📝 SECCIÓN 3/5 — memory-bank/*.md (mantenimiento MANUAL)")
+    header("📝 SECCIÓN 3/5 — docs de estado (mantenimiento MANUAL)")
 
     # DESACTIVADO 20 Jul 2026: la regeneración por plantilla hardcodeada
     # resucitaba contexto obsoleto (App.jsx, sesiones viejas) y pisaba las
     # actualizaciones hechas al cierre de sesión. activeContext.md y
     # progress.md se mantienen a mano (WORKFLOW.md FASE 5).
-    warn("Regeneración por plantilla DESACTIVADA — los .md se mantienen a mano")
-    info("Ver checkpoint 20 Jul 2026 en docs/checkpoints.md")
+    warn("Regeneración por plantilla DESACTIVADA — checkpoints.md y CHECKLIST.md se mantienen a mano")
+    info("memory-bank/ se retiró el 26 ago 2026 — ver docs/archive/")
     return
 
     # (cuerpo por plantilla eliminado — inalcanzable tras el return de arriba)
@@ -458,10 +458,7 @@ def final_summary(results, cleaned):
 
     print(f"\n  {CYAN}{'─' * 50}{RESET}")
     print(f"  {BOLD}ARCHIVOS .md ACTUALIZADOS:{RESET}")
-    print(f"  ✅ memory-bank/activeContext.md")
-    print(f"  ✅ memory-bank/progress.md")
-    print(f"  ✅ docs/checkpoints.md")
-    print(f"  ✅ CHECKLIST.md")
+    print(f"  (a mano al cierre de sesión: docs/checkpoints.md + CHECKLIST.md)")
 
     print(f"\n  {CYAN}{'─' * 50}{RESET}")
     all_ok = all(results.get(k) for k in ["frontend", "backend", "database", "motor"])

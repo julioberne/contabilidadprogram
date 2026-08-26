@@ -451,7 +451,7 @@ Sube metadatos de un documento. El archivo se referencia vía `file_url`.
 ```
 
 > **Nota**: Para comprobantes HTML, `file_url` es una data URL base64 (no una ruta de Storage).
-> Ver patrón completo en `memory-bank/systemPatterns.md → Patrón: Almacenamiento de Documentos HTML`.
+> Ver patrón completo en `docs/system_patterns.md → Patrón: Almacenamiento de Documentos HTML`.
 
 #### `PUT /api/hr/documents/{user_id}/{doc_id}`
 Actualiza metadatos de un documento (nombre, carpeta, categoría).

@@ -134,4 +134,4 @@ Cada vez que se completa un hito significativo, actualizar:
 2. `docs/user_stories.md` — marcar historias como ✅ COMPLETO
 3. `docs/database_schema.md` — si se crearon tablas nuevas
 4. `docs/api_spec.md` — si se crearon endpoints nuevos
-5. `docs/implementaciones_futuras.md` — mover módulo de PLANIFICADO a COMPLETO
+5. `CHECKLIST.md` — mover módulo de PLANIFICADO a COMPLETO en la tabla de módulos
