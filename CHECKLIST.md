@@ -10,7 +10,7 @@
 
 | Dónde | Estado |
 |---|---|
-| `master` local | 8 commits adelante de `origin/master` (hasta `2aca212`) — **falta push**. Rama `claude/harmonizacion-limpieza` (armonización 26 ago) pendiente de merge |
+| `master` local | 8 commits adelante de `origin/master` — **falta push**. Rama `claude/harmonizacion-limpieza` (armonización + fixes 26 ago) pendiente de merge |
 | `origin/master` = producción :8080 | `2866be8` — desplegado y verificado el 24 ago (`/api/org/consolidated` → 200) |
 | BD Supabase | compartida local↔prod · **reiniciada con `feat(reset)`: 0 TXs** · 6 entidades CT (2 vinculadas) · 5 cuentas · 4 portafolios · patrimonio $1.000.000 (verificado 26 ago) |
 
@@ -41,21 +41,20 @@
 | DT-08 | Integración contabilidad↔nómina (totalizar gasto nómina en COA) | Media |
 | DT-09 | Comprobante nómina: integrar con tablas contables al generarse | Baja |
 | DT-10 | Webhook GitHub→Dokploy no dispara (3 veces). API key nueva **verificada 26 ago** (`compose.one` y `deployment.allByCompose` → 200): el respaldo `POST /api/compose.deploy` queda operativo. Falta confirmar si el webhook dispara en el próximo push | **Alta** |
-| DT-11 | Fase 5 remediación: print→logging, `lifespan` FastAPI, TRM 4000 hardcodeada, float→Decimal | Media |
-| DT-12 | `module_flags` inserta fila por toggle en vez de upsert | Baja |
+| DT-11 | Fase 5 remediación: print→logging, TRM 4000 hardcodeada, float→Decimal (lifespan ✅ hecho 26 ago) | Media |
 | DT-15 | Renombrar `contabilidad-v2/` → `contabilidad/` (parar el watcher de Vite antes: lock en Windows) | Baja |
 | DT-16 | Rotar el GitHub PAT del provider de Dokploy (expuesto en una sesión) | Media |
 | DT-17 | Rama por defecto de GitHub sigue en `main` (vacía) — cambiarla a `master` en Settings | Media |
-| DT-18 | 4 worktrees obsoletos + ramas `claude/*`/`gilded-mask` del commit raíz huérfano (borrar a mano: `git worktree remove --force` + `git branch -D`) | Baja |
+| DT-18 | Queda 1 worktree obsoleto (`admin-dashboard-user-credentials-2aab9b`) + 2 ramas muertas del commit raíz huérfano. Comandos listos en checkpoint 26 ago (el clasificador los bloquea al agente) | Baja |
 | DT-20 | Voz web (`.webm`) no queda adjunta como evidencia; la de Telegram (`.ogg`) sí. ¿Deliberado? | Baja |
-| **DT-22** | **Pooler Supabase saturado**: local y prod comparten el pooler en session mode (`:5432`, límite 15 clientes); cada proceso retiene pool 2–10 y el fallback "directo" golpea al mismo pooler → `EMAXCONNSESSION`, 500s en cascada (visto en vivo 26 ago). Fix propuesto: `DB_PORT=6543` (transaction mode) en `.env` local y Dokploy — no hay LISTEN/NOTIFY ni prepared statements que lo impidan | **Alta** |
+| **DT-22** | **Pooler Supabase saturado** (session mode `:5432`, límite 15 compartido local+prod → `EMAXCONNSESSION`). ✅ Local ya en `6543` (transaction mode, verificado 26 ago). **Falta**: `DB_PORT=6543` en Dokploy → Environment + redeploy | **Alta** |
 | DT-21 | Endpoints huérfanos (stubs `NOT_IMPLEMENTED` en `routers/hr.py`): `POST /api/hr/storage/sign-upload`, `POST /api/hr/salary/calculate` — remover o activar con DT-09 | Baja |
 
 ### Funcional / calidad
 
 - [ ] **TC022** — Libro Diario sin buscador (brecha de spec TestSprite; decidir si se agrega)
 - [ ] **TestSprite**: re-correr sobre el build actual y avanzar TC031–TC050 (última corrida 29 jul: 25/30 ✅)
-- [ ] **Bot IA**: etapas C, B.5 y D–F del plan del Módulo 09
+- [ ] **Bot IA**: `TELEGRAM_BOT_TOKEN` de prod cargado en Dokploy (Andrés, 26 ago) — verificar que el bot responde en Telegram tras el próximo deploy · etapas C, B.5 y D–F del plan
 - [ ] Módulo 10 Trading (cuando Andrés lo priorice)
 
 ---

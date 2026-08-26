@@ -141,14 +141,25 @@ async def upsert_module_flag(flag: ModuleFlagUpdate, admin: dict = Depends(requi
     try:
         updated_by = admin.get("name") or admin.get("uid") or "admin"
         cur = conn.cursor()
+        # DT-12: ON CONFLICT no dispara con company_id/role_filter NULL (Postgres
+        # trata los NULL como distintos en UNIQUE) → se acumulaban filas por toggle.
+        # UPDATE-first con IS NOT DISTINCT FROM cubre los NULL; INSERT solo si no existía.
         cur.execute("""
-            INSERT INTO module_flags (module_id, enabled, company_id, role_filter, updated_at, updated_by)
-            VALUES (%s, %s, %s, %s, now(), %s)
-            ON CONFLICT (module_id, company_id, role_filter)
-            DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = now(), updated_by = EXCLUDED.updated_by
+            UPDATE module_flags
+               SET enabled = %s, updated_at = now(), updated_by = %s
+             WHERE module_id = %s
+               AND company_id IS NOT DISTINCT FROM %s
+               AND role_filter IS NOT DISTINCT FROM %s
             RETURNING id
-        """, (flag.module_id, flag.enabled, flag.company_id, flag.role_filter, updated_by))
+        """, (flag.enabled, updated_by, flag.module_id, flag.company_id, flag.role_filter))
         result = cur.fetchone()
+        if result is None:
+            cur.execute("""
+                INSERT INTO module_flags (module_id, enabled, company_id, role_filter, updated_at, updated_by)
+                VALUES (%s, %s, %s, %s, now(), %s)
+                RETURNING id
+            """, (flag.module_id, flag.enabled, flag.company_id, flag.role_filter, updated_by))
+            result = cur.fetchone()
         conn.commit()
         cur.close()
         return {"status": "OK", "id": result[0], "module_id": flag.module_id, "enabled": flag.enabled}

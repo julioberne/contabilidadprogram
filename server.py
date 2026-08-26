@@ -3,7 +3,7 @@
 FIN-SYS OS v2.0 — Bootstrap del Servidor
 ------------------------------------------
 Este archivo SOLO hace bootstrap: carga .env, configura app, CORS,
-registra routers y define el evento startup.
+registra routers y define el lifespan de arranque.
 Todos los endpoints están en routers/*.py
 """
 
@@ -29,7 +29,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fin
 # Directorio de uploads
 os.makedirs("uploads", exist_ok=True)
 
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app):
+    """Arranque del servidor: sincroniza tablas y registra listeners (DT-02/DT-11)."""
+    _startup()
+    yield
+
 app = FastAPI(
+    lifespan=lifespan,
     title="FIN-SYS OS v2.0 API Server",
     description="Backend modular e inteligente para el MVP de contabilidad retro-brutalista.",
     version="2.0"
@@ -89,8 +98,7 @@ app.include_router(bot_router)
 # 🚀 Evento de Startup
 # ==============================================================================
 
-@app.on_event("startup")
-def startup_event():
+def _startup():
     """Ejecutado al iniciar el servidor para sincronizar las tablas de Postgres."""
     print("🔄 Sincronizando esquema de base de datos PostgreSQL...")
     try:

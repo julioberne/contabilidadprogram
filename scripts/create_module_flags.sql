@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS module_flags (
   role_filter TEXT DEFAULT NULL,                     -- NULL = todos los roles, o 'OWNER','ADMIN','MEMBER','VIEWER'
   updated_at  TIMESTAMPTZ DEFAULT now(),
   updated_by  TEXT DEFAULT 'system',
-  UNIQUE(module_id, company_id, role_filter)
+  -- NULLS NOT DISTINCT: sin esto, los flags globales (NULL/NULL) duplican (DT-12)
+  UNIQUE NULLS NOT DISTINCT (module_id, company_id, role_filter)
 );
 
 -- Índice para consultas rápidas por empresa

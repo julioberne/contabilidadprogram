@@ -406,3 +406,28 @@ Archivados además: `estado_proyecto_13jul2026`, `estudio_transcripcion`, `tabla
 1. Andrés: merge de `claude/harmonizacion-limpieza` a `master` + `git push origin master`.
 2. Verificar si el webhook de Dokploy dispara con ese push; si no, `POST /api/compose.deploy` (DT-10).
 3. DT-17 (rama por defecto → `master`) y DT-18 (worktrees viejos) siguen manuales.
+
+### Adenda 2026-08-26 (misma sesión) — fixes ejecutados tras la armonización
+
+- **DT-22 (pooler saturado) diagnosticada y semi-resuelta**: con prod + local corriendo, el pooler
+  de Supabase en session mode (`:5432`) devolvió `EMAXCONNSESSION` (límite 15 clientes) en vivo —
+  500s en `/api/module-flags` y cascada de "Error obteniendo portafolios". El fallback "directo" de
+  `db_pool.py` golpea al mismo pooler y amplifica. **Local migrado a `DB_PORT=6543` (transaction
+  mode)** — verificado: pool init en 6543, endpoints 200. Falta el mismo cambio en Dokploy (Andrés).
+- **`.env.production.example` corregido** (`f672184`): tenía `DB_PASS` (el código lee `DB_PASSWORD`),
+  faltaban `SESSION_SECRET` y `TELEGRAM_BOT_TOKEN`, sobraban 3 `SUPABASE_*` que nadie lee.
+- **DT-12 RESUELTA**: el `ON CONFLICT` del PUT nunca disparaba con `company_id`/`role_filter` NULL
+  (UNIQUE trata NULLs como distintos) → 5 filas para `bot`, y el GET elegía ganador arbitrario
+  (¡una decía `enabled=false`!). Fix: UPDATE-first con `IS NOT DISTINCT FROM` en
+  `routers/module_flags.py` + `UNIQUE NULLS NOT DISTINCT` en el SQL de instalación (PG 17.6 lo
+  soporta). Probado: 3 toggles → 1 fila. Dedup aplicado en la BD real: borradas ids 11/14/15/16,
+  conservada id 17 (`bot` enabled=true, estado visible sin cambio).
+- **DT-02 / DT-11 parcial**: `server.py` migrado de `@app.on_event("startup")` a `lifespan`
+  (asynccontextmanager). Reinicio limpio verificado: cero DeprecationWarning, /docs y API 200.
+- **Bot de producción**: Andrés cargó `TELEGRAM_BOT_TOKEN` en Dokploy → Environment. Verificar
+  respuesta del bot en Telegram tras el próximo deploy.
+- **DT-17**: `gh` sin autenticar → sigue manual (GitHub → Settings → Branches → default `master`).
+- **DT-18**: queda 1 worktree obsoleto y 2 ramas muertas; el clasificador bloquea el borrado al
+  agente. Comandos para Andrés (PowerShell):
+  `git worktree remove --force ".claude\worktrees\admin-dashboard-user-credentials-2aab9b"` ·
+  `git branch -D claude/project-status-review-e04f7a claude/duplicate-files-cleanup-78764b`
