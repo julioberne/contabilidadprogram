@@ -483,3 +483,39 @@ Archivados además: `estado_proyecto_13jul2026`, `estudio_transcripcion`, `tabla
   formato — pendiente aprobación de Andrés.
 - Verificado: vitest 45/45, build OK, columna ausente y formato en vivo comprobados en :8000
   (ojo: la pestaña necesitó recarga real — la navegación SPA retenía el bundle viejo).
+
+### Adenda 02 sep (noche) — bot revivido, cuentas visibles, dev estable
+
+- **Bot IA revivido** (`e485bfa`): Groq eliminó TODOS los Llama del catálogo
+  (`model_not_found`). Modelo ahora configurable por env `GROQ_MODEL`, default
+  `openai/gpt-oss-120b` (verificado con la key real: flujo completo devuelve
+  GASTO/85000/Efectivo). Whisper intacto. Documentación NUEVA en `docs/bot_ia.md`
+  (funcionamiento, reglas, integración, diagnóstico). **Falta que Andrés le
+  escriba al bot en Telegram para la prueba de humo final.**
+- **"Cuentas que no se guardan" — DOS causas, ambas resueltas**:
+  (1) los input `type=number` se tragaban montos digitados con puntos → NumInput
+  (`d09353f`); (2) `ffaaeb8`: una cuenta vinculada SOLO a empresas sin presupuesto
+  quedaba invisible en TODAS las vistas (estaba en `user_accounts` +
+  `account_entity_links`, pero el filtro cuenta→empresa→portafolio no la incluía).
+  Ahora se muestra con su chip de empresa; con presupuesto recupera aislamiento.
+  Las 3 cuentas de "Finanzas Personales Julian" reaparecieron con sus saldos.
+- **Negativos**: permitidos de punta a punta; alerta de sobregiro y banner de
+  riesgo verificados en vivo (Nequi -400.000,50). fmt con centavos completos.
+- **Caída del server local** (`b79511a`): uvicorn --reload vigilaba el repo
+  entero; cada `npm run build` (cientos de archivos en dist/) causaba tormenta
+  de reinicios. `reload_dirs` acotado a fin_sys_core/routers/kernel/shared.
+  Cazado además un huérfano `spawn_main` que retenía :8000 con código viejo.
+- **Producción verificada tras CADA push** (bundle local == :8080):
+  `d09353f` → `e485bfa` → `b79511a` → `ffaaeb8`. Deploys vía
+  `scratch/deploy_prod.py` (~1 min c/u). Flujo confirmado con Andrés:
+  nada de PRs ni webhook — push directo a master + deploy por script.
+
+### Pendiente al cierre (para la próxima sesión)
+
+1. **Prueba de humo del bot** en Telegram (Andrés: gasto por texto/voz + `Confirmar #N`).
+2. **Reubicar la gestión de portafolios** (se retiró la columna del consolidado)
+   — al hacerlo, dar presupuesto a "Finanzas Personales Julian" para aislar su
+   contabilidad. Andrés dejó un "punto 2" sin terminar en el chat — preguntarle.
+3. Control Tower sin NumInput (`CTSidePanel`, `CTApprovalsCenter`) — esperando
+   aprobación Zero-Impact de Andrés.
+4. Bot IA etapas C (bandeja web), B.5, D–F · TestSprite re-run · DT-01/06/08/11/15/16/17/18.

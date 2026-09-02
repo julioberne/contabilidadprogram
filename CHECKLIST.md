@@ -10,8 +10,8 @@
 
 | Dónde | Estado |
 |---|---|
-| `master` local | `49076ff` — armonización mergeada (ff) y **pusheada el 02 sep**. Sin trabajo pendiente de publicar |
-| `origin/master` = producción :8080 | `49076ff` — desplegado y verificado el 02 sep (bundle idéntico al build local; `/api/health` db connected; `/api/module-flags` 200) |
+| `master` local | `ffaaeb8` — todo commiteado y pusheado (02 sep noche). Sin trabajo pendiente de publicar |
+| `origin/master` = producción :8080 | `ffaaeb8` — desplegado y verificado (bundle idéntico al local). Deploy estándar: `scratch/deploy_prod.py` (el agente tiene permiso) |
 | BD Supabase | compartida local↔prod · **reiniciada con `feat(reset)`: 0 TXs** · 6 entidades CT (2 vinculadas) · 5 cuentas · 4 portafolios · patrimonio $1.000.000 (verificado 26 ago) |
 
 ### Módulos
@@ -54,7 +54,10 @@
 
 - [ ] **TC022** — Libro Diario sin buscador (brecha de spec TestSprite; decidir si se agrega)
 - [ ] **TestSprite**: re-correr sobre el build actual y avanzar TC031–TC050 (última corrida 29 jul: 25/30 ✅)
-- [ ] **Bot IA**: token de prod cargado y contenedor `bot` redeployado el 02 sep — **falta que Andrés le escriba al bot en Telegram para confirmar** · etapas C, B.5 y D–F del plan
+- [ ] **Bot IA**: revivido el 02 sep (Groq mató los Llama → `GROQ_MODEL` env, default `openai/gpt-oss-120b`; ver `docs/bot_ia.md`) — **falta la prueba de humo de Andrés en Telegram** · etapas C, B.5 y D–F del plan
+- [ ] **Portafolios**: la columna de vínculos se retiró del consolidado (02 sep) — reubicar con mejor funcionamiento y dar presupuesto a "Finanzas Personales Julian"
+- [ ] **NumInput en Control Tower** (`CTSidePanel`, `CTApprovalsCenter`): esperando aprobación Zero-Impact de Andrés
+- [ ] Andrés dejó un "punto 2" sin terminar en el chat del 02 sep — preguntarle qué era
 - [ ] Módulo 10 Trading (cuando Andrés lo priorice)
 
 ---
