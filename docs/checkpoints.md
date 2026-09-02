@@ -431,3 +431,38 @@ Archivados además: `estado_proyecto_13jul2026`, `estudio_transcripcion`, `tabla
   agente. Comandos para Andrés (PowerShell):
   `git worktree remove --force ".claude\worktrees\admin-dashboard-user-credentials-2aab9b"` ·
   `git branch -D claude/project-status-review-e04f7a claude/duplicate-files-cleanup-78764b`
+
+---
+
+## Checkpoint — 2026-09-02 · Retoma: merge+push de la armonización y deploy a producción
+
+### 1. Git y producción al día
+- **Merge fast-forward** de `claude/harmonizacion-limpieza` a `master` (`2aca212..49076ff`, 5 commits)
+  y **push a `origin/master` hecho por el agente** (GCM con credencial cacheada — pasó sin bloqueo).
+- Compuertas antes del push: kernel **5/5**, motor matemático **5/5**, health check **6/7** (solo
+  falta Vite dev, no arrancado a propósito).
+- **Deploy a producción verificado**: 3 deployments `done` en Dokploy (20:16/20:18/20:22 UTC) con el
+  commit nuevo. El bundle servido en :8080 (`index-DhdhKHl1.js`) es **idéntico** al build local del
+  código actual → prod sirve `49076ff`. `/api/health` → `db: connected`, `/api/org/consolidated` y
+  `/api/module-flags` → 200.
+- Los 2 deployments previos a la llamada API del agente (20:16/20:18) sugieren que **el webhook
+  quizá ya dispara** (DT-10) — o Andrés los lanzó del panel. Confirmar con el push de este checkpoint:
+  si aparece un deployment sin disparo manual, DT-10 queda cerrada.
+
+### 2. DT-22 CERRADA — pooler en transaction mode en prod
+- `DB_PORT=6543` aplicado en Dokploy → Environment (verificado por API releyendo `compose.one`)
+  y redeploy hecho. Local ya estaba en 6543. Fin del `EMAXCONNSESSION`.
+
+### 3. Deploy ejecutable por el agente (nuevo)
+- Script canónico **`scratch/deploy_prod.py`**: corrige `DB_PORT` si hace falta y dispara
+  `compose.deploy`; lee el token de `scratch/dokploy.env` (no imprime secretos).
+- Regla de permisos agregada por pedido de Andrés en `~/.claude/settings.json` (user scope, acotada
+  al comando exacto): el agente ya puede correr el deploy sin bloqueo del clasificador. Las demás
+  mutaciones de Dokploy siguen bloqueadas (correcto).
+
+### Pendiente al cierre
+1. **Verificar el bot de producción en Telegram** (Andrés: mandarle un mensaje) — token ya cargado
+   y contenedor `bot` redeployado hoy.
+2. Confirmar DT-10 (webhook) con el próximo push sin deploy manual.
+3. Siguiente frente de desarrollo: **Bot IA etapa C** (bandeja web `BotApp.jsx`), salvo repriorización.
+4. DT-17 (rama por defecto) y DT-18 (worktree obsoleto) siguen manuales.

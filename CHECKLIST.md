@@ -2,7 +2,7 @@
 
 > **Único archivo de estado vivo.** Aquí: qué hay, qué falta, cómo arrancar.
 > Lo que ya pasó (con verificación) va a `docs/checkpoints.md` — un checkpoint por sesión.
-> Última actualización: **26 Ago 2026**.
+> Última actualización: **02 Sep 2026**.
 
 ---
 
@@ -10,8 +10,8 @@
 
 | Dónde | Estado |
 |---|---|
-| `master` local | 8 commits adelante de `origin/master` — **falta push**. Rama `claude/harmonizacion-limpieza` (armonización + fixes 26 ago) pendiente de merge |
-| `origin/master` = producción :8080 | `2866be8` — desplegado y verificado el 24 ago (`/api/org/consolidated` → 200) |
+| `master` local | `49076ff` — armonización mergeada (ff) y **pusheada el 02 sep**. Sin trabajo pendiente de publicar |
+| `origin/master` = producción :8080 | `49076ff` — desplegado y verificado el 02 sep (bundle idéntico al build local; `/api/health` db connected; `/api/module-flags` 200) |
 | BD Supabase | compartida local↔prod · **reiniciada con `feat(reset)`: 0 TXs** · 6 entidades CT (2 vinculadas) · 5 cuentas · 4 portafolios · patrimonio $1.000.000 (verificado 26 ago) |
 
 ### Módulos
@@ -40,21 +40,21 @@
 | DT-07 | Fuentes Kanban/TaskModal (CSS classes sin aplicar) | Baja |
 | DT-08 | Integración contabilidad↔nómina (totalizar gasto nómina en COA) | Media |
 | DT-09 | Comprobante nómina: integrar con tablas contables al generarse | Baja |
-| DT-10 | Webhook GitHub→Dokploy no dispara (3 veces). API key nueva **verificada 26 ago** (`compose.one` y `deployment.allByCompose` → 200): el respaldo `POST /api/compose.deploy` queda operativo. Falta confirmar si el webhook dispara en el próximo push | **Alta** |
+| DT-10 | Webhook GitHub→Dokploy: el 02 sep aparecieron 2 deployments ANTES del disparo manual → **posiblemente ya dispara**; confirmar con el próximo push sin deploy manual. Respaldo operativo: `scratch/deploy_prod.py` (el agente ya tiene permiso para correrlo) | Media |
 | DT-11 | Fase 5 remediación: print→logging, TRM 4000 hardcodeada, float→Decimal (lifespan ✅ hecho 26 ago) | Media |
 | DT-15 | Renombrar `contabilidad-v2/` → `contabilidad/` (parar el watcher de Vite antes: lock en Windows) | Baja |
 | DT-16 | Rotar el GitHub PAT del provider de Dokploy (expuesto en una sesión) | Media |
 | DT-17 | Rama por defecto de GitHub sigue en `main` (vacía) — cambiarla a `master` en Settings | Media |
 | DT-18 | Queda 1 worktree obsoleto (`admin-dashboard-user-credentials-2aab9b`) + 2 ramas muertas del commit raíz huérfano. Comandos listos en checkpoint 26 ago (el clasificador los bloquea al agente) | Baja |
 | DT-20 | Voz web (`.webm`) no queda adjunta como evidencia; la de Telegram (`.ogg`) sí. ¿Deliberado? | Baja |
-| **DT-22** | **Pooler Supabase saturado** (session mode `:5432`, límite 15 compartido local+prod → `EMAXCONNSESSION`). ✅ Local ya en `6543` (transaction mode, verificado 26 ago). **Falta**: `DB_PORT=6543` en Dokploy → Environment + redeploy | **Alta** |
+| ~~DT-22~~ | **CERRADA 02 sep** — pooler en transaction mode `6543` en local Y en Dokploy (verificado por API) + redeploy hecho. NUNCA volver a 5432 | ✅ |
 | DT-21 | Endpoints huérfanos (stubs `NOT_IMPLEMENTED` en `routers/hr.py`): `POST /api/hr/storage/sign-upload`, `POST /api/hr/salary/calculate` — remover o activar con DT-09 | Baja |
 
 ### Funcional / calidad
 
 - [ ] **TC022** — Libro Diario sin buscador (brecha de spec TestSprite; decidir si se agrega)
 - [ ] **TestSprite**: re-correr sobre el build actual y avanzar TC031–TC050 (última corrida 29 jul: 25/30 ✅)
-- [ ] **Bot IA**: `TELEGRAM_BOT_TOKEN` de prod cargado en Dokploy (Andrés, 26 ago) — verificar que el bot responde en Telegram tras el próximo deploy · etapas C, B.5 y D–F del plan
+- [ ] **Bot IA**: token de prod cargado y contenedor `bot` redeployado el 02 sep — **falta que Andrés le escriba al bot en Telegram para confirmar** · etapas C, B.5 y D–F del plan
 - [ ] Módulo 10 Trading (cuando Andrés lo priorice)
 
 ---
