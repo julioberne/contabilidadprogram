@@ -174,6 +174,11 @@ if _frontend_dist.exists():
 
 if __name__ == "__main__":
     import uvicorn
-    # Iniciar servidor local en el puerto 8000
-    uvicorn.run("server:app", host="127.0.0.1", port=8000, reload=True)
+    # Iniciar servidor local en el puerto 8000.
+    # reload SOLO sobre el codigo backend: sin reload_dirs, WatchFiles vigila el
+    # repo entero y cada `npm run build` (cientos de archivos en frontend/dist)
+    # provoca una tormenta de reinicios que tumba el server en pleno uso y deja
+    # huerfanos en :8000. Cambios a server.py mismo requieren reinicio manual.
+    uvicorn.run("server:app", host="127.0.0.1", port=8000, reload=True,
+                reload_dirs=["fin_sys_core", "routers", "kernel", "shared"])
 
