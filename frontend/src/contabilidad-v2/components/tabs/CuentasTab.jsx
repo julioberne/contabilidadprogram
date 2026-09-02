@@ -19,8 +19,14 @@ const TYPE_ICONS = { HOLDING: '🏛️', EMPRESA: '🏢', SUB_EMPRESA: '📍', P
 export const esCuentaCredito = (acc) => String(acc?.type || '').toLowerCase().startsWith('créd')
   || String(acc?.type || '').toLowerCase().startsWith('cred');
 
-const fmt = (n, currency = 'COP') =>
-  `${currency === 'COP' ? '$' : ''}${Number(n || 0).toLocaleString('es-CO', { maximumFractionDigits: 2 })}`;
+const fmt = (n, currency = 'COP') => {
+  const v = Number(n || 0);
+  // Enteros sin decimales; con centavos siempre 2 (evita "$-400.000,5")
+  const opts = Number.isInteger(v)
+    ? { maximumFractionDigits: 0 }
+    : { minimumFractionDigits: 2, maximumFractionDigits: 2 };
+  return `${currency === 'COP' ? '$' : ''}${v.toLocaleString('es-CO', opts)}`;
+};
 
 const esperadoDe = (acc) => acc.expected_balance !== undefined
   ? Number(acc.expected_balance)

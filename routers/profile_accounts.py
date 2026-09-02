@@ -47,7 +47,14 @@ def anotar_portafolio_cuentas(accounts):
 def filtrar_cuentas_por_portafolio(accounts, portfolio):
     """Visibles en un portafolio: las de EMPRESAS cuyo presupuesto es ese
     portafolio + las compartidas (sin vínculos). La visibilidad contable se
-    DERIVA del árbol: cuenta → empresa → presupuesto (entities.portfolio_id)."""
+    DERIVA del árbol: cuenta → empresa → presupuesto (entities.portfolio_id).
+
+    Regla anti-hueco (2026-09-02): una cuenta vinculada SOLO a empresas sin
+    presupuesto quedaba invisible en TODAS las vistas — la cuenta y el vínculo
+    sí estaban en BD (user_accounts + account_entity_links) pero ningún filtro
+    la incluía y parecía "no guardada". Esas cuentas se muestran en todas las
+    vistas (como las compartidas, con su chip de empresa); al asignarle
+    presupuesto a la empresa recuperan el aislamiento normal."""
     if not portfolio:
         return accounts
     try:
@@ -61,14 +68,19 @@ def filtrar_cuentas_por_portafolio(accounts, portfolio):
                 WHERE p.name = %s
             """, (portfolio,))
             entity_ids = {r[0] for r in cur.fetchall()}
+            cur.execute("SELECT id FROM entities WHERE portfolio_id IS NOT NULL")
+            con_presupuesto = {r[0] for r in cur.fetchall()}
             cur.close()
         finally:
             put_conn(conn)
     except Exception:
         entity_ids = set()
+        con_presupuesto = None   # sin BD no hay cómo derivar: no ocultar de más
     return [a for a in accounts
             if not a.get("entity_links")
-            or any(l["id"] in entity_ids for l in a["entity_links"])]
+            or any(l["id"] in entity_ids for l in a["entity_links"])
+            or (con_presupuesto is not None
+                and all(l["id"] not in con_presupuesto for l in a["entity_links"]))]
 
 
 def _link_cuenta(account_id, entity_id):
