@@ -24,6 +24,9 @@ GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_API_URL_TRANSCRIPT = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_API_URL_CHAT = "https://api.groq.com/openai/v1/chat/completions"
+# Groq retiró los Llama 3.x/4 del catálogo (model_not_found, 2026-09-02).
+# Configurable por env para sobrevivir la próxima rotación sin tocar código.
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 
 
 def get_rag_context(user_voice_concept: str) -> str:
@@ -162,7 +165,7 @@ def transcribe_audio_only(audio_file_path: str) -> str:
 def structure_text_only(transcript: str, portfolio_name: str = "Negocio A") -> Dict[str, Any]:
     """
     Toma un texto transcrito de una nota de voz, realiza una búsqueda RAG contable,
-    y llama al LLM (Groq Llama 3.3 o Gemini) para estructurarlo en el JSON estricto requerido.
+    y llama al LLM (Groq GROQ_MODEL o Gemini) para estructurarlo en el JSON estricto requerido.
     """
     if not transcript or not transcript.strip():
         raise ValueError("El texto transcrito está vacío.")
@@ -203,15 +206,15 @@ def structure_text_only(transcript: str, portfolio_name: str = "Negocio A") -> D
         f"Contexto RAG de transacciones pasadas:\n{rag_context}"
     )
 
-    # --- RUTA 1: GROQ LLAMA 3.3 ---
+    # --- RUTA 1: GROQ ---
     if GROQ_API_KEY:
-        print("🚀 [GROQ LLM] Estructurando texto con Llama-3.3-70b...")
+        print(f"🚀 [GROQ LLM] Estructurando texto con {GROQ_MODEL}...")
         chat_headers = {
             "Authorization": f"Bearer {GROQ_API_KEY}",
             "Content-Type": "application/json"
         }
         chat_payload = {
-            "model": "llama-3.3-70b-versatile",
+            "model": GROQ_MODEL,
             "messages": [
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": f"Estructura este texto: '{transcript}' para el portafolio '{portfolio_name}'."}
@@ -221,14 +224,14 @@ def structure_text_only(transcript: str, portfolio_name: str = "Negocio A") -> D
         }
         chat_response = _http_client.post(GROQ_API_URL_CHAT, headers=chat_headers, json=chat_payload)
         if chat_response.status_code != 200:
-            raise RuntimeError(f"❌ Error en Groq Llama 3.3: {chat_response.text}")
+            raise RuntimeError(f"❌ Error en Groq ({GROQ_MODEL}): {chat_response.text}")
         chat_result = chat_response.json()["choices"][0]["message"]["content"]
         try:
             parsed_transaction = json.loads(chat_result)
             parsed_transaction["raw_transcript"] = transcript
             return parsed_transaction
         except Exception as e:
-            raise RuntimeError(f"❌ Fallo al parsear la respuesta JSON de Llama 3.3: {e}. Respuesta: {chat_result}")
+            raise RuntimeError(f"❌ Fallo al parsear la respuesta JSON de Groq ({GROQ_MODEL}): {e}. Respuesta: {chat_result}")
 
     # --- RUTA 2: GEMINI API (FALLBACK TEXT-TO-JSON) ---
     if not GEMINI_API_KEY:

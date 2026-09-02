@@ -16,7 +16,7 @@ export const toRaw = (display, maxDecimals = 2) => {
   const firstComma = s.indexOf(',');
   let int = firstComma === -1 ? s : s.slice(0, firstComma);
   let dec = firstComma === -1 ? null : s.slice(firstComma + 1).replace(/,/g, '').slice(0, maxDecimals);
-  int = int.replace(/\D/g, '');
+  int = int.replace(/\D/g, '').replace(/^0+(?=\d)/, '');
   if (int === '' && (dec === null || dec === '')) return neg === '-' ? '-' : '';
   return neg + (int || '0') + (dec !== null && dec !== '' ? '.' + dec : '');
 };
@@ -26,6 +26,7 @@ export const toRaw = (display, maxDecimals = 2) => {
 export const toDisplay = (raw, { trailingComma = false } = {}) => {
   if (raw === '' || raw === null || raw === undefined) return '';
   const s = String(raw);
+  if (s === '-') return '-';   // el usuario apenas va a digitar un negativo
   const neg = s.startsWith('-') ? '-' : '';
   const [int = '', dec] = s.replace('-', '').split('.');
   const intFmt = (int || '0').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
