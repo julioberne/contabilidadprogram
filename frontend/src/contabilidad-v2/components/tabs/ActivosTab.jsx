@@ -1,6 +1,7 @@
 // ActivosTab.jsx — Extracted from ContextPanel.jsx
 import React from 'react';
 import InventoryPanel from '../InventoryPanel';
+import NumInput from '../../../shared/NumInput';
 
 export default function ActivosTab({
   assetForm,
@@ -32,7 +33,7 @@ export default function ActivosTab({
               </div>
               <div>
                 <label className="text-[8px] font-bold uppercase block mb-0.5">Valor</label>
-                <input type="number" value={assetForm.value || ''} onChange={e => assetForm.setValue?.(e.target.value)} placeholder="$" className="w-full border border-black px-2 py-1 text-[10px] font-mono outline-none" />
+                <NumInput value={assetForm.value || ''} onChange={e => assetForm.setValue?.(e.target.value)} placeholder="$" className="w-full border border-black px-2 py-1 text-[10px] font-mono outline-none" />
               </div>
               <div>
                 <label className="text-[8px] font-bold uppercase block mb-0.5">Tag</label>

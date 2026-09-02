@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { COLORS, API_BASE_URL, fmtCOP } from './constants';
 import { S } from './styles';
+import NumInput from '../../../shared/NumInput';
 
 // ════════════════════════════════════════════════════════════
 // COMPONENTE: PANEL DE MOVIMIENTOS (inline por item)
@@ -108,9 +109,7 @@ export default function MovementPanel({ item, onMovementCreated }) {
       <div style={{ display: 'grid', gridTemplateColumns: '80px 100px 1fr auto', gap: 6, alignItems: 'end', marginBottom: 12 }}>
         <div>
           <div style={S.label}>CANT.</div>
-          <input
-            type="number"
-            min="1"
+          <NumInput
             value={movQty}
             onChange={(e) => setMovQty(e.target.value)}
             placeholder="0"
@@ -119,8 +118,7 @@ export default function MovementPanel({ item, onMovementCreated }) {
         </div>
         <div>
           <div style={S.label}>P.UNIT (OPC)</div>
-          <input
-            type="number"
+          <NumInput
             value={movPrice}
             onChange={(e) => setMovPrice(e.target.value)}
             placeholder="$0"

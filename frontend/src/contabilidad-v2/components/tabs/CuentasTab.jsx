@@ -9,6 +9,7 @@
 import React, { useEffect, useState } from 'react';
 import { API } from '../../../config';
 import { useEmpresa } from '../../engine/EmpresaProvider.jsx';
+import NumInput from '../../../shared/NumInput';
 
 const TIPOS = ['Ahorros', 'Corriente', 'Crédito', 'Efectivo', 'Billetera', 'Crypto'];
 // Iconos del árbol de Control Tower — los vínculos van a EMPRESAS, no a portafolios
@@ -206,7 +207,7 @@ export default function CuentasTab({
             </select>
           </div>
           <div className="flex gap-1">
-            <input type="number" step="any" value={newAccBalance} onChange={e => setNewAccBalance(e.target.value)} placeholder="Saldo Inicial" className="flex-grow border border-black px-2 py-1 text-[10px] font-mono outline-none" />
+            <NumInput value={newAccBalance} onChange={e => setNewAccBalance(e.target.value)} placeholder="Saldo Inicial" className="flex-grow border border-black px-2 py-1 text-[10px] font-mono outline-none" />
             <button type="submit" className="bg-black text-white border border-black px-3 py-1 text-[8px] font-bold uppercase hover:bg-brutalGreen hover:text-black">Añadir</button>
           </div>
         </form>
@@ -285,12 +286,12 @@ export default function CuentasTab({
                   </td>
                   <td className="p-1 border-r border-black text-center text-[9px] text-gray-400">{acc.currency || 'COP'}</td>
                   <td className="p-1 border-r border-black space-y-0.5">
-                    <input type="number" step="any" value={draft.current_balance}
+                    <NumInput value={draft.current_balance}
                       onChange={e => setDraft(d => ({ ...d, current_balance: e.target.value }))}
                       title="Saldo ACTUAL: el valor real que ves en el banco. Vacío = no tocar."
                       placeholder="Real (banco)"
                       className="w-full border border-black px-1 text-[10px] font-mono text-right outline-none" />
-                    <input type="number" step="any" value={draft.initial_balance}
+                    <NumInput value={draft.initial_balance}
                       onChange={e => setDraft(d => ({ ...d, initial_balance: e.target.value }))}
                       title="Saldo INICIAL: punto de partida del cálculo esperado. Vacío = no tocar."
                       placeholder="Inicial"

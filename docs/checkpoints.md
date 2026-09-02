@@ -466,3 +466,20 @@ Archivados además: `estado_proyecto_13jul2026`, `estudio_transcripcion`, `tabla
 2. Confirmar DT-10 (webhook) con el próximo push sin deploy manual.
 3. Siguiente frente de desarrollo: **Bot IA etapa C** (bandeja web `BotApp.jsx`), salvo repriorización.
 4. DT-17 (rama por defecto) y DT-18 (worktree obsoleto) siguen manuales.
+
+### Adenda 02 sep (misma sesión) — UI: fuera columna Portafolio + formato numérico es-CO
+
+- **DT-10 confirmada muerta por 4ª vez**: el push del checkpoint (`21c4bb3`) no disparó deployment
+  en 2+ min. Vía estándar desde ahora: `scratch/deploy_prod.py`.
+- **Columna PORTAFOLIO retirada del consolidado** (`DashboardPanel.jsx`, pedido de Andrés): fuera el
+  select de vínculos, el botón ＋Portafolio y la celda "vinculada(s)". El vínculo sigue vivo en
+  backend (`entities.portfolio_id`); se reubicará con mejor funcionamiento.
+- **`shared/NumInput.jsx` nuevo**: input con puntuación de miles/decimales es-CO en vivo
+  (`1.234.567,89`), emite el crudo con forma de evento nativo. Aplicado en 12 archivos:
+  registro (importe, TRM), cartera (importe/abonos), cuentas (saldos), activos, impuestos (tasas),
+  inventario (precios/stock/movimientos), libro diario (edición inline), nómina (MoneyInput).
+  Campos chicos (días, repeticiones, cantidad 1-99) quedaron nativos a propósito.
+- **Control Tower NO tocado** (Zero-Impact): `CTSidePanel` y `CTApprovalsCenter` tienen montos sin
+  formato — pendiente aprobación de Andrés.
+- Verificado: vitest 45/45, build OK, columna ausente y formato en vivo comprobados en :8000
+  (ojo: la pestaña necesitó recarga real — la navegación SPA retenía el bundle viejo).

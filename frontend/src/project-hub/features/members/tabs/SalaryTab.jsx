@@ -15,6 +15,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../../lib/supabaseClient';
 import { API_HR as API_HR_BASE } from '../../../../config';
+import NumInput from '../../../../shared/NumInput';
 
 // ── Constantes Colombia 2025 ──────────────────────────────────────────────────
 const SMLV_2025    = 1_423_500;
@@ -610,8 +611,8 @@ function MoneyInput({ id, value, onChange, placeholder = '0' }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
       <span style={{ color: '#64748b', fontSize: '13px', fontFamily: '"IBM Plex Mono", monospace' }}>$</span>
-      <input
-        id={id} type="number" min="0" step="1000"
+      <NumInput
+        id={id}
         value={value} onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
         style={{ ...S.input, flex: 1 }}

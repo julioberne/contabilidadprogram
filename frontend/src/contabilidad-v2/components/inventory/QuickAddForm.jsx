@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { COLORS, CATEGORIAS, UNIDADES, API_BASE_URL, fmtCOP } from './constants';
 import { S } from './styles';
+import NumInput from '../../../shared/NumInput';
 
 // ════════════════════════════════════════════════════════════
 // COMPONENTE: FORMULARIO RÁPIDO DE AGREGAR ITEM
@@ -142,8 +143,7 @@ export default function QuickAddForm({ activePortfolio, activeCompany, existingI
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
         <div>
           <div style={S.label}>PRECIO COSTO</div>
-          <input
-            type="number"
+          <NumInput
             value={form.cost_price}
             onChange={(e) => update('cost_price', e.target.value)}
             placeholder="0"
@@ -152,8 +152,7 @@ export default function QuickAddForm({ activePortfolio, activeCompany, existingI
         </div>
         <div>
           <div style={S.label}>PRECIO VENTA</div>
-          <input
-            type="number"
+          <NumInput
             value={form.sell_price}
             onChange={(e) => update('sell_price', e.target.value)}
             placeholder="0"
@@ -166,8 +165,7 @@ export default function QuickAddForm({ activePortfolio, activeCompany, existingI
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
         <div>
           <div style={S.label}>STOCK INICIAL</div>
-          <input
-            type="number"
+          <NumInput
             value={form.current_stock}
             onChange={(e) => update('current_stock', e.target.value)}
             placeholder="0"
@@ -176,8 +174,7 @@ export default function QuickAddForm({ activePortfolio, activeCompany, existingI
         </div>
         <div>
           <div style={S.label}>STOCK MÍNIMO</div>
-          <input
-            type="number"
+          <NumInput
             value={form.min_stock}
             onChange={(e) => update('min_stock', e.target.value)}
             placeholder="0"

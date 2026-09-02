@@ -1,5 +1,6 @@
 // LibroDiario.jsx — Extracted from App.jsx (Lines 1273-1692)
 import React from 'react';
+import NumInput from '../../../shared/NumInput';
 
 export default function LibroDiario({
   transactions,
@@ -89,9 +90,7 @@ export default function LibroDiario({
                         {/* Valor Neto */}
                         <td className="p-2 border-r border-black font-bold text-right uppercase">
                           {editingCell && editingCell.txId === tx.id && editingCell.field === "net_value" ? (
-                            <input
-                              type="number"
-                              step="0.01"
+                            <NumInput
                               value={editValue}
                               onChange={(e) => setEditValue(e.target.value)}
                               onBlur={() => saveInlineEdit(tx.id, "net_value")}

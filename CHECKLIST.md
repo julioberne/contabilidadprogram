@@ -40,7 +40,7 @@
 | DT-07 | Fuentes Kanban/TaskModal (CSS classes sin aplicar) | Baja |
 | DT-08 | Integración contabilidad↔nómina (totalizar gasto nómina en COA) | Media |
 | DT-09 | Comprobante nómina: integrar con tablas contables al generarse | Baja |
-| DT-10 | Webhook GitHub→Dokploy: el 02 sep aparecieron 2 deployments ANTES del disparo manual → **posiblemente ya dispara**; confirmar con el próximo push sin deploy manual. Respaldo operativo: `scratch/deploy_prod.py` (el agente ya tiene permiso para correrlo) | Media |
+| DT-10 | Webhook GitHub→Dokploy confirmado MUERTO por 4ª vez (push `21c4bb3` del 02 sep no disparó nada en 2+ min). Tras cada push: `scratch/deploy_prod.py` (el agente tiene permiso para correrlo — vía operativa estándar) | Baja |
 | DT-11 | Fase 5 remediación: print→logging, TRM 4000 hardcodeada, float→Decimal (lifespan ✅ hecho 26 ago) | Media |
 | DT-15 | Renombrar `contabilidad-v2/` → `contabilidad/` (parar el watcher de Vite antes: lock en Windows) | Baja |
 | DT-16 | Rotar el GitHub PAT del provider de Dokploy (expuesto en una sesión) | Media |

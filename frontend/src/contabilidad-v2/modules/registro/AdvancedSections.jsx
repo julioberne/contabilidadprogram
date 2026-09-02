@@ -12,6 +12,7 @@
 import { useEffect, useState } from 'react';
 import { useTransactionDraft } from '../../engine/TransactionDraftProvider.jsx';
 import { API } from '../../../config';
+import NumInput from '../../../shared/NumInput';
 
 function Section({ icon, title, badge, open, onToggle, children }) {
   return (
@@ -162,8 +163,8 @@ export default function AdvancedSections() {
           <div className="grid grid-cols-3 gap-1">
             <input type="text" value={taxName} onChange={e => setTaxName(e.target.value)}
                    placeholder="Nombre" className={inputCls} />
-            <input type="number" value={taxRate} onChange={e => setTaxRate(e.target.value)}
-                   placeholder="%" min="0" step="0.1" className={inputCls} />
+            <NumInput value={taxRate} onChange={e => setTaxRate(e.target.value)}
+                   placeholder="%" className={inputCls} />
             <select value={taxType} onChange={e => setTaxType(e.target.value)} className={inputCls}>
               <option value="ADDITIVE">Aditivo</option>
               <option value="DEDUCTIVE">Deductivo</option>

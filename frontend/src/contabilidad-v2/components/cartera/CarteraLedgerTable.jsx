@@ -1,5 +1,6 @@
 // CarteraLedgerTable.jsx — Sub-tabs, sort bar, accounts table, and payment history
 import React from 'react';
+import NumInput from '../../../shared/NumInput';
 
 export default function CarteraLedgerTable({
   filteredCartera, subTab, setSubTab, sortBy, setSortBy,
@@ -188,8 +189,8 @@ export default function CarteraLedgerTable({
                                       <span className="text-red-500">Pendiente: ${rem.toLocaleString()}</span>
                                     </div>
                                     <div className="grid grid-cols-2 gap-1">
-                                      <input type="number" value={abonoAmt} onChange={e => setAbonoAmt(e.target.value)}
-                                        placeholder="$ Monto" max={rem}
+                                      <NumInput value={abonoAmt} onChange={e => setAbonoAmt(e.target.value)}
+                                        placeholder="$ Monto"
                                         className="border border-black px-2 py-1 text-[10px] font-mono outline-none focus:border-brutalGreen" autoFocus />
                                       <input type="date" value={abonoDate} onChange={e => setAbonoDate(e.target.value)}
                                         className="border border-black px-2 py-1 text-[10px] font-mono outline-none" />

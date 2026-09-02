@@ -1,5 +1,6 @@
 // CarteraNewForm.jsx — Collapsible form for creating new CXC/CXP accounts
 import React from 'react';
+import NumInput from '../../../shared/NumInput';
 
 export default function CarteraNewForm({
   formOpen, setFormOpen, formType, setFormType, formTerm, setFormTerm,
@@ -146,7 +147,7 @@ export default function CarteraNewForm({
           {/* Importe total */}
           <div>
             <label className="text-[8px] font-bold uppercase font-mono block mb-0.5">Importe Total</label>
-            <input type="number" value={formAmount} onChange={e => setFormAmount(e.target.value)} placeholder="$0"
+            <NumInput value={formAmount} onChange={e => setFormAmount(e.target.value)} placeholder="$0"
               className="w-full border border-black px-2 py-1 text-[10px] font-mono outline-none bg-white text-right" />
           </div>
 
@@ -154,7 +155,7 @@ export default function CarteraNewForm({
           <div className="grid grid-cols-2 gap-1">
             <div>
               <label className="text-[8px] font-bold uppercase font-mono block mb-0.5">Abono Inicial</label>
-              <input type="number" value={formPartial} onChange={e => setFormPartial(e.target.value)} placeholder="$0"
+              <NumInput value={formPartial} onChange={e => setFormPartial(e.target.value)} placeholder="$0"
                 className="w-full border border-black px-2 py-1 text-[10px] font-mono outline-none bg-white text-right" />
             </div>
             <div>

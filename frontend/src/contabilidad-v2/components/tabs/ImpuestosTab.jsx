@@ -1,5 +1,6 @@
 // ImpuestosTab.jsx — Extracted from ContextPanel.jsx
 import React from 'react';
+import NumInput from '../../../shared/NumInput';
 
 export default function ImpuestosTab({
   taxes,
@@ -32,7 +33,7 @@ export default function ImpuestosTab({
               <option value="CUSTOM">Custom</option>
             </select>
             {taxes.type === 'CUSTOM' && (
-              <input type="number" step="0.01" value={taxes.customRate || ''} onChange={e => taxes.setCustomRate?.(e.target.value)} placeholder="% Tasa" className="border border-black px-2 py-1 text-[10px] font-mono outline-none text-right" />
+              <NumInput value={taxes.customRate || ''} onChange={e => taxes.setCustomRate?.(e.target.value)} placeholder="% Tasa" className="border border-black px-2 py-1 text-[10px] font-mono outline-none text-right" />
             )}
           </div>
         )}
@@ -63,7 +64,7 @@ export default function ImpuestosTab({
       {panelTaxes.length===0 && <p className="text-center text-[10px] text-gray-300 font-mono uppercase py-2">Sin tasas</p>}
       <div className="grid grid-cols-4 gap-1 border-t border-black pt-1.5">
         <input type="text" value={newTaxName} onChange={e=>setNewTaxName(e.target.value)} placeholder="Nombre" className="bg-brutalBg border border-black px-1 py-1 text-[10px] font-mono outline-none" />
-        <input type="number" step="0.01" value={newTaxRate} onChange={e=>setNewTaxRate(e.target.value)} placeholder="%" className="bg-brutalBg border border-black px-1 py-1 text-[10px] font-mono outline-none text-right" />
+        <NumInput value={newTaxRate} onChange={e=>setNewTaxRate(e.target.value)} placeholder="%" className="bg-brutalBg border border-black px-1 py-1 text-[10px] font-mono outline-none text-right" />
         <select value={newTaxType} onChange={e=>setNewTaxType(e.target.value)} className="bg-brutalBg border border-black px-1 py-1 text-[10px] font-mono"><option value="ADDITIVE">ADITIVO</option><option value="DEDUCTIVE">DED</option></select>
         <button onClick={()=>{if(newTaxName.trim()&&newTaxRate){fetch(`${API_BASE}/custom-taxes`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newTaxName.trim(),rate:parseFloat(newTaxRate),type:newTaxType})}).then(()=>{setNewTaxName('');setNewTaxRate('');fetchTaxes()});}}} className="bg-black text-white border border-black px-1 py-1 text-[8px] font-bold hover:bg-brutalGreen hover:text-black">+</button>
       </div>

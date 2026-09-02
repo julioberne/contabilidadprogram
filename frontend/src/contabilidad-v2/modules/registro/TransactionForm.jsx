@@ -2,6 +2,7 @@
 import React from 'react';
 import IndustryWidgets from './IndustryWidgets';
 import AdvancedSections from './AdvancedSections';
+import NumInput from '../../../shared/NumInput';
 
 /* Categorías operativas — los MISMOS nombres de las posting_rules del kernel
    (seed_puc.py): así cada registro manual matchea su regla contable y asienta
@@ -210,8 +211,7 @@ export default function TransactionForm({
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-xs font-bold uppercase block mb-1">Importe ($)*</label>
-                  <input
-                    type="number"
+                  <NumInput
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     required
@@ -481,13 +481,11 @@ export default function TransactionForm({
                   <label className="text-xs font-bold uppercase block mb-1 text-black font-mono">💹 TRM Manual Requerida*</label>
                   <div className="flex items-center space-x-2">
                     <span className="text-xs font-bold text-black font-mono">1 USD =</span>
-                    <input
-                      type="number"
-                      step="0.01"
+                    <NumInput
                       value={trmValue}
                       onChange={(e) => setTrmValue(e.target.value)}
                       required
-                      placeholder="ej. 4000"
+                      placeholder="ej. 4.000"
                       className="flex-grow bg-white border border-black p-1 text-xs font-mono outline-none text-right font-bold focus:border-black"
                     />
                     <span className="text-xs font-bold text-black font-mono">COP</span>

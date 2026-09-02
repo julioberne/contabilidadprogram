@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { COLORS, fmtCOP } from './constants';
 import { S } from './styles';
 import MovementPanel from './MovementPanel';
+import NumInput from '../../../shared/NumInput';
 
 // ── Chip de estado de stock ────────────────────────────────
 const StockChip = ({ current, min }) => {
@@ -75,8 +76,7 @@ export default function ItemRow({
         >
           {isEditingStock ? (
             <div style={{ display: 'flex', gap: 2 }}>
-              <input
-                type="number"
+              <NumInput
                 value={editingStockVal}
                 onChange={(e) => onStockValChange(e.target.value)}
                 onKeyDown={(e) => {

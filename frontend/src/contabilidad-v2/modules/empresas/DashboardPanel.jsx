@@ -38,8 +38,6 @@ export default function DashboardPanel({
   const [entities, setEntities] = useState([]);
   const [totals, setTotals] = useState({ ingresos: 0, gastos: 0, balance: 0 });
   const [unlinkedCount, setUnlinkedCount] = useState(0);
-  const [portfolios, setPortfolios] = useState([]);
-  const [linking, setLinking] = useState(null);   // id de la entidad guardando
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -62,7 +60,6 @@ export default function DashboardPanel({
       setEntities(d.entities || []);
       setTotals(d.totals || { ingresos: 0, gastos: 0, balance: 0 });
       setUnlinkedCount(d.unlinked_count || 0);
-      setPortfolios(d.portfolios || []);
     } catch {
       // Fallback: al menos listar las empresas, sin cifras inventadas
       try {
@@ -80,48 +77,10 @@ export default function DashboardPanel({
 
   useEffect(() => { fetchConsolidated(); }, [fetchConsolidated]);
 
-  /* ── Vincular / desvincular empresa ↔ portafolio ───────────
-     Se edita desde la propia fila: es donde el usuario ve el problema.
-     portfolio_id null = desvincular (el backend acepta el null explícito). */
-  const handleLink = useCallback(async (entityId, value) => {
-    setLinking(entityId);
-    try {
-      const res = await fetch(`${API}/org/entities/${entityId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ portfolio_id: value ? Number(value) : null }),
-      });
-      if (!res.ok) throw new Error('No se pudo guardar el vínculo');
-      await fetchConsolidated();   // recalcula cifras y agregados del árbol
-      onCompaniesChanged?.();
-    } catch (e) {
-      alert(e.message || 'No se pudo guardar el vínculo.');
-    } finally {
-      setLinking(null);
-    }
-  }, [fetchConsolidated, onCompaniesChanged]);
-
-  /* ── Crear portafolio contable nuevo ───────────────────────
-     Cada portafolio es un libro contable independiente (cuentas, COA,
-     transacciones propias); las empresas se vinculan a uno desde su fila. */
-  const handleCreatePortfolio = useCallback(async () => {
-    const name = window.prompt('Nombre del nuevo portafolio contable:\n(cada portafolio es un libro independiente — luego vincúlalo a una empresa desde su fila)');
-    if (!name || !name.trim()) return;
-    try {
-      const res = await fetch(`${API}/portfolios`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), industry_type: 'ESTANDAR' }),
-      });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d.detail || 'No se pudo crear el portafolio');
-      await fetchConsolidated();       // el dropdown de vínculos lo muestra ya
-      onCompaniesChanged?.();
-      alert(`✅ Portafolio "${name.trim()}" creado. Vincúlalo a una empresa en la columna PORTAFOLIO.`);
-    } catch (e) {
-      alert(e.message || 'No se pudo crear el portafolio.');
-    }
-  }, [fetchConsolidated, onCompaniesChanged]);
+  /* La vinculación empresa↔portafolio se retiró de esta vista (02 sep 2026,
+     pedido de Andrés): se reubicará con mejor funcionamiento. El vínculo
+     sigue vivo en el backend (entities.portfolio_id) y las cifras del
+     consolidado siguen derivando de él. */
 
   /* ── Jerarquía colapsable: padre ▸ hijo ▸ proyecto ▸ tarea ──
      Las entidades llegan ordenadas jerárquicamente con parent_id + level;
@@ -182,7 +141,6 @@ export default function DashboardPanel({
         </span>
         <span style={{ flex: 1 }} />
         {/* Accesos rápidos inline */}
-        <QBtn label="＋ Portafolio" onClick={handleCreatePortfolio} />
         <QBtn label="📝 Registro" onClick={() => onQuickAction?.('registro')} />
         <QBtn label="👤 Tercero" onClick={() => onQuickAction?.('tercero')} />
         <QBtn label="📦 Recurso" onClick={() => onQuickAction?.('recurso')} />
@@ -195,7 +153,6 @@ export default function DashboardPanel({
           <thead>
             <tr style={{ background: '#f5f5f5', borderBottom: '1px solid #ddd' }}>
               <th style={S.th}>EMPRESA</th>
-              <th style={S.th}>PORTAFOLIO</th>
               <th style={{ ...S.th, textAlign: 'right' }}>INGRESOS</th>
               <th style={{ ...S.th, textAlign: 'right' }}>GASTOS</th>
               <th style={{ ...S.th, textAlign: 'right' }}>BALANCE</th>
@@ -203,10 +160,9 @@ export default function DashboardPanel({
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={5} style={{ ...S.td, textAlign: 'center', color: '#aaa' }}>Cargando...</td></tr>
+              <tr><td colSpan={4} style={{ ...S.td, textAlign: 'center', color: '#aaa' }}>Cargando...</td></tr>
             ) : (
               entidadesVisibles.map(entity => {
-                const linked = entity.linked;              // vínculo propio
                 const hasFigures = entity.has_figures;     // propio + hijas
                 const isActive = entity.id === activeCompany?.id;
                 const esPadre = conHijos.has(entity.id);
@@ -255,29 +211,6 @@ export default function DashboardPanel({
                         }}>{entity.industry}</span>
                       )}
                     </td>
-                    <td style={{ ...S.td, whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
-                      <select
-                        value={entity.portfolio_id ?? ''}
-                        disabled={linking === entity.id}
-                        onChange={e => handleLink(entity.id, e.target.value)}
-                        title={linked
-                          ? `Contabilidad de: ${entity.portfolio_name}`
-                          : 'Sin portafolio contable. Elige uno para que esta empresa aporte cifras.'}
-                        style={{
-                          fontFamily: '"IBM Plex Mono", monospace', fontSize: 9,
-                          padding: '1px 2px', maxWidth: 140,
-                          border: `1px solid ${linked ? '#ccc' : '#fbbf24'}`,
-                          background: linked ? '#fff' : '#fffbeb',
-                          color: linked ? '#333' : '#b45309',
-                          cursor: linking === entity.id ? 'wait' : 'pointer',
-                        }}
-                      >
-                        <option value="">— sin vincular —</option>
-                        {portfolios.map(p => (
-                          <option key={p.id} value={p.id}>{p.name}</option>
-                        ))}
-                      </select>
-                    </td>
                     <td style={{ ...S.td, textAlign: 'right', color: hasFigures ? '#00c853' : '#ccc' }}>{hasFigures ? fmt(entity.ingresos) : SIN_VINCULAR}</td>
                     <td style={{ ...S.td, textAlign: 'right', color: hasFigures ? '#d50000' : '#ccc' }}>{hasFigures ? fmt(entity.gastos) : SIN_VINCULAR}</td>
                     <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, color: !hasFigures ? '#ccc' : (entity.balance || 0) >= 0 ? '#00c853' : '#d50000' }}>
@@ -298,10 +231,9 @@ export default function DashboardPanel({
           {!loading && entities.length > 0 && (
             <tfoot>
               <tr style={{ borderTop: '2px solid #000', background: '#0a0a14', color: '#fff', fontWeight: 700 }}>
-                <td style={{ ...S.td, letterSpacing: 2, fontSize: 9 }}>∑ TOTAL CONSOLIDADO</td>
                 {/* Cada portafolio cuenta una sola vez aunque varias empresas
                     apunten al mismo — antes se sumaba fila por fila. */}
-                <td style={{ ...S.td, fontSize: 8, color: '#888' }}>{entities.length - unlinkedCount} vinculada(s)</td>
+                <td style={{ ...S.td, letterSpacing: 2, fontSize: 9 }}>∑ TOTAL CONSOLIDADO</td>
                 <td style={{ ...S.td, textAlign: 'right', color: '#4ade80' }}>{fmt(totals.ingresos)}</td>
                 <td style={{ ...S.td, textAlign: 'right', color: '#f87171' }}>{fmt(totals.gastos)}</td>
                 <td style={{ ...S.td, textAlign: 'right', color: totals.balance >= 0 ? '#4ade80' : '#f87171' }}>{fmt(totals.balance)}</td>
