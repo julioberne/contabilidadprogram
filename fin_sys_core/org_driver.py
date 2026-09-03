@@ -196,6 +196,21 @@ def get_consolidated_by_entity() -> Dict[str, Any]:
                 "balance": t["balance_neto_cop"],
             }
 
+        # Cuentas por empresa (account_entity_links): el DISPONIBLE de cada
+        # entidad = suma de current_balance de sus cuentas vinculadas. Es un
+        # stock (saldo), no un flujo — por eso va en columna aparte y no se
+        # mezcla con ingresos/gastos. Instalación sin la tabla → sin columna.
+        try:
+            cur.execute("SELECT account_id, entity_id FROM account_entity_links")
+            links = [dict(r) for r in cur.fetchall()]
+        except Exception:
+            conn.rollback()
+            links = []
+        saldo_cuenta = {a["id"]: float(a["current_balance"] or 0) for a in accounts}
+        cuentas_de: Dict[int, set] = {}
+        for l in links:
+            cuentas_de.setdefault(l["entity_id"], set()).add(l["account_id"])
+
         cur.close()
     finally:
         put_conn(conn)
@@ -224,10 +239,22 @@ def get_consolidated_by_entity() -> Dict[str, Any]:
             acc |= portafolios_del_subarbol(h, visitados)
         return acc
 
+    def cuentas_del_subarbol(eid: int, visitados: Optional[set] = None) -> set:
+        if visitados is None:
+            visitados = set()
+        if eid in visitados:
+            return set()
+        visitados.add(eid)
+        acc = set(cuentas_de.get(eid, set()))
+        for h in hijos.get(eid, []):
+            acc |= cuentas_del_subarbol(h, visitados)
+        return acc
+
     filas = []
     for e in entities:
         propio = e.get("portfolio_id")
         alcance = portafolios_del_subarbol(e["id"])
+        cuentas_ids = cuentas_del_subarbol(e["id"])
 
         cifras = None
         if alcance:
@@ -254,6 +281,9 @@ def get_consolidated_by_entity() -> Dict[str, Any]:
             "ingresos": cifras["ingresos"] if cifras else None,
             "gastos": cifras["gastos"] if cifras else None,
             "balance": cifras["balance"] if cifras else None,
+            # Disponible en cuentas del subárbol (None = sin cuentas vinculadas)
+            "cuentas_saldo": sum(saldo_cuenta.get(cid, 0) for cid in cuentas_ids) if cuentas_ids else None,
+            "cuentas_count": len(cuentas_ids),
         })
 
     totales = {"ingresos": 0.0, "gastos": 0.0, "balance": 0.0}
@@ -261,6 +291,10 @@ def get_consolidated_by_entity() -> Dict[str, Any]:
         totales["ingresos"] += c["ingresos"]
         totales["gastos"] += c["gastos"]
         totales["balance"] += c["balance"]
+    # Total de cuentas: cada cuenta vinculada UNA vez (las compartidas no
+    # pertenecen a ninguna empresa y quedan fuera del desglose a propósito)
+    vinculadas = {l["account_id"] for l in links}
+    totales["cuentas_saldo"] = sum(saldo_cuenta.get(cid, 0) for cid in vinculadas)
 
     return {
         "entities": filas,

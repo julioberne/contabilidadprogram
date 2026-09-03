@@ -517,7 +517,8 @@ def descartar_draft(draft_id: int, chat_link_id=None, hub_user_id=None) -> str:
 # Campos del payload que la bandeja web puede editar (Etapa C). account_id NO:
 # se re-resuelve desde payment_method al confirmar. inferred/missing se recalculan.
 _CAMPOS_EDITABLES = {"type", "amount", "concept", "category", "payment_method",
-                     "transaction_date", "portfolio_name", "apply_iva", "apply_gmf"}
+                     "transaction_date", "portfolio_name", "apply_iva", "apply_gmf",
+                     "tags"}
 
 
 def editar_draft(draft_id: int, cambios: dict, hub_user_id=None) -> dict:
@@ -541,6 +542,10 @@ def editar_draft(draft_id: int, cambios: dict, hub_user_id=None) -> dict:
             return {"error": "Monto inválido."}
     if "transaction_date" in campos and not re.match(r"^\d{4}-\d{2}-\d{2}$", str(campos["transaction_date"] or "")):
         return {"error": "Fecha inválida (se espera YYYY-MM-DD)."}
+    if "tags" in campos:
+        if not isinstance(campos["tags"], list):
+            return {"error": "tags debe ser una lista de nombres."}
+        campos["tags"] = [str(t).strip() for t in campos["tags"] if str(t).strip()][:20]
 
     from db_pool import get_conn, put_conn
     conn = get_conn()

@@ -122,23 +122,10 @@ export default function DashboardPanel({
     <div style={S.container}>
       {/* Header */}
       <div style={S.header}>
+        {/* Chips "N SIN VINCULAR" y "TRABAJANDO EN" retirados (03 sep 2026,
+            pedido de Andrés): eran UI de la era portafolios y confundían.
+            El portafolio activo sigue operando por debajo para el registro. */}
         <span style={S.headerLabel}>▼ CONSOLIDADO · {entities.length} EMPRESAS</span>
-        {unlinkedCount > 0 && (
-          <span
-            style={{ fontSize: 8, color: '#b45309', background: '#fef3c7', border: '1px solid #fbbf24', padding: '0 4px', letterSpacing: 0.5 }}
-            title="Estas empresas no tienen un portafolio contable vinculado, así que no aportan cifras al consolidado."
-          >
-            {unlinkedCount} SIN VINCULAR
-          </span>
-        )}
-        {/* La contabilidad activa: los módulos de abajo (registro, libro,
-            pulso de cuentas) trabajan sobre ESTE portafolio */}
-        <span
-          style={{ fontSize: 8, color: '#166534', background: '#dcfce7', border: '1px solid #4ade80', padding: '0 4px', letterSpacing: 0.5, fontWeight: 700 }}
-          title="Portafolio contable sobre el que trabajan el registro, el libro diario y el pulso de cuentas. Cambia seleccionando una empresa vinculada."
-        >
-          ▸ TRABAJANDO EN: {activePortfolio || '—'}
-        </span>
         <span style={{ flex: 1 }} />
         {/* Accesos rápidos inline */}
         <QBtn label="📝 Registro" onClick={() => onQuickAction?.('registro')} />
@@ -153,6 +140,7 @@ export default function DashboardPanel({
           <thead>
             <tr style={{ background: '#f5f5f5', borderBottom: '1px solid #ddd' }}>
               <th style={S.th}>EMPRESA</th>
+              <th style={{ ...S.th, textAlign: 'right' }} title="Disponible: suma de los saldos de las cuentas vinculadas a la empresa y sus dependientes">CUENTAS</th>
               <th style={{ ...S.th, textAlign: 'right' }}>INGRESOS</th>
               <th style={{ ...S.th, textAlign: 'right' }}>GASTOS</th>
               <th style={{ ...S.th, textAlign: 'right' }}>BALANCE</th>
@@ -160,7 +148,7 @@ export default function DashboardPanel({
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={4} style={{ ...S.td, textAlign: 'center', color: '#aaa' }}>Cargando...</td></tr>
+              <tr><td colSpan={5} style={{ ...S.td, textAlign: 'center', color: '#aaa' }}>Cargando...</td></tr>
             ) : (
               entidadesVisibles.map(entity => {
                 const hasFigures = entity.has_figures;     // propio + hijas
@@ -211,6 +199,11 @@ export default function DashboardPanel({
                         }}>{entity.industry}</span>
                       )}
                     </td>
+                    <td style={{ ...S.td, textAlign: 'right', fontWeight: 600,
+                                 color: entity.cuentas_saldo == null ? '#ccc' : entity.cuentas_saldo < 0 ? '#d50000' : '#0369a1' }}
+                        title={entity.cuentas_count ? `Disponible en ${entity.cuentas_count} cuenta(s) vinculada(s)` : 'Sin cuentas vinculadas a esta empresa'}>
+                      {entity.cuentas_saldo == null ? SIN_VINCULAR : fmt(entity.cuentas_saldo)}
+                    </td>
                     <td style={{ ...S.td, textAlign: 'right', color: hasFigures ? '#00c853' : '#ccc' }}>{hasFigures ? fmt(entity.ingresos) : SIN_VINCULAR}</td>
                     <td style={{ ...S.td, textAlign: 'right', color: hasFigures ? '#d50000' : '#ccc' }}>{hasFigures ? fmt(entity.gastos) : SIN_VINCULAR}</td>
                     <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, color: !hasFigures ? '#ccc' : (entity.balance || 0) >= 0 ? '#00c853' : '#d50000' }}>
@@ -234,6 +227,10 @@ export default function DashboardPanel({
                 {/* Cada portafolio cuenta una sola vez aunque varias empresas
                     apunten al mismo — antes se sumaba fila por fila. */}
                 <td style={{ ...S.td, letterSpacing: 2, fontSize: 9 }}>∑ TOTAL CONSOLIDADO</td>
+                <td style={{ ...S.td, textAlign: 'right', color: '#7dd3fc' }}
+                    title="Suma de cuentas vinculadas a empresas (cada cuenta una vez; las compartidas no entran)">
+                  {totals.cuentas_saldo != null ? fmt(totals.cuentas_saldo) : '—'}
+                </td>
                 <td style={{ ...S.td, textAlign: 'right', color: '#4ade80' }}>{fmt(totals.ingresos)}</td>
                 <td style={{ ...S.td, textAlign: 'right', color: '#f87171' }}>{fmt(totals.gastos)}</td>
                 <td style={{ ...S.td, textAlign: 'right', color: totals.balance >= 0 ? '#4ade80' : '#f87171' }}>{fmt(totals.balance)}</td>

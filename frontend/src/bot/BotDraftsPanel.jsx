@@ -35,7 +35,7 @@ export default function BotDraftsPanel() {
   const [busy, setBusy] = useState(null);           // id | 'bulk' | null
   const [resultados, setResultados] = useState({}); // id → mensaje del driver
   const [cuentas, setCuentas] = useState([]);
-  const [portafolios, setPortafolios] = useState([]);
+  const [allTags, setAllTags] = useState([]);   // tag_definitions — mismas del registro
   const [linkInfo, setLinkInfo] = useState(null);
 
   const cargar = useCallback(async (estado = filtro) => {
@@ -51,7 +51,7 @@ export default function BotDraftsPanel() {
   useEffect(() => { cargar(filtro); }, [filtro, cargar]);
   useEffect(() => {
     fetch(`${API}/accounts`).then(r => r.json()).then(a => setCuentas(a.map(x => x.name))).catch(() => {});
-    fetch(`${API}/portfolios`).then(r => r.json()).then(p => setPortafolios(p.map(x => x.name || x))).catch(() => {});
+    fetch(`${API}/tags`).then(r => r.json()).then(t => setAllTags(Array.isArray(t) ? t : [])).catch(() => {});
   }, []);
 
   const editables = drafts.filter(d => d.status === 'BORRADOR' || d.status === 'ERROR');
@@ -100,8 +100,9 @@ export default function BotDraftsPanel() {
     setEdit({
       type: p.type || 'GASTO', amount: p.amount ?? '', concept: p.concept || '',
       category: p.category || '', payment_method: p.payment_method || '',
-      transaction_date: p.transaction_date || '', portfolio_name: p.portfolio_name || '',
+      transaction_date: p.transaction_date || '',
       apply_iva: !!p.apply_iva, apply_gmf: !!p.apply_gmf,
+      tags: Array.isArray(p.tags) ? p.tags : [],
       tp_name: p.third_party?.name || '', tp_num: p.third_party?.identification_number || '',
     });
   };
@@ -110,7 +111,7 @@ export default function BotDraftsPanel() {
     const body = {
       type: edit.type, amount: edit.amount === '' ? null : Number(edit.amount),
       concept: edit.concept, category: edit.category, payment_method: edit.payment_method,
-      transaction_date: edit.transaction_date, portfolio_name: edit.portfolio_name,
+      transaction_date: edit.transaction_date, tags: edit.tags || [],
       apply_iva: edit.apply_iva, apply_gmf: edit.apply_gmf,
       third_party: { name: edit.tp_name, identification_number: edit.tp_num },
     };
@@ -211,7 +212,7 @@ export default function BotDraftsPanel() {
                   editingId={editingId} edit={edit} setEdit={setEdit}
                   startEdit={startEdit} saveEdit={saveEdit} setEditingId={setEditingId}
                   accion={accion} resultado={resultados[d.id]}
-                  cuentas={cuentas} portafolios={portafolios} inp={inp} />
+                  cuentas={cuentas} allTags={allTags} inp={inp} />
               );
             })}
           </tbody>
@@ -226,7 +227,7 @@ export default function BotDraftsPanel() {
 
 /* ── Fila (+ edición expandida) ─────────────────────────────── */
 function FragmentoFila({ d, p, editable, sel, toggleSel, busy, editingId, edit, setEdit,
-                         startEdit, saveEdit, setEditingId, accion, resultado, cuentas, portafolios, inp }) {
+                         startEdit, saveEdit, setEditingId, accion, resultado, cuentas, allTags, inp }) {
   const upd = (k) => (e) => setEdit(prev => ({ ...prev, [k]: e.target.value }));
   const editando = editingId === d.id;
   return (
@@ -304,11 +305,21 @@ function FragmentoFila({ d, p, editable, sel, toggleSel, busy, editingId, edit, 
               <label className="text-[8px] font-bold uppercase">Fecha
                 <input type="date" className={`${inp} w-full`} value={edit.transaction_date} onChange={upd('transaction_date')} />
               </label>
-              <label className="text-[8px] font-bold uppercase">Portafolio
-                <select className={`${inp} w-full`} value={edit.portfolio_name} onChange={upd('portfolio_name')}>
-                  {!portafolios.includes(edit.portfolio_name) && <option value={edit.portfolio_name}>{edit.portfolio_name || '—'}</option>}
-                  {portafolios.map(pf => <option key={pf}>{pf}</option>)}
-                </select>
+              <label className="text-[8px] font-bold uppercase">Etiquetas
+                <div className={`${inp} w-full flex flex-wrap gap-1 min-h-[22px] cursor-default`}>
+                  {allTags.length === 0 && <span className="text-gray-400">sin etiquetas creadas</span>}
+                  {allTags.map(t => {
+                    const on = (edit.tags || []).includes(t.name);
+                    return (
+                      <span key={t.id || t.name}
+                        onClick={() => setEdit(prev => ({ ...prev,
+                          tags: on ? prev.tags.filter(x => x !== t.name) : [...(prev.tags || []), t.name] }))}
+                        className={`px-1 border cursor-pointer text-[9px] ${on ? 'border-black bg-brutalGreen font-bold' : 'border-gray-300 bg-white hover:bg-brutalNeutral'}`}>
+                        {on ? '☑' : '☐'} {t.name}
+                      </span>
+                    );
+                  })}
+                </div>
               </label>
               <label className="text-[8px] font-bold uppercase">Tercero
                 <input className={`${inp} w-full`} value={edit.tp_name} onChange={upd('tp_name')} placeholder="Nombre" />
