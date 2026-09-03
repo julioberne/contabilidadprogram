@@ -519,3 +519,39 @@ Archivados además: `estado_proyecto_13jul2026`, `estudio_transcripcion`, `tabla
 3. Control Tower sin NumInput (`CTSidePanel`, `CTApprovalsCenter`) — esperando
    aprobación Zero-Impact de Andrés.
 4. Bot IA etapas C (bandeja web), B.5, D–F · TestSprite re-run · DT-01/06/08/11/15/16/17/18.
+
+---
+
+## Checkpoint — 2026-09-03 · Bandeja del bot, consolidado con cuentas, cartera modo préstamo
+
+### Publicado (push de Andrés hasta `58873a9`)
+1. **Etapa C del Bot COMPLETA y EN USO** (`65ec78e`): bandeja web de borradores con
+   casillas + confirmación/descarte masivo, edición inline determinista, vinculación
+   Telegram. Montada en la pestaña BORRADORES de Contabilidad y en el módulo Bot IA.
+   Nuevo `PUT /api/bot/drafts/{id}`. **Andrés ya confirmó sus 4 borradores reales
+   (#13–16) desde la bandeja** — ciclo Telegram→bandeja→asiento verificado en uso real.
+2. **Consolidado con columna CUENTAS** (`c51e4a6`): disponible por empresa (subárbol,
+   cada cuenta una vez). Chips "SIN VINCULAR"/"TRABAJANDO EN" retirados. Bandeja:
+   campo Portafolio → Etiquetas (⚠ deuda: tags no llegan a la transacción en NINGÚN
+   flujo — TransactionInput no tiene el campo; la web también las pierde).
+3. **Cartera Fase 1 — plan de pagos** (`37a376e`): cuota mínima por corte + interés
+   simple sobre saldo (abono cubre interés primero, desglose int/cap guardado),
+   EN MORA derivado. Migración `migrate_cartera_plan.py` APLICADA en la BD.
+   8 tests nuevos. Limitación: interés impago no capitaliza.
+4. **Cartera UX** (`58873a9`): buscador (tercero/NIT/concepto), plan editable
+   post-creación (PUT /plan + editor ✎ / "Definir cuota"), botón "⚡ Registrar
+   cuota" (abono de la cuota en un clic), línea "📅 Próx. cobro/pago" en cada fila.
+   **Andrés ya usa el plan con datos reales** (William $38M, cuota $1.850.000 c/30d).
+
+### Notas operativas
+- Groq: catálogo SIN Llama; bot en `openai/gpt-oss-120b` vía env `GROQ_MODEL`.
+- Credencial GitHub de escritura expira seguido en el entorno del agente: el push
+  se cuelga esperando prompt. Los push los corre Andrés en su terminal (GCM UI).
+
+### Pendiente (próxima sesión)
+1. **Fase 2 — recordatorios** de cartera por Telegram (tick en el poller del bot,
+   tabla cartera_reminders, resumen periódico). El próximo corte ya se calcula.
+2. Pipeline de etiquetas (tags → transacción, falta en web y bot).
+3. Reubicar gestión de portafolios + presupuesto a "Finanzas Personales Julian".
+4. NumInput en Control Tower (espera aprobación Zero-Impact).
+5. "Punto 2" que Andrés dejó cortado el 02-sep — preguntarle.

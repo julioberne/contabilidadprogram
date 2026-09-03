@@ -2,7 +2,7 @@
 
 > **Único archivo de estado vivo.** Aquí: qué hay, qué falta, cómo arrancar.
 > Lo que ya pasó (con verificación) va a `docs/checkpoints.md` — un checkpoint por sesión.
-> Última actualización: **02 Sep 2026**.
+> Última actualización: **03 Sep 2026**.
 
 ---
 
@@ -10,8 +10,8 @@
 
 | Dónde | Estado |
 |---|---|
-| `master` local | `ffaaeb8` — todo commiteado y pusheado (02 sep noche). Sin trabajo pendiente de publicar |
-| `origin/master` = producción :8080 | `ffaaeb8` — desplegado y verificado (bundle idéntico al local). Deploy estándar: `scratch/deploy_prod.py` (el agente tiene permiso) |
+| `master` local | al día con origin (03 sep: bandeja bot, consolidado CUENTAS, cartera plan de pagos + UX) |
+| `origin/master` = producción :8080 | desplegado y verificado 03 sep. Deploy estándar: `scratch/deploy_prod.py` (el agente tiene permiso); push lo corre Andrés (credencial del agente expira) |
 | BD Supabase | compartida local↔prod · **reiniciada con `feat(reset)`: 0 TXs** · 6 entidades CT (2 vinculadas) · 5 cuentas · 4 portafolios · patrimonio $1.000.000 (verificado 26 ago) |
 
 ### Módulos
@@ -54,7 +54,9 @@
 
 - [ ] **TC022** — Libro Diario sin buscador (brecha de spec TestSprite; decidir si se agrega)
 - [ ] **TestSprite**: re-correr sobre el build actual y avanzar TC031–TC050 (última corrida 29 jul: 25/30 ✅)
-- [ ] **Bot IA**: revivido el 02 sep (Groq mató los Llama → `GROQ_MODEL` env, default `openai/gpt-oss-120b`; ver `docs/bot_ia.md`) — **falta la prueba de humo de Andrés en Telegram** · etapas C, B.5 y D–F del plan
+- [ ] **Bot IA**: ✅ funcionando en producción (gpt-oss-120b) y **Etapa C COMPLETA** — bandeja web en uso real (4 borradores confirmados por Andrés). Quedan B.5 (RAG) y D–F
+- [ ] **Cartera Fase 2**: recordatorios personalizables por Telegram (tick en el poller, `cartera_reminders`, resumen periódico) — el diseño está en el checkpoint 03-sep
+- [ ] **Pipeline de etiquetas**: los tags NO llegan a la transacción en ningún flujo (falta campo en TransactionInput + persistencia) — hoy solo viven en el borrador del bot
 - [ ] **Portafolios**: la columna de vínculos se retiró del consolidado (02 sep) — reubicar con mejor funcionamiento y dar presupuesto a "Finanzas Personales Julian"
 - [ ] **NumInput en Control Tower** (`CTSidePanel`, `CTApprovalsCenter`): esperando aprobación Zero-Impact de Andrés
 - [ ] Andrés dejó un "punto 2" sin terminar en el chat del 02 sep — preguntarle qué era
