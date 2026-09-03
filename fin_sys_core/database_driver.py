@@ -1731,10 +1731,17 @@ def listar_cartera(portfolio_name: str = None) -> List[Dict[str, Any]]:
                 FROM cartera_payments GROUP BY ledger_id;
             """)
             abonos = {r["ledger_id"]: (float(r["total"]), r["last_pay"]) for r in cur.fetchall()}
-            from cartera_plan import plan_info
+            from cartera_plan import plan_info, proximo_corte_de
             for row in rows:
                 total, last_pay = abonos.get(row["id"], (0.0, None))
                 row["plan"] = plan_info(row, total, last_pay)
+                # "Cuándo DEBERÍA ser el próximo pago/cobro" — para TODAS las
+                # cuentas con frecuencia, tengan plan o no (pedido 03-sep)
+                if float(row.get("remaining_balance") or 0) > 0:
+                    row["proximo_corte"] = proximo_corte_de(
+                        row.get("start_date"), int(row.get("payment_frequency") or 0))
+                else:
+                    row["proximo_corte"] = None
         except Exception as plan_err:
             print(f"⚠️ Cartera sin anotación de plan: {plan_err}")
         cur.close()

@@ -9,8 +9,30 @@ export default function CarteraLedgerTable({
   expandedNote, setExpandedNote, getDueSemaforo,
   abonoOpen, setAbonoOpen, abonoAmt, setAbonoAmt,
   abonoDate, setAbonoDate, abonoNote, setAbonoNote,
-  handleAbono, setSelectedLedger, setPayments
+  handleAbono, setSelectedLedger, setPayments,
+  searchQ, setSearchQ, handleQuickCuota, handleSavePlan
 }) {
+  // Edición inline del plan (📐 definir/cambiar cuota e interés)
+  const [planEditId, setPlanEditId] = React.useState(null);
+  const [planDraft, setPlanDraft] = React.useState({});
+  const abrirPlanEdit = (c) => {
+    setPlanEditId(c.id);
+    setPlanDraft({
+      min_payment: c.min_payment || '',
+      interest_rate: c.interest_rate || '',
+      interest_period: c.interest_period || 'MENSUAL',
+    });
+  };
+  const guardarPlan = async (id) => {
+    const ok = await handleSavePlan(id, {
+      min_payment: parseFloat(planDraft.min_payment) > 0 ? parseFloat(planDraft.min_payment) : null,
+      interest_rate: parseFloat(planDraft.interest_rate) > 0 ? parseFloat(planDraft.interest_rate) : null,
+      interest_period: planDraft.interest_period,
+    });
+    if (ok) setPlanEditId(null);
+  };
+  const fmtCorte = (iso) => iso ? new Date(iso + 'T00:00:00').toLocaleDateString('es-CO', {day:'2-digit', month:'short'}) : null;
+
   return (
     <>
       {/* ─── SUB-TABS: TODAS / CXC / CXP ─── */}
@@ -25,6 +47,18 @@ export default function CarteraLedgerTable({
               subTab === st.key ? 'bg-black text-white' : 'bg-brutalBg text-gray-500 hover:bg-brutalNeutral'
             }`}>{st.label}</button>
         ))}
+      </div>
+
+      {/* ─── BUSCADOR ─── */}
+      <div className="flex items-center border border-black border-t-0 bg-white">
+        <span className="px-2 text-[10px]">🔍</span>
+        <input type="text" value={searchQ || ''} onChange={e => setSearchQ(e.target.value)}
+          placeholder="Buscar por tercero, NIT/CC o concepto..."
+          className="flex-1 py-1 pr-2 text-[10px] font-mono outline-none placeholder-gray-400" />
+        {searchQ && (
+          <button onClick={() => setSearchQ('')} title="Limpiar búsqueda"
+            className="px-2 text-[10px] text-gray-400 hover:text-black">✕</button>
+        )}
       </div>
 
       {/* ─── SORT BAR ─── */}
@@ -75,6 +109,13 @@ export default function CarteraLedgerTable({
                           <span className={`px-0.5 text-[6px] font-bold border ${isSelected ? 'border-gray-400 text-gray-300' : 'border-blue-300 bg-blue-50 text-blue-600'}`}>c/{c.payment_frequency}d</span>
                         )}
                       </div>
+                      {/* Cuándo DEBERÍA ser el próximo pago/cobro */}
+                      {c.proximo_corte && (
+                        <div className={`text-[8px] mt-0.5 font-bold ${isSelected ? 'text-yellow-300' : 'text-indigo-600'}`}
+                             title="Próxima fecha esperada según la frecuencia de corte">
+                          📅 Próx. {c.type === 'CXC' ? 'cobro' : 'pago'}: {fmtCorte(c.proximo_corte)}
+                        </div>
+                      )}
                     </td>
                     <td className="p-1 border-r border-gray-200 text-right">
                       <div className="font-bold">${orig.toLocaleString()}</div>
@@ -137,8 +178,44 @@ export default function CarteraLedgerTable({
                             </div>
                           </div>
 
+                          {/* 📐 Editor inline del plan (definir o cambiar cuota/interés) */}
+                          {planEditId === c.id ? (
+                            <div className="px-2 py-1.5 border-b border-black bg-yellow-50 flex flex-wrap items-end gap-2 text-[9px] font-mono">
+                              <span className="font-bold uppercase">📐 Plan</span>
+                              <label className="text-[8px] font-bold uppercase">Cuota mínima
+                                <NumInput value={planDraft.min_payment}
+                                  onChange={e => setPlanDraft(d => ({ ...d, min_payment: e.target.value }))}
+                                  placeholder="$0" className="block border border-black px-1 py-0.5 text-[10px] font-mono outline-none bg-white text-right w-28" />
+                              </label>
+                              <label className="text-[8px] font-bold uppercase">Tasa %
+                                <NumInput value={planDraft.interest_rate}
+                                  onChange={e => setPlanDraft(d => ({ ...d, interest_rate: e.target.value }))}
+                                  placeholder="0" className="block border border-black px-1 py-0.5 text-[10px] font-mono outline-none bg-white text-right w-16" />
+                              </label>
+                              <label className="text-[8px] font-bold uppercase">Periodo
+                                <select value={planDraft.interest_period}
+                                  onChange={e => setPlanDraft(d => ({ ...d, interest_period: e.target.value }))}
+                                  className="block border border-black px-1 py-0.5 text-[10px] font-mono bg-white">
+                                  <option value="MENSUAL">Mensual</option>
+                                  <option value="ANUAL">Anual</option>
+                                </select>
+                              </label>
+                              <button onClick={() => guardarPlan(c.id)}
+                                className="px-2 py-0.5 text-[9px] font-bold uppercase border border-black bg-brutalGreen hover:bg-black hover:text-white">💾 Guardar</button>
+                              <button onClick={() => setPlanEditId(null)}
+                                className="px-2 py-0.5 text-[9px] font-bold uppercase border border-black bg-white hover:bg-red-100">✕</button>
+                            </div>
+                          ) : !c.plan && (
+                            <div className="px-2 py-1 border-b border-gray-200 bg-gray-50">
+                              <button onClick={() => abrirPlanEdit(c)}
+                                className="text-[9px] font-mono font-bold uppercase border border-dashed border-gray-400 px-2 py-0.5 hover:border-black hover:bg-yellow-50">
+                                📐 Definir cuota / interés
+                              </button>
+                            </div>
+                          )}
+
                           {/* 📐 Plan de pagos (derivado — cuota, mora, interés) */}
-                          {c.plan && (
+                          {c.plan && planEditId !== c.id && (
                             <div className={`px-2 py-1 border-b text-[9px] font-mono flex flex-wrap items-center gap-x-3 gap-y-0.5 ${c.plan.en_mora ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'}`}>
                               <span className="font-bold uppercase">📐 Plan</span>
                               {c.plan.cuota_minima > 0 && (
@@ -161,6 +238,8 @@ export default function CarteraLedgerTable({
                               <span className={`px-1 text-[8px] font-bold border ${c.plan.en_mora ? 'bg-red-600 text-white border-red-700' : 'bg-green-100 text-green-700 border-green-500'}`}>
                                 {c.plan.en_mora ? '🔥 EN MORA' : '✓ AL DÍA'}
                               </span>
+                              <button onClick={() => abrirPlanEdit(c)} title="Editar cuota / interés"
+                                className="px-1 text-[9px] hover:text-blue-700">✎</button>
                             </div>
                           )}
 
@@ -220,10 +299,19 @@ export default function CarteraLedgerTable({
                               {/* Abono form */}
                               <div className="border-t border-black p-2">
                                 {!abonoOpen ? (
-                                  <button onClick={() => setAbonoOpen(true)}
-                                    className="w-full py-1 text-[9px] font-bold uppercase font-mono bg-brutalBg border border-black hover:bg-black hover:text-white transition-all">
-                                    + Registrar Abono
-                                  </button>
+                                  <div className="flex gap-1">
+                                    <button onClick={() => setAbonoOpen(true)}
+                                      className="flex-1 py-1 text-[9px] font-bold uppercase font-mono bg-brutalBg border border-black hover:bg-black hover:text-white transition-all">
+                                      + Registrar Abono
+                                    </button>
+                                    {c.plan?.cuota_minima > 0 && rem > 0 && (
+                                      <button onClick={() => handleQuickCuota(c)}
+                                        title="Registra en un clic un abono por el valor de la cuota mínima"
+                                        className="flex-1 py-1 text-[9px] font-bold uppercase font-mono bg-brutalGreen border border-black hover:bg-black hover:text-white transition-all">
+                                        ⚡ Registrar cuota (${Number(c.plan.cuota_minima).toLocaleString('es-CO')})
+                                      </button>
+                                    )}
+                                  </div>
                                 ) : (
                                   <div className="space-y-1">
                                     <div className="text-[8px] font-bold uppercase font-mono text-gray-500 flex justify-between">

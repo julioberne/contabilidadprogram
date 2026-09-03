@@ -31,6 +31,15 @@ def interes_devengado(saldo, rate, period, desde: Optional[date], hoy: Optional[
     return round(float(saldo) * tasa_diaria(rate, period) * dias, 2), dias
 
 
+def proximo_corte_de(start: Optional[date], freq: int, hoy: Optional[date] = None) -> Optional[str]:
+    """Próxima fecha de corte esperada según start_date + frecuencia."""
+    hoy = hoy or date.today()
+    if not start or not freq or freq <= 0:
+        return None
+    cortes = max(0, (hoy - start).days // freq)
+    return str(start + timedelta(days=(cortes + 1) * freq))
+
+
 def plan_info(row: Dict[str, Any], abonado_total: float,
               last_event_date: Optional[date], hoy: Optional[date] = None) -> Optional[Dict[str, Any]]:
     """Anotación derivada del plan para una fila del ledger.

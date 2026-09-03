@@ -37,9 +37,10 @@ export default function CarteraTab({ cartera, allThirdParties, setAllThirdPartie
   const [formInterestRate, setFormInterestRate] = React.useState('');
   const [formInterestPeriod, setFormInterestPeriod] = React.useState('MENSUAL');
   const [saving, setSaving] = React.useState(false);
-  // Sub-tabs filter + sort
+  // Sub-tabs filter + sort + buscador
   const [subTab, setSubTab] = React.useState('TODAS');
   const [sortBy, setSortBy] = React.useState('urgente');
+  const [searchQ, setSearchQ] = React.useState('');
   // Zona 1 → 2 selection
   const [selectedLedger, setSelectedLedger] = React.useState(null);
   const [payments, setPayments] = React.useState([]);
@@ -176,6 +177,43 @@ export default function CarteraTab({ cartera, allThirdParties, setAllThirdPartie
     }
   };
 
+  // Refresco sin colapsar el detalle (para cuota rápida y edición de plan)
+  const refreshLedger = async (id) => {
+    const list = await fetch(`${API_BASE}/cartera`).then(r2 => r2.ok ? r2.json() : []);
+    const led = list.find(c => c.id === id);
+    if (led) setSelectedLedger(led);
+    try {
+      const rp = await fetch(`${API_BASE}/cartera/${id}/payments`);
+      if (rp.ok) setPayments(await rp.json());
+    } catch(e) {}
+    fetchCartera();
+  };
+
+  // ⚡ Cuota rápida: registra un abono por la cuota mínima en un clic
+  const handleQuickCuota = async (ledger) => {
+    const cuota = ledger?.plan?.cuota_minima;
+    if (!cuota) return;
+    if (!window.confirm(`¿Registrar abono de $${Number(cuota).toLocaleString('es-CO')} (cuota mínima) a ${ledger.third_party_name}?`)) return;
+    const r = await fetch(`${API_BASE}/cartera/${ledger.id}/payment`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ amount: cuota, payment_date: todayStr,
+                             note: `Cuota mínima c/${ledger.payment_frequency || 30}d` })
+    });
+    if (r.ok) await refreshLedger(ledger.id);
+    else alert('No se pudo registrar la cuota.');
+  };
+
+  // 📐 Definir/editar el plan de una cuenta existente
+  const handleSavePlan = async (ledgerId, plan) => {
+    const r = await fetch(`${API_BASE}/cartera/${ledgerId}/plan`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(plan)
+    });
+    if (r.ok) { await refreshLedger(ledgerId); return true; }
+    alert('No se pudo guardar el plan.');
+    return false;
+  };
+
   // Bind getDueSemaforo to today
   const getDueSemaforoToday = (dueDateStr) => getDueSemaforo(dueDateStr, today);
 
@@ -184,11 +222,15 @@ export default function CarteraTab({ cartera, allThirdParties, setAllThirdPartie
     !tpSearch || tp.name.toLowerCase().includes(tpSearch.toLowerCase()) || (tp.identification_number||'').includes(tpSearch)
   ).slice(0, 6);
 
-  // Sub-tab filtering
+  // Sub-tab filtering + buscador (tercero, NIT/CC, concepto)
+  const q = searchQ.trim().toLowerCase();
   const typeFiltered = panelCartera.filter(c => {
-    if (subTab === 'CXC') return c.type === 'CXC';
-    if (subTab === 'CXP') return c.type === 'CXP';
-    return true;
+    if (subTab === 'CXC' && c.type !== 'CXC') return false;
+    if (subTab === 'CXP' && c.type !== 'CXP') return false;
+    if (!q) return true;
+    return (c.third_party_name || '').toLowerCase().includes(q)
+        || (c.identification_number || '').includes(q)
+        || (c.concept || '').toLowerCase().includes(q);
   });
 
   const filteredCartera = [...typeFiltered].sort(sortFns[sortBy] || sortFns['urgente']);
@@ -207,6 +249,8 @@ export default function CarteraTab({ cartera, allThirdParties, setAllThirdPartie
       <CarteraLedgerTable
         filteredCartera={filteredCartera} subTab={subTab} setSubTab={setSubTab}
         sortBy={sortBy} setSortBy={setSortBy} panelCartera={panelCartera}
+        searchQ={searchQ} setSearchQ={setSearchQ}
+        handleQuickCuota={handleQuickCuota} handleSavePlan={handleSavePlan}
         cxcCount={cxcCount} cxpCount={cxpCount} SORT_OPTIONS={SORT_OPTIONS}
         selectedLedger={selectedLedger} loadPayments={loadPayments}
         payments={payments} loadingPay={loadingPay}

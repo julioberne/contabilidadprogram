@@ -27,6 +27,43 @@ def update_cartera_status(ledger_id: int, body: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.put("/api/cartera/{ledger_id}/plan")
+def update_cartera_plan(ledger_id: int, body: dict):
+    """Define o edita el plan de pagos de una cuenta existente (Fase 1).
+    body: {min_payment, interest_rate, interest_period}. null/0 = quitar."""
+    from fin_sys_core.database_driver import get_db_connection, release_db_connection
+    min_payment = float(body["min_payment"]) if body.get("min_payment") else None
+    interest_rate = float(body["interest_rate"]) if body.get("interest_rate") else None
+    interest_period = (body.get("interest_period") or "MENSUAL").upper()
+    if interest_period not in ("MENSUAL", "ANUAL"):
+        interest_period = "MENSUAL"
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE cxp_cxc_ledger
+               SET min_payment = %s, interest_rate = %s, interest_period = %s
+             WHERE id = %s RETURNING id;
+        """, (min_payment, interest_rate, interest_period, ledger_id))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Cuenta no encontrada")
+        conn.commit()
+        cur.close()
+        release_db_connection(conn)
+        conn = None
+        return {"status": "OK", "min_payment": min_payment,
+                "interest_rate": interest_rate, "interest_period": interest_period}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn is not None:
+            try: release_db_connection(conn)
+            except Exception: pass
+
+
 @router.get("/api/cartera/summary")
 def get_cartera_summary():
     from fin_sys_core.database_driver import get_db_connection, release_db_connection
