@@ -104,6 +104,14 @@ export default function CarteraLedgerTable({
                         c.status==='VENCIDO'?'bg-red-100 border-red-500 text-red-700':
                         'bg-yellow-100 border-yellow-500 text-yellow-700'
                       }`}>{c.status === 'PENDIENTE' ? 'PEND' : c.status === 'PAGADO' ? '✓' : c.status || 'PEND'}</span>
+                      {c.plan?.en_mora && (
+                        <div className="mt-0.5">
+                          <span className="px-1 py-0.5 text-[7px] font-bold border bg-red-600 border-red-700 text-white"
+                                title={`Cuota mínima incumplida: debe llevar $${Number(c.plan.cuota_exigida).toLocaleString('es-CO')} y lleva $${Number(c.plan.abonado_total).toLocaleString('es-CO')}`}>
+                            🔥 MORA
+                          </span>
+                        </div>
+                      )}
                     </td>
                   </tr>
 
@@ -129,6 +137,33 @@ export default function CarteraLedgerTable({
                             </div>
                           </div>
 
+                          {/* 📐 Plan de pagos (derivado — cuota, mora, interés) */}
+                          {c.plan && (
+                            <div className={`px-2 py-1 border-b text-[9px] font-mono flex flex-wrap items-center gap-x-3 gap-y-0.5 ${c.plan.en_mora ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'}`}>
+                              <span className="font-bold uppercase">📐 Plan</span>
+                              {c.plan.cuota_minima > 0 && (
+                                <span title="Cuota mínima exigida en cada corte">
+                                  Cuota: <b>${Number(c.plan.cuota_minima).toLocaleString('es-CO')}</b> c/{c.payment_frequency || 30}d
+                                </span>
+                              )}
+                              {c.plan.cuota_exigida != null && (
+                                <span title={`${c.plan.cortes_cumplidos || 0} corte(s) cumplidos × cuota mínima`}>
+                                  Debe llevar: <b>${Number(c.plan.cuota_exigida).toLocaleString('es-CO')}</b> · lleva ${Number(c.plan.abonado_total).toLocaleString('es-CO')}
+                                </span>
+                              )}
+                              {c.plan.proximo_corte && <span>Próx. corte: <b>{c.plan.proximo_corte}</b></span>}
+                              {c.plan.interest_rate > 0 && (
+                                <span title="Interés simple sobre saldo, prorrateado por día. Los abonos cubren primero el interés.">
+                                  Interés {c.plan.interest_rate}% {c.plan.interest_period === 'ANUAL' ? 'anual' : 'mensual'} ·
+                                  devengado <b className="text-amber-700">${Number(c.plan.interes_devengado || 0).toLocaleString('es-CO')}</b> ({c.plan.interes_dias}d)
+                                </span>
+                              )}
+                              <span className={`px-1 text-[8px] font-bold border ${c.plan.en_mora ? 'bg-red-600 text-white border-red-700' : 'bg-green-100 text-green-700 border-green-500'}`}>
+                                {c.plan.en_mora ? '🔥 EN MORA' : '✓ AL DÍA'}
+                              </span>
+                            </div>
+                          )}
+
                           {loadingPay ? (
                             <p className="text-center text-[10px] text-gray-400 font-mono py-3 uppercase">Cargando...</p>
                           ) : (
@@ -149,7 +184,14 @@ export default function CarteraLedgerTable({
                                       <React.Fragment key={p.id}>
                                         <tr className="hover:bg-brutalBg cursor-pointer" onClick={() => setExpandedNote(expandedNote === p.id ? null : p.id)}>
                                           <td className="p-1 border-r border-gray-200">{p.payment_date}</td>
-                                          <td className="p-1 border-r border-gray-200 text-right font-bold text-green-700">+${Number(p.amount).toLocaleString()}</td>
+                                          <td className="p-1 border-r border-gray-200 text-right">
+                                            <span className="font-bold text-green-700">+${Number(p.amount).toLocaleString()}</span>
+                                            {Number(p.interest_part) > 0 && (
+                                              <div className="text-[7px] text-amber-700" title="Desglose: primero interés devengado, el resto amortiza capital">
+                                                int ${Number(p.interest_part).toLocaleString('es-CO')} · cap ${Number(p.principal_part || 0).toLocaleString('es-CO')}
+                                              </div>
+                                            )}
+                                          </td>
                                           <td className="p-1 border-r border-gray-200 text-right">{p.balance_after!=null ? `$${Number(p.balance_after).toLocaleString()}` : '—'}</td>
                                           <td className="p-1 text-gray-400">
                                             <div className="flex items-center justify-between">

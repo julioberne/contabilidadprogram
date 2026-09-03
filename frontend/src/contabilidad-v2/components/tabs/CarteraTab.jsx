@@ -30,6 +30,12 @@ export default function CarteraTab({ cartera, allThirdParties, setAllThirdPartie
   const [formPartial, setFormPartial] = React.useState('');
   const [formFrequency, setFormFrequency] = React.useState('30');
   const [formFreqCustom, setFormFreqCustom] = React.useState('');
+  // Plan de pagos (Fase 1 — opcional): cuota mínima por corte + interés simple
+  const [planOpen, setPlanOpen] = React.useState(false);
+  const [formMinPayment, setFormMinPayment] = React.useState('');
+  const [interestOn, setInterestOn] = React.useState(false);
+  const [formInterestRate, setFormInterestRate] = React.useState('');
+  const [formInterestPeriod, setFormInterestPeriod] = React.useState('MENSUAL');
   const [saving, setSaving] = React.useState(false);
   // Sub-tabs filter + sort
   const [subTab, setSubTab] = React.useState('TODAS');
@@ -80,12 +86,16 @@ export default function CarteraTab({ cartera, allThirdParties, setAllThirdPartie
           original_amount: parseFloat(formAmount), due_date: formDue,
           start_date: formStartDate,
           partial_payment: parseFloat(formPartial) || 0,
-          payment_frequency: freq
+          payment_frequency: freq,
+          min_payment: planOpen && parseFloat(formMinPayment) > 0 ? parseFloat(formMinPayment) : null,
+          interest_rate: planOpen && interestOn && parseFloat(formInterestRate) > 0 ? parseFloat(formInterestRate) : null,
+          interest_period: formInterestPeriod
         })
       });
       if (r.ok) {
         setFormAmount(''); setFormPartial(''); setFormDue('');
         setFormStartDate(todayStr); setFormFrequency('30'); setFormFreqCustom('');
+        setPlanOpen(false); setFormMinPayment(''); setInterestOn(false); setFormInterestRate('');
         setSelectedTpId(''); setSelectedTpLabel('');
         setFormOpen(false);
         fetchCartera();
@@ -123,12 +133,16 @@ export default function CarteraTab({ cartera, allThirdParties, setAllThirdPartie
           original_amount: parseFloat(formAmount), due_date: formDue,
           start_date: formStartDate,
           partial_payment: parseFloat(formPartial) || 0,
-          payment_frequency: freq
+          payment_frequency: freq,
+          min_payment: planOpen && parseFloat(formMinPayment) > 0 ? parseFloat(formMinPayment) : null,
+          interest_rate: planOpen && interestOn && parseFloat(formInterestRate) > 0 ? parseFloat(formInterestRate) : null,
+          interest_period: formInterestPeriod
         })
       });
       if (rSave.ok) {
         setFormAmount(''); setFormPartial(''); setFormDue('');
         setFormStartDate(todayStr); setFormFrequency('30'); setFormFreqCustom('');
+        setPlanOpen(false); setFormMinPayment(''); setInterestOn(false); setFormInterestRate('');
         setSelectedTpId(''); setSelectedTpLabel('');
         setFormOpen(false);
         fetchCartera();
@@ -226,6 +240,11 @@ export default function CarteraTab({ cartera, allThirdParties, setAllThirdPartie
         formFreqCustom={formFreqCustom} setFormFreqCustom={setFormFreqCustom}
         formAmount={formAmount} setFormAmount={setFormAmount}
         formPartial={formPartial} setFormPartial={setFormPartial}
+        planOpen={planOpen} setPlanOpen={setPlanOpen}
+        formMinPayment={formMinPayment} setFormMinPayment={setFormMinPayment}
+        interestOn={interestOn} setInterestOn={setInterestOn}
+        formInterestRate={formInterestRate} setFormInterestRate={setFormInterestRate}
+        formInterestPeriod={formInterestPeriod} setFormInterestPeriod={setFormInterestPeriod}
         saldo={saldo}
         showAsiento={showAsiento} setShowAsiento={setShowAsiento}
         asientoPreview={asientoPreview} setAsientoPreview={setAsientoPreview}

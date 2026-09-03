@@ -1723,6 +1723,20 @@ def listar_cartera(portfolio_name: str = None) -> List[Dict[str, Any]]:
         query += " ORDER BY c.due_date ASC;"
         cur.execute(query, params)
         rows = [dict(r) for r in cur.fetchall()]
+        # Plan de pagos (Fase 1): anotar cada cuenta con cuota/mora/interés
+        # DERIVADOS del histórico. Un solo agregado de abonos para todas las filas.
+        try:
+            cur.execute("""
+                SELECT ledger_id, COALESCE(SUM(amount), 0) AS total, MAX(payment_date) AS last_pay
+                FROM cartera_payments GROUP BY ledger_id;
+            """)
+            abonos = {r["ledger_id"]: (float(r["total"]), r["last_pay"]) for r in cur.fetchall()}
+            from cartera_plan import plan_info
+            for row in rows:
+                total, last_pay = abonos.get(row["id"], (0.0, None))
+                row["plan"] = plan_info(row, total, last_pay)
+        except Exception as plan_err:
+            print(f"⚠️ Cartera sin anotación de plan: {plan_err}")
         cur.close()
         release_db_connection(conn)
         return rows

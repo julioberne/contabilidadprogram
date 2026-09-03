@@ -11,6 +11,9 @@ export default function CarteraNewForm({
   formStartDate, setFormStartDate, formDue, setFormDue,
   formFrequency, setFormFrequency, formFreqCustom, setFormFreqCustom,
   formAmount, setFormAmount, formPartial, setFormPartial, saldo,
+  planOpen, setPlanOpen, formMinPayment, setFormMinPayment,
+  interestOn, setInterestOn, formInterestRate, setFormInterestRate,
+  formInterestPeriod, setFormInterestPeriod,
   showAsiento, setShowAsiento, asientoPreview, setAsientoPreview,
   handleSaveCartera, saving, API_BASE
 }) {
@@ -164,6 +167,52 @@ export default function CarteraNewForm({
                 ${saldo.toLocaleString()}
               </div>
             </div>
+          </div>
+
+          {/* 📐 Plan de pagos (Fase 1 — opcional, modo préstamo) */}
+          <div className={`border ${planOpen ? 'border-black bg-yellow-50' : 'border-dashed border-gray-400'} p-1.5 space-y-1`}>
+            <label className="flex items-center gap-1.5 text-[9px] font-bold uppercase font-mono cursor-pointer select-none">
+              <input type="checkbox" checked={planOpen} onChange={e => setPlanOpen(e.target.checked)} />
+              📐 Plan de pagos (cuota mínima / intereses)
+            </label>
+            {planOpen && (
+              <div className="space-y-1">
+                <div className="grid grid-cols-2 gap-1 items-end">
+                  <div>
+                    <label className="text-[8px] font-bold uppercase font-mono block mb-0.5"
+                           title="Lo mínimo que debe abonarse en cada corte (según la frecuencia elegida arriba). Si al cumplirse un corte no se ha cubierto, la cuenta queda EN MORA.">
+                      Cuota mínima por corte
+                    </label>
+                    <NumInput value={formMinPayment} onChange={e => setFormMinPayment(e.target.value)} placeholder="$0"
+                      className="w-full border border-black px-2 py-1 text-[10px] font-mono outline-none bg-white text-right" />
+                  </div>
+                  <label className="flex items-center gap-1.5 text-[9px] font-bold uppercase font-mono cursor-pointer pb-1">
+                    <input type="checkbox" checked={interestOn} onChange={e => setInterestOn(e.target.checked)} />
+                    % Interés
+                  </label>
+                </div>
+                {interestOn && (
+                  <div className="grid grid-cols-2 gap-1">
+                    <div>
+                      <label className="text-[8px] font-bold uppercase font-mono block mb-0.5"
+                             title="Interés simple sobre el saldo, prorrateado por día. Cada abono cubre primero el interés acumulado y el resto amortiza capital.">
+                        Tasa %
+                      </label>
+                      <NumInput value={formInterestRate} onChange={e => setFormInterestRate(e.target.value)} placeholder="ej. 1,5"
+                        className="w-full border border-black px-2 py-1 text-[10px] font-mono outline-none bg-white text-right" />
+                    </div>
+                    <div>
+                      <label className="text-[8px] font-bold uppercase font-mono block mb-0.5">Periodo</label>
+                      <select value={formInterestPeriod} onChange={e => setFormInterestPeriod(e.target.value)}
+                        className="w-full border border-black px-2 py-1 text-[10px] font-mono bg-white">
+                        <option value="MENSUAL">Mensual (base 30d)</option>
+                        <option value="ANUAL">Anual (base 365d)</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* 👁️ Toggle Ver Asiento (Zero-COA) */}

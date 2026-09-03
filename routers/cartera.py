@@ -83,7 +83,8 @@ def get_cartera_payments(ledger_id: int):
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("""
-            SELECT id, amount, payment_date, note, balance_after, created_at
+            SELECT id, amount, payment_date, note, balance_after, created_at,
+                   interest_part, principal_part
             FROM cartera_payments WHERE ledger_id = %s
             ORDER BY created_at DESC;
         """, (ledger_id,))
@@ -92,7 +93,7 @@ def get_cartera_payments(ledger_id: int):
         for r in rows:
             for k in ['payment_date','created_at']:
                 if k in r and r[k]: r[k] = str(r[k])
-            for k in ['amount','balance_after']:
+            for k in ['amount','balance_after','interest_part','principal_part']:
                 if k in r and r[k] is not None: r[k] = float(r[k])
         cur.close()
         release_db_connection(conn)
@@ -113,17 +114,29 @@ def register_cartera_payment(ledger_id: int, body: dict):
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("SELECT remaining_balance, status FROM cxp_cxc_ledger WHERE id = %s;", (ledger_id,))
+        cur.execute("""
+            SELECT remaining_balance, status, interest_rate, interest_period, start_date
+            FROM cxp_cxc_ledger WHERE id = %s;
+        """, (ledger_id,))
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Cuenta no encontrada")
-        new_balance = max(0, float(row[0]) - amount)
+        # Interés simple sobre saldo desde el último abono (o el inicio):
+        # el abono cubre PRIMERO el interés devengado y el resto amortiza capital.
+        cur.execute("""
+            SELECT MAX(payment_date) FROM cartera_payments WHERE ledger_id = %s;
+        """, (ledger_id,))
+        last_pay = cur.fetchone()[0]
+        from fin_sys_core.cartera_plan import dividir_abono
+        interest_part, principal_part, new_balance = dividir_abono(
+            amount, float(row[0]), row[2], row[3], last_pay or row[4])
         new_status = "PAGADO" if new_balance == 0 else row[1]
         cur.execute("""
-            INSERT INTO cartera_payments (ledger_id, amount, payment_date, note, balance_after)
-            VALUES (%s, %s, %s, %s, %s) RETURNING id;
+            INSERT INTO cartera_payments (ledger_id, amount, payment_date, note, balance_after,
+                                          interest_part, principal_part)
+            VALUES (%s, %s, COALESCE(%s, CURRENT_DATE), %s, %s, %s, %s) RETURNING id;
         """, (ledger_id, amount, body.get("payment_date") or None,
-              body.get("note") or None, new_balance))
+              body.get("note") or None, new_balance, interest_part, principal_part))
         pid = cur.fetchone()[0]
         cur.execute("UPDATE cxp_cxc_ledger SET remaining_balance=%s, status=%s WHERE id=%s;",
                     (new_balance, new_status, ledger_id))
@@ -141,7 +154,9 @@ def register_cartera_payment(ledger_id: int, body: dict):
         cur.close()
         release_db_connection(conn)
         conn = None
-        return {"status": "OK", "payment_id": pid, "new_balance": new_balance, "new_status": new_status}
+        return {"status": "OK", "payment_id": pid, "new_balance": new_balance,
+                "new_status": new_status, "interest_part": interest_part,
+                "principal_part": principal_part}
     except HTTPException:
         raise
     except Exception as e:
@@ -170,20 +185,30 @@ def create_cartera_entry(body: dict):
         remaining = max(0, amount - partial)
         start_date = body.get("start_date") or None
         payment_freq = int(body.get("payment_frequency", 30))
+        # Plan de pagos (Fase 1 — opcional): cuota mínima por corte e interés
+        # simple sobre saldo. NULL = cuenta clásica, comportamiento intacto.
+        min_payment = float(body["min_payment"]) if body.get("min_payment") else None
+        interest_rate = float(body["interest_rate"]) if body.get("interest_rate") else None
+        interest_period = (body.get("interest_period") or "MENSUAL").upper()
+        if interest_period not in ("MENSUAL", "ANUAL"):
+            interest_period = "MENSUAL"
         cur.execute("""
             INSERT INTO cxp_cxc_ledger
-                (third_party_id, type, original_amount, remaining_balance, due_date, term, status, start_date, payment_frequency)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, COALESCE(%s, CURRENT_DATE), %s) RETURNING id;
+                (third_party_id, type, original_amount, remaining_balance, due_date, term, status,
+                 start_date, payment_frequency, min_payment, interest_rate, interest_period)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, COALESCE(%s, CURRENT_DATE), %s, %s, %s, %s) RETURNING id;
         """, (body["third_party_id"], body["type"], amount, remaining,
               body["due_date"], body["term"],
               "PAGADO" if remaining == 0 else "PENDIENTE",
-              start_date, payment_freq))
+              start_date, payment_freq, min_payment, interest_rate, interest_period))
         lid = cur.fetchone()[0]
         if partial > 0:
+            # El abono inicial es del día cero: sin interés devengado, todo a capital
             cur.execute("""
-                INSERT INTO cartera_payments (ledger_id, amount, payment_date, note, balance_after)
-                VALUES (%s, %s, CURRENT_DATE, 'Abono inicial', %s);
-            """, (lid, partial, remaining))
+                INSERT INTO cartera_payments (ledger_id, amount, payment_date, note, balance_after,
+                                              interest_part, principal_part)
+                VALUES (%s, %s, CURRENT_DATE, 'Abono inicial', %s, 0, %s);
+            """, (lid, partial, remaining, partial))
         conn.commit()
         # Zero-COA: Emitir asiento de creación CXC/CXP al kernel
         try:
