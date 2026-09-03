@@ -116,6 +116,23 @@ def list_drafts(status: str = "BORRADOR", user: dict = Depends(require_auth)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.put("/api/bot/drafts/{draft_id}")
+def edit_draft_endpoint(draft_id: int, cambios: dict, user: dict = Depends(require_auth)):
+    """Edición determinista desde la bandeja (Etapa C) — sin LLM.
+    Campos: type, amount, concept, category, payment_method, transaction_date,
+    portfolio_name, apply_iva, apply_gmf, third_party{...}. Solo BORRADOR/ERROR."""
+    try:
+        from bot_driver import editar_draft
+        resultado = editar_draft(draft_id, cambios or {}, hub_user_id=_uid(user))
+        if resultado.get("error"):
+            raise HTTPException(status_code=409, detail=resultado["error"])
+        return resultado
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/api/bot/drafts/{draft_id}/confirm")
 def confirm_draft_endpoint(draft_id: int, user: dict = Depends(require_auth)):
     """Confirma un borrador desde la web — mismo camino determinista del chat."""

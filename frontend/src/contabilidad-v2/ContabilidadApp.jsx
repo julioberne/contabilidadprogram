@@ -17,6 +17,7 @@ import { useAdminActions } from './hooks/useAdminActions.js';
 
 // Módulos (adapters sobre componentes v1)
 import RegistroModule from './modules/registro/RegistroModule.jsx';
+import BotDraftsPanel from '../bot/BotDraftsPanel.jsx';
 import VozModule from './modules/voz/VozModule.jsx';
 import DiarioModule from './modules/diario/DiarioModule.jsx';
 import ContextPanelAdapter from './components/ContextPanelAdapter.jsx';
@@ -133,6 +134,7 @@ function ContabilidadInner() {
               {[
                 { id: 'registro', label: '📝 Registro', icon: '' },
                 { id: 'facturacion', label: '🧾 Facturación', icon: '' },
+                { id: 'borradores', label: '🤖 Borradores', icon: '' },
               ].map((sec) => (
                 <button
                   key={sec.id}
@@ -171,6 +173,9 @@ function ContabilidadInner() {
               </div>
             </div>
           )}
+
+          {/* ═══ BANDEJA DEL BOT (Etapa C) ═══ */}
+          {activeLeftSection === 'borradores' && <BotDraftsPanel />}
 
           {/* Módulo de Voz IA — Widget Colapsable (adapter v1) */}
           {activeLeftSection === 'registro' && <VozModule />}

@@ -59,7 +59,10 @@ const modules = [
 
   { id: 'bot', label: 'Bot IA', icon: '◉', group: 'OPERACIONES',
     accent: 'green', active: false, order: 11,
-    desc: 'Consultas · Análisis · Reportes\nVoz · Estructuración · Insights' },
+    desc: 'Bandeja de borradores · Telegram\nVoz · Estructuración · Confirmación',
+    // Etapa C: bandeja de borradores. El flag remoto 'bot' lo enciende.
+    component: lazy(() => import('../bot/BotApp.jsx')),
+    wrapStyle: { minHeight: '100%', width: '100%' } },
 
   // ── SISTEMA ──
   { id: 'config', label: 'Configuración', icon: '⚙', group: 'SISTEMA',

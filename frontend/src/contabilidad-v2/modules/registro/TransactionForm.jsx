@@ -9,7 +9,7 @@ import NumInput from '../../../shared/NumInput';
    en la cuenta PUC correcta sin que el usuario toque el COA. El COA como
    selector se retiró del Módulo 01 (decisión 2026-08-24): vivirá en un módulo
    específico para contadores. */
-const CATEGORIAS = {
+export const CATEGORIAS = {
   INGRESO: ['Ventas', 'Servicios Prestados', 'Intereses', 'Otros Ingresos'],
   GASTO: ['Alimentación', 'Transporte', 'Servicios', 'Suscripciones', 'Infraestructura',
           'Publicidad', 'Papelería', 'Gastos Bancarios', 'Nómina', 'Otros Gastos'],

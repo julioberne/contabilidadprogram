@@ -514,6 +514,83 @@ def descartar_draft(draft_id: int, chat_link_id=None, hub_user_id=None) -> str:
         put_conn(conn)
 
 
+# Campos del payload que la bandeja web puede editar (Etapa C). account_id NO:
+# se re-resuelve desde payment_method al confirmar. inferred/missing se recalculan.
+_CAMPOS_EDITABLES = {"type", "amount", "concept", "category", "payment_method",
+                     "transaction_date", "portfolio_name", "apply_iva", "apply_gmf"}
+
+
+def editar_draft(draft_id: int, cambios: dict, hub_user_id=None) -> dict:
+    """Edición determinista desde la bandeja web (Etapa C). Sin LLM.
+
+    Solo BORRADOR o ERROR son editables; un campo editado por el humano deja
+    de estar 'inferido'. ERROR vuelve a BORRADOR (la corrección invalida el
+    error previo). → dict del borrador actualizado, o {'error': ...}.
+    """
+    campos = {k: v for k, v in (cambios or {}).items() if k in _CAMPOS_EDITABLES}
+    tercero = cambios.get("third_party") if isinstance((cambios or {}).get("third_party"), dict) else None
+    if not campos and not tercero:
+        return {"error": "Nada que editar: ningún campo editable en la petición."}
+
+    if "type" in campos and campos["type"] not in TIPOS_VALIDOS:
+        return {"error": f"Tipo inválido. Válidos: {', '.join(sorted(TIPOS_VALIDOS))}."}
+    if "amount" in campos:
+        try:
+            campos["amount"] = float(campos["amount"])
+        except (TypeError, ValueError):
+            return {"error": "Monto inválido."}
+    if "transaction_date" in campos and not re.match(r"^\d{4}-\d{2}-\d{2}$", str(campos["transaction_date"] or "")):
+        return {"error": "Fecha inválida (se espera YYYY-MM-DD)."}
+
+    from db_pool import get_conn, put_conn
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT payload, status FROM transaction_drafts
+             WHERE id = %s AND status IN ('BORRADOR', 'ERROR')
+               AND (%s::uuid IS NULL OR user_id = %s)
+             FOR UPDATE
+        """, (draft_id, str(hub_user_id) if hub_user_id else None,
+              str(hub_user_id) if hub_user_id else None))
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            return {"error": f"El borrador #{draft_id} no existe, no es tuyo o ya no es editable."}
+
+        payload = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+        editados = set(campos.keys())
+        payload.update(campos)
+        if tercero:
+            tp = payload.get("third_party") or {}
+            tp.update({k: v for k, v in tercero.items()
+                       if k in ("identification_type", "identification_number", "name")})
+            payload["third_party"] = tp
+            editados.add("third_party")
+
+        payload["inferred_fields"] = sorted(set(payload.get("inferred_fields") or []) - editados)
+        payload["missing_fields"] = compute_missing(payload)
+
+        cur.execute("""
+            UPDATE transaction_drafts
+               SET payload = %s, status = 'BORRADOR', error = NULL,
+                   portfolio_name = %s, updated_at = NOW()
+             WHERE id = %s
+            RETURNING id, status, channel, portfolio_name, payload, raw_text,
+                      media_path, error, confirmed_transaction_id, created_at
+        """, (json.dumps(payload), payload.get("portfolio_name"), draft_id))
+        r = cur.fetchone()
+        conn.commit()
+        return {
+            "id": r[0], "status": r[1], "channel": r[2], "portfolio_name": r[3],
+            "payload": r[4] if isinstance(r[4], dict) else json.loads(r[4]),
+            "raw_text": r[5], "media_path": r[6], "error": r[7],
+            "confirmed_transaction_id": r[8], "created_at": str(r[9]),
+        }
+    finally:
+        put_conn(conn)
+
+
 def _revertir(conn, cur, draft_id, motivo: str) -> str:
     """PROCESANDO → BORRADOR con el motivo registrado (validación fallida)."""
     cur.execute("""
