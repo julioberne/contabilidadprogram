@@ -25,7 +25,10 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
+      # npm install (no ci): el lockfile se genera en Windows y omite los
+      # optionalDeps de Linux (rolldown/esbuild) — npm ci revienta en el
+      # runner. Mismo criterio que frontend/Dockerfile.
+      - run: npm install --no-audit --no-fund
       - name: Tests (vitest)
         run: npx vitest run
       - name: Build de producción
@@ -63,9 +66,14 @@ jobs:
       - name: Smoke de importación del server
         # Detecta imports rotos sin necesitar BD (la conexión ocurre en el
         # lifespan, no al importar). dist vacío para el mount de estáticos.
+        # Si falla, el traceback sale como ANOTACIÓN en el resumen del run.
         run: |
           mkdir -p frontend/dist
-          python -c "import server; print('import server OK')"
+          if ! python -c "import server; print('import server OK')" 2> import_err.txt; then
+            cat import_err.txt
+            echo "::error title=import server falló::$(tail -c 500 import_err.txt | tr '\n' ' § ')"
+            exit 1
+          fi
 
   # Los tests que tocan la BD compartida (kernel 5/5, bot, e2e) se corren en
   # local antes de cada push (CHECKLIST → Verificación mínima). Para moverlos
