@@ -2,7 +2,7 @@
 
 > **Único archivo de estado vivo.** Aquí: qué hay, qué falta, cómo arrancar.
 > Lo que ya pasó (con verificación) va a `docs/checkpoints.md` — un checkpoint por sesión.
-> Última actualización: **03 Sep 2026**.
+> Última actualización: **04 Sep 2026**.
 
 ---
 
@@ -10,8 +10,8 @@
 
 | Dónde | Estado |
 |---|---|
-| `master` local | al día con origin (03 sep: bandeja bot, consolidado CUENTAS, cartera plan de pagos + UX) |
-| `origin/master` = producción :8080 | desplegado y verificado 03 sep. Deploy estándar: `scratch/deploy_prod.py` (el agente tiene permiso); push lo corre Andrés (credencial del agente expira) |
+| `master` local | al día (04 sep: pool blindado, entry −81%, CI, fail-fast, calculadora de mora, concepto por cuenta) |
+| `origin/master` = producción :8080 | desplegado y verificado 04 sep. Deploy: `scratch/deploy_prod.py` (agente); push: Andrés. **CI en Actions**: frontend verde; backend verde tras el próximo push |
 | BD Supabase | compartida local↔prod · **reiniciada con `feat(reset)`: 0 TXs** · 6 entidades CT (2 vinculadas) · 5 cuentas · 4 portafolios · patrimonio $1.000.000 (verificado 26 ago) |
 
 ### Módulos
@@ -51,8 +51,8 @@
 | DT-21 | Endpoints huérfanos (stubs `NOT_IMPLEMENTED` en `routers/hr.py`): `POST /api/hr/storage/sign-upload`, `POST /api/hr/salary/calculate` — remover o activar con DT-09 | Baja |
 | DT-23 | Fugas de conexión "solo en except" (~40 funciones patrón release-en-try): `control_tower_driver` (16 fn, además responden MOCK silencioso al fallar), `database_driver` (~20 fn), `inventory_driver`, `org_driver`. Las fugas 100% y las estructurales YA corregidas 04-sep | Media |
 | DT-24 | `hr_documents_driver.py` bypassea el pool (psycopg2.connect directo, sin timeout, 8 funciones) — migrar al pool con release en call sites | Media |
-| DT-25 | `IS_POSTGRES_ACTIVE` es un latch de una vía: si `init_db` falla al arrancar (blip de red), el backend sirve MOCK para siempre con health 200 — agregar re-chequeo o abortar arranque | **Alta** |
-| DT-26 | `DB_PORT` sin fail-fast: si la env falta en Dokploy, compose la resuelve vacía y libpq cae a 5432 (session mode, límite 15 → EMAXCONNSESSION otra vez) — validar en arranque | Media |
+| ~~DT-25~~ | ✅ CERRADA 04-sep: el arranque ABORTA si Postgres no responde (FINSYS_ALLOW_MOCK=1 solo dev) | — |
+| ~~DT-26~~ | ✅ CERRADA 04-sep: el arranque ABORTA si DB_PORT falta o es 5432 (FINSYS_ALLOW_5432=1 override) | — |
 | DT-27 | `dashboard-data` carga TODAS las transacciones + COA completo por request (5.2s en local); con miles de TXs necesitará paginación/caché. El poller del cliente ya bajó a 60s con pausa por pestaña oculta | Media |
 
 ### Funcional / calidad

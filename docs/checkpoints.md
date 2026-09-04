@@ -555,3 +555,48 @@ Archivados además: `estado_proyecto_13jul2026`, `estudio_transcripcion`, `tabla
 3. Reubicar gestión de portafolios + presupuesto a "Finanzas Personales Julian".
 4. NumInput en Control Tower (espera aprobación Zero-Impact).
 5. "Punto 2" que Andrés dejó cortado el 02-sep — preguntarle.
+
+---
+
+## Checkpoint — 2026-09-04 · Auditoría infra (pool + peso), CI, cartera pro
+
+### Auditoría profunda (2 agentes) y correctivos — pedida por Andrés
+1. **Pool de conexiones**: el healthcheck de Docker MATABA el pool en ~10 min
+   (conn.close() quema slots permanentes) y el fallback abría conexiones SIN
+   límite. Corregido: release en health/RAG/init/COA×3/resolve_bank_code/
+   reconcile/cartera-create, fallback CON TOPE (DB_FALLBACK_MAX=5, WeakSet),
+   pool por env (DB_POOL_MIN/MAX), keepalives, application_name, close_pool en
+   shutdown, module_flags async→def (bloqueaba el event loop). Verificado:
+   15 healthchecks seguidos y el pool sobrevive.
+   ⚠ Incidente el mismo día: mi marcador `conn._attr` explotaba (psycopg2 =
+   objetos C sin __dict__) y tumbó terceros/cartera en local → fix WeakSet +
+   tests/test_db_pool_fallback.py (4 tests anti-regresión, en el CI).
+2. **Peso frontend**: el entry cargaba 1.478 KB (93% = BlockNote arrastrado
+   porque el shim manualChunks de Rolldown absorbía React). Fix: advancedChunks
+   nativo + includeDependenciesRecursively:false → entry 285 KB (−81%);
+   gzip on en nginx; ciclo Contabilidad↔Bot roto (CATEGORIAS → shared/);
+   poller 15s→60s con pausa por pestaña oculta.
+3. **CI GitHub Actions** (.github/workflows/ci.yml): vitest+build+guardia de
+   peso (<500KB o falla)+sintaxis+tests puros+smoke import. Run #2: frontend
+   VERDE; smoke corregido (faltaba dist/assets en el runner).
+4. **Fail-fast (DT-25/DT-26 CERRADAS)**: el arranque ABORTA si DB_PORT falta/
+   es 5432 o si Postgres no responde (adiós modo simulación silencioso).
+   FINSYS_ALLOW_MOCK=1 solo para dev. GUNICORN_WORKERS regulable por env con
+   fórmula documentada en el Dockerfile.
+
+### Cartera (pedidos del día, verificados con datos reales)
+- **🧮 Calculadora de mora**: mora_monto + cuotas_atrasadas derivados; la fila
+  EN MORA explica: "Mora $11.950.000 (7 cuotas) — van 10 cortes × $1.850.000 =
+  $18.5M exigidos y lleva $6.55M. Al día pagando $X · próxima cuota: fecha".
+- **📝 Concepto por cuenta** (cxp_cxc_ledger.concept, migración aplicada):
+  campo en NUEVA CUENTA, visible en fila, editable en ✎, buscable, COALESCE
+  con el concept de la transacción.
+- Ayer: ✎ editar cuenta (monto/fechas/frecuencia con saldo recalculado),
+  🗑 eliminar abonos (borra su asiento kernel + recalcula), tercero con
+  teléfono/dirección/maps, refresh sin doble fetch.
+
+### Pendiente
+1. CI backend debe quedar verde con el próximo push (fix mkdir dist/assets).
+2. Fase 2 recordatorios Telegram (diseño listo, checkpoint 03-sep).
+3. DT-23/DT-24 (fugas menores en except + hr_documents al pool) · DT-27
+   (paginar dashboard-data) · tags pipeline · portafolios por reubicar.

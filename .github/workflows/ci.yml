@@ -68,7 +68,7 @@ jobs:
         # lifespan, no al importar). dist vacío para el mount de estáticos.
         # Si falla, el traceback sale como ANOTACIÓN en el resumen del run.
         run: |
-          mkdir -p frontend/dist
+          mkdir -p frontend/dist/assets
           if ! python -c "import server; print('import server OK')" 2> import_err.txt; then
             cat import_err.txt
             echo "::error title=import server falló::$(tail -c 500 import_err.txt | tr '\n' ' § ')"
