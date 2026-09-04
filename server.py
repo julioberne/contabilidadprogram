@@ -107,15 +107,41 @@ app.include_router(bot_router)
 
 def _startup():
     """Ejecutado al iniciar el servidor para sincronizar las tablas de Postgres."""
+    # ── Fail-fast institucional (DT-25/DT-26, 2026-09-04) ─────────────────
+    # Antes: si la BD fallaba al arrancar, el backend servía datos SIMULADOS
+    # en silencio con health 200 hasta que alguien lo reiniciara. Ahora el
+    # arranque ABORTA con un error claro; el modo simulación solo existe si
+    # se pide explícitamente con FINSYS_ALLOW_MOCK=1 (desarrollo sin BD).
+    db_port = (os.environ.get("DB_PORT") or "").strip()
+    db_host = os.environ.get("DB_HOST", "localhost")
+    if not db_port:
+        raise RuntimeError(
+            "DB_PORT no está definido (¿se perdió la variable en Dokploy → Environment?). "
+            "Sin ella libpq cae al 5432 (session mode, límite 15 → EMAXCONNSESSION, DT-22). "
+            "Define DB_PORT=6543 (transaction mode)."
+        )
+    if db_port == "5432" and os.environ.get("FINSYS_ALLOW_5432") != "1":
+        raise RuntimeError(
+            "DB_PORT=5432 es el pooler en session mode (límite de 15 clientes compartido "
+            "local+prod — ya causó el incidente DT-22). Usa 6543 (transaction mode), o "
+            "exporta FINSYS_ALLOW_5432=1 si sabes exactamente lo que haces."
+        )
+
     print("🔄 Sincronizando esquema de base de datos PostgreSQL...")
-    try:
-        from database_driver import init_db
-        from control_tower_driver import init_control_tower_db
-        init_db()
+    import database_driver as _dd
+    from control_tower_driver import init_control_tower_db
+    _dd.init_db()
+    if not _dd.IS_POSTGRES_ACTIVE:
+        if os.environ.get("FINSYS_ALLOW_MOCK") == "1":
+            print("⚠️ [MODO SIMULACIÓN EXPLÍCITO] Sin PostgreSQL — FINSYS_ALLOW_MOCK=1")
+        else:
+            raise RuntimeError(
+                f"PostgreSQL no disponible en {db_host}:{db_port}. El servidor NO arranca "
+                "en modo simulación silenciosa (DT-25): revisa la BD/credenciales. "
+                "Solo para desarrollo sin BD: FINSYS_ALLOW_MOCK=1."
+            )
+    else:
         init_control_tower_db()
-    except Exception as e:
-        print(f"⚠️ [ADVERTENCIA] No se pudo conectar a PostgreSQL en el puerto 5432: {e}")
-        print("Asegúrate de que PostgreSQL esté activo antes de realizar peticiones de base de datos.")
 
     # ── Zero-COA: Registrar listener de partida doble ──
     try:

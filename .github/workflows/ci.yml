@@ -1,0 +1,72 @@
+# ==============================================================
+# FIN-SYS OS — CI: compuertas automáticas en cada push (2026-09-04)
+# El "revisor institucional": nadie puede olvidar correr las
+# compuertas — GitHub las corre solo y marca el commit en rojo.
+# Corre TODO lo que no necesita credenciales de BD.
+# ==============================================================
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  frontend:
+    name: Frontend (vitest + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Tests (vitest)
+        run: npx vitest run
+      - name: Build de producción
+        run: npm run build
+      - name: Guardia de peso — el entry no debe volver a engordar
+        # El bug de vendor-blocknote metía 1.4MB en la carga inicial sin que
+        # nadie lo notara. Este paso falla si lo precargado supera 500 KB.
+        run: |
+          TOTAL=0
+          for f in $(grep -o -E '/assets/[^"]+' dist/index.html); do
+            SZ=$(stat -c%s "dist$f" 2>/dev/null || echo 0)
+            TOTAL=$((TOTAL + SZ))
+          done
+          echo "Carga inicial: $((TOTAL / 1024)) KB"
+          if [ $TOTAL -gt 512000 ]; then
+            echo "::error::La carga inicial pesa $((TOTAL / 1024)) KB (>500 KB). ¿Alguna librería se coló al entry?"
+            exit 1
+          fi
+
+  backend:
+    name: Backend (sintaxis + tests puros + import)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq libpq-dev
+      - run: pip install -r requirements.txt
+      - name: Sintaxis de todo el backend
+        run: python -m compileall -q fin_sys_core routers kernel shared scripts server.py
+      - name: Tests puros (sin BD)
+        run: python -m unittest tests.test_cartera_plan -v
+      - name: Smoke de importación del server
+        # Detecta imports rotos sin necesitar BD (la conexión ocurre en el
+        # lifespan, no al importar). dist vacío para el mount de estáticos.
+        run: |
+          mkdir -p frontend/dist
+          python -c "import server; print('import server OK')"
+
+  # Los tests que tocan la BD compartida (kernel 5/5, bot, e2e) se corren en
+  # local antes de cada push (CHECKLIST → Verificación mínima). Para moverlos
+  # aquí harían falta una BD de CI y secretos DB_* — pendiente deliberado.

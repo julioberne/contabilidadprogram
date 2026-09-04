@@ -34,9 +34,13 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -f http://localhost:8000/api/health || exit 1
 
-CMD ["gunicorn", "server:app", \
-     "--workers", "2", \
-     "--worker-class", "uvicorn.workers.UvicornWorker", \
-     "--bind", "0.0.0.0:8000", \
-     "--timeout", "120", \
-     "--access-logfile", "-"]
+# Workers regulables desde Dokploy → Environment SIN rebuild (2026-09-04).
+# Guía: workers ≈ min(2×vCPU+1, presupuesto_conexiones);
+# presupuesto = (límite pooler ~200 − bot 10 − margen) / DB_POOL_MAX.
+# Con el droplet actual (1-2 vCPU): 2-3 es lo correcto.
+CMD gunicorn server:app \
+     --workers ${GUNICORN_WORKERS:-2} \
+     --worker-class uvicorn.workers.UvicornWorker \
+     --bind 0.0.0.0:8000 \
+     --timeout 120 \
+     --access-logfile -
