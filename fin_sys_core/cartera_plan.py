@@ -66,11 +66,18 @@ def plan_info(row: Dict[str, Any], abonado_total: float,
 
     if mp > 0:
         exigido = round(cortes * mp, 2)
+        abonado = round(float(abonado_total or 0), 2)
         info["cuota_minima"] = mp
         info["cuota_exigida"] = exigido
-        info["abonado_total"] = round(float(abonado_total or 0), 2)
+        info["abonado_total"] = abonado
         # medio centavo de tolerancia por redondeos de NUMERIC
-        info["en_mora"] = saldo > 0 and (float(abonado_total or 0) + 0.005) < exigido
+        info["en_mora"] = saldo > 0 and (abonado + 0.005) < exigido
+        # Calculadora de mora (pedido 04-sep): CUÁNTO se debe de atraso y a
+        # cuántas cuotas equivale — lo que hay que pagar para quedar al día.
+        if info["en_mora"]:
+            mora = round(exigido - abonado, 2)
+            info["mora_monto"] = mora
+            info["cuotas_atrasadas"] = int(-(-mora // mp))   # ceil sin math
 
     if rate > 0:
         desde = last_event_date or start

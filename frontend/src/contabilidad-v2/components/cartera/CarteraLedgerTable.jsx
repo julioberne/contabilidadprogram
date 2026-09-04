@@ -43,6 +43,7 @@ export default function CarteraLedgerTable({
       original_amount: c.original_amount || '',
       start_date: c.start_date || '', due_date: c.due_date || '',
       payment_frequency: String(c.payment_frequency || 30), term: c.term || 'Corto',
+      concept: c.concept || '',
     });
   };
   const guardarLedger = async (id) => {
@@ -50,6 +51,7 @@ export default function CarteraLedgerTable({
       original_amount: parseFloat(ledgerDraft.original_amount) > 0 ? parseFloat(ledgerDraft.original_amount) : null,
       start_date: ledgerDraft.start_date || null, due_date: ledgerDraft.due_date || null,
       payment_frequency: parseInt(ledgerDraft.payment_frequency) || null, term: ledgerDraft.term,
+      concept: ledgerDraft.concept ?? '',
     });
     if (ok) setLedgerEditId(null);
   };
@@ -130,6 +132,13 @@ export default function CarteraLedgerTable({
                           <span className={`px-0.5 text-[6px] font-bold border ${isSelected ? 'border-gray-400 text-gray-300' : 'border-blue-300 bg-blue-50 text-blue-600'}`}>c/{c.payment_frequency}d</span>
                         )}
                       </div>
+                      {/* Concepto: qué se está cobrando/pagando */}
+                      {c.concept && (
+                        <div className={`text-[8px] mt-0.5 truncate max-w-[180px] ${isSelected ? 'text-gray-300' : 'text-gray-500'}`}
+                             title={c.concept}>
+                          📝 {c.concept}
+                        </div>
+                      )}
                       {/* Cuándo DEBERÍA ser el próximo pago/cobro */}
                       {c.proximo_corte && (
                         <div className={`text-[8px] mt-0.5 font-bold ${isSelected ? 'text-yellow-300' : 'text-indigo-600'}`}
@@ -226,6 +235,12 @@ export default function CarteraLedgerTable({
                                   onChange={e => setLedgerDraft(d => ({ ...d, payment_frequency: e.target.value.replace(/\D/g, '') }))}
                                   className="block border border-black px-1 py-0.5 text-[10px] font-mono bg-white text-right w-14" />
                               </label>
+                              <label className="text-[8px] font-bold uppercase flex-1 min-w-[140px]">Concepto
+                                <input type="text" value={ledgerDraft.concept}
+                                  onChange={e => setLedgerDraft(d => ({ ...d, concept: e.target.value }))}
+                                  placeholder="¿Qué se cobra/paga?"
+                                  className="block border border-black px-1 py-0.5 text-[10px] font-mono outline-none bg-white w-full" />
+                              </label>
                               <label className="text-[8px] font-bold uppercase">Plazo
                                 <select value={ledgerDraft.term}
                                   onChange={e => setLedgerDraft(d => ({ ...d, term: e.target.value }))}
@@ -303,6 +318,16 @@ export default function CarteraLedgerTable({
                               </span>
                               <button onClick={() => abrirPlanEdit(c)} title="Editar cuota / interés"
                                 className="px-1 text-[9px] hover:text-blue-700">✎</button>
+                              {/* 🧮 Calculadora de mora: por qué, cuánto y cómo salir */}
+                              {c.plan.en_mora && c.plan.mora_monto > 0 && (
+                                <div className="w-full mt-0.5 px-1.5 py-1 border border-red-300 bg-red-100 text-red-800 text-[9px] leading-snug">
+                                  <b>🧮 Mora: ${Number(c.plan.mora_monto).toLocaleString('es-CO')}</b>
+                                  {' '}({c.plan.cuotas_atrasadas} cuota{c.plan.cuotas_atrasadas > 1 ? 's' : ''} atrasada{c.plan.cuotas_atrasadas > 1 ? 's' : ''})
+                                  {' '}— van {c.plan.cortes_cumplidos} corte{c.plan.cortes_cumplidos > 1 ? 's' : ''} × ${Number(c.plan.cuota_minima).toLocaleString('es-CO')} = ${Number(c.plan.cuota_exigida).toLocaleString('es-CO')} exigidos y lleva ${Number(c.plan.abonado_total).toLocaleString('es-CO')}.
+                                  {' '}Se pone al día pagando <b>${Number(c.plan.mora_monto).toLocaleString('es-CO')}</b>
+                                  {c.plan.proximo_corte && <> · próxima cuota: <b>{fmtCorte(c.plan.proximo_corte)}</b></>}
+                                </div>
+                              )}
                             </div>
                           )}
 

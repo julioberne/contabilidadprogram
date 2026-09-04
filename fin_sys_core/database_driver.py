@@ -1723,7 +1723,8 @@ def listar_cartera(portfolio_name: str = None) -> List[Dict[str, Any]]:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         query = """
             SELECT c.*, tp.name as third_party_name, tp.identification_number,
-                   t.concept, t.amount as tx_amount, t.transaction_date,
+                   COALESCE(c.concept, t.concept) as concept,
+                   t.amount as tx_amount, t.transaction_date,
                    p.name as portfolio_name
             FROM cxp_cxc_ledger c
             LEFT JOIN third_parties tp ON c.third_party_id = tp.id

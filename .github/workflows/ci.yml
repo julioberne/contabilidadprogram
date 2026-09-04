@@ -62,7 +62,7 @@ jobs:
       - name: Sintaxis de todo el backend
         run: python -m compileall -q fin_sys_core routers kernel shared scripts server.py
       - name: Tests puros (sin BD)
-        run: python -m unittest tests.test_cartera_plan -v
+        run: python -m unittest tests.test_cartera_plan tests.test_db_pool_fallback -v
       - name: Smoke de importación del server
         # Detecta imports rotos sin necesitar BD (la conexión ocurre en el
         # lifespan, no al importar). dist vacío para el mount de estáticos.

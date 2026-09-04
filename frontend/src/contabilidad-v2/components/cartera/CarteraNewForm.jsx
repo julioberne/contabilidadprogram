@@ -9,7 +9,7 @@ export default function CarteraNewForm({
   newTpName, setNewTpName, newTpIdType, setNewTpIdType, newTpIdNum, setNewTpIdNum,
   newTpEmail, setNewTpEmail, newTpPhone, setNewTpPhone,
   newTpAddress, setNewTpAddress, newTpMaps, setNewTpMaps, handleCreateTp,
-  formStartDate, setFormStartDate, formDue, setFormDue,
+  formStartDate, setFormStartDate, formConcept, setFormConcept, formDue, setFormDue,
   formFrequency, setFormFrequency, formFreqCustom, setFormFreqCustom,
   formAmount, setFormAmount, formPartial, setFormPartial, saldo,
   planOpen, setPlanOpen, formMinPayment, setFormMinPayment,
@@ -112,6 +112,14 @@ export default function CarteraNewForm({
           )}
 
           {/* Fechas: Inicio → Vencimiento */}
+          {/* Concepto: QUÉ se está cobrando/pagando (pedido 04-sep) */}
+          <div>
+            <label className="text-[8px] font-bold uppercase font-mono block mb-0.5">📝 Concepto / Detalle</label>
+            <input type="text" value={formConcept} onChange={e => setFormConcept(e.target.value)}
+              placeholder={formType === 'CXC' ? 'ej. Préstamo lote, venta de mercancía…' : 'ej. Factura proveedor, arriendo bodega…'}
+              className="w-full border border-black px-2 py-1 text-[10px] font-mono outline-none bg-white" />
+          </div>
+
           <div className="grid grid-cols-2 gap-1">
             <div>
               <label className="text-[8px] font-bold uppercase font-mono block mb-0.5">📅 Fecha Inicio</label>

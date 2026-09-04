@@ -27,6 +27,9 @@ class TestPlanInfo(unittest.TestCase):
         self.assertEqual(info["cortes_cumplidos"], 2)
         self.assertEqual(info["cuota_exigida"], 2_000_000)
         self.assertTrue(info["en_mora"])
+        # Calculadora de mora: cuánto debe y a cuántas cuotas equivale
+        self.assertEqual(info["mora_monto"], 500_000)
+        self.assertEqual(info["cuotas_atrasadas"], 1)
         # Con 2M abonados queda al día
         self.assertFalse(plan_info(row, 2_000_000, None, HOY)["en_mora"])
 

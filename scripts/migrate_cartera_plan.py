@@ -33,6 +33,8 @@ DDL = [
     "ALTER TABLE cxp_cxc_ledger ADD COLUMN IF NOT EXISTS interest_period VARCHAR(10) DEFAULT 'MENSUAL'",
     "ALTER TABLE cartera_payments ADD COLUMN IF NOT EXISTS interest_part NUMERIC(15,2)",
     "ALTER TABLE cartera_payments ADD COLUMN IF NOT EXISTS principal_part NUMERIC(15,2)",
+    # 2026-09-04: concepto/detalle propio de la cuenta ("qué estoy cobrando/pagando")
+    "ALTER TABLE cxp_cxc_ledger ADD COLUMN IF NOT EXISTS concept TEXT",
 ]
 
 conn = get_conn()

@@ -32,8 +32,10 @@ def update_cartera_entry(ledger_id: int, body: dict):
     """Edita una cuenta CXC/CXP existente: monto original, fechas, frecuencia,
     plazo. Si cambia el monto, el saldo se recalcula contra lo ya abonado."""
     from fin_sys_core.database_driver import get_db_connection, release_db_connection
-    CAMPOS = {"original_amount", "due_date", "start_date", "payment_frequency", "term"}
-    data = {k: v for k, v in (body or {}).items() if k in CAMPOS and v not in (None, "")}
+    CAMPOS = {"original_amount", "due_date", "start_date", "payment_frequency", "term", "concept"}
+    data = {k: v for k, v in (body or {}).items() if k in CAMPOS and v is not None}
+    # concept vacío = borrar el concepto; los demás vacíos = no tocar
+    data = {k: v for k, v in data.items() if v != "" or k == "concept"}
     if not data:
         raise HTTPException(status_code=400, detail="Nada que editar.")
     conn = None
@@ -48,6 +50,8 @@ def update_cartera_entry(ledger_id: int, body: dict):
         for k in ("due_date", "start_date", "term"):
             if k in data:
                 sets.append(f"{k} = %s"); params.append(data[k])
+        if "concept" in data:
+            sets.append("concept = %s"); params.append(data["concept"].strip() or None)
         if "payment_frequency" in data:
             sets.append("payment_frequency = %s"); params.append(int(data["payment_frequency"]))
         nuevo_saldo = None
@@ -332,15 +336,16 @@ def create_cartera_entry(body: dict):
         interest_period = (body.get("interest_period") or "MENSUAL").upper()
         if interest_period not in ("MENSUAL", "ANUAL"):
             interest_period = "MENSUAL"
+        concept = (body.get("concept") or "").strip() or None
         cur.execute("""
             INSERT INTO cxp_cxc_ledger
                 (third_party_id, type, original_amount, remaining_balance, due_date, term, status,
-                 start_date, payment_frequency, min_payment, interest_rate, interest_period)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, COALESCE(%s, CURRENT_DATE), %s, %s, %s, %s) RETURNING id;
+                 start_date, payment_frequency, min_payment, interest_rate, interest_period, concept)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, COALESCE(%s, CURRENT_DATE), %s, %s, %s, %s, %s) RETURNING id;
         """, (body["third_party_id"], body["type"], amount, remaining,
               body["due_date"], body["term"],
               "PAGADO" if remaining == 0 else "PENDIENTE",
-              start_date, payment_freq, min_payment, interest_rate, interest_period))
+              start_date, payment_freq, min_payment, interest_rate, interest_period, concept))
         lid = cur.fetchone()[0]
         if partial > 0:
             # El abono inicial es del día cero: sin interés devengado, todo a capital

@@ -25,6 +25,7 @@ USO:
 
 import os
 import threading
+import weakref
 import psycopg2
 from psycopg2.pool import ThreadedConnectionPool
 from psycopg2.extras import RealDictCursor
@@ -58,6 +59,11 @@ _pool: ThreadedConnectionPool | None = None
 _init_lock = threading.Lock()
 _init_failed = False   # si la creación del pool falló, no reintentar en cada get
 _fallback_sem = threading.BoundedSemaphore(DB_FALLBACK_MAX)
+# Registro de conexiones de fallback. Las conexiones de psycopg2 son objetos C
+# SIN __dict__: asignarles un atributo lanza AttributeError (incidente
+# 2026-09-04, tumbó terceros/cartera en local). WeakSet: si un caller pierde
+# la conexión sin devolverla, el GC la saca sola del registro.
+_fallback_conns = weakref.WeakSet()
 
 
 def init_pool(minconn: int = DB_POOL_MIN, maxconn: int = DB_POOL_MAX):
@@ -116,11 +122,17 @@ def get_conn():
             "Base de datos saturada: pool agotado y tope de conexiones "
             f"directas ({DB_FALLBACK_MAX}) alcanzado. Reintenta en unos segundos."
         )
+    conn = None
     try:
         conn = psycopg2.connect(**_CONN_KWARGS)
-        conn._finsys_fallback = True   # put_conn libera el semáforo con esto
+        _fallback_conns.add(conn)   # put_conn libera el semáforo con esto
         return conn
     except Exception:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
         _fallback_sem.release()
         raise
 
@@ -133,7 +145,8 @@ def put_conn(conn):
     if conn is None:
         return
     # Conexión de fallback: cerrarla y devolver el cupo del semáforo.
-    if getattr(conn, "_finsys_fallback", False):
+    if conn in _fallback_conns:
+        _fallback_conns.discard(conn)
         try:
             conn.close()
         finally:
