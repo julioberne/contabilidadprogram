@@ -28,6 +28,7 @@ def resolve_bank_code(account_id: int = None) -> str:
     """Resuelve un account_id a su código PUC. Default: 111005 (Bancos)."""
     if not account_id:
         return "111005"
+    conn = None
     try:
         from fin_sys_core.database_driver import get_db_connection, release_db_connection
         conn = get_db_connection()
@@ -35,12 +36,19 @@ def resolve_bank_code(account_id: int = None) -> str:
         cur.execute("SELECT name FROM user_accounts WHERE id = %s;", (account_id,))
         row = cur.fetchone()
         cur.close()
-        release_db_connection(conn)
         if row:
             return BANK_ACCOUNT_MAP.get(row[0], "111005")
         return "111005"
-    except:
+    except Exception:
         return "111005"
+    finally:
+        # Se invoca en CADA asiento contable: el except desnudo fugaba la
+        # conexión ante cualquier error (auditoría 2026-09-04)
+        if conn is not None:
+            try:
+                release_db_connection(conn)
+            except Exception:
+                pass
 
 
 def puc_tipo(cuenta_codigo: str) -> str:

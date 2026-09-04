@@ -11,7 +11,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { API } from '../config';
 import { authHeaders } from '../shell/authHeaders';
 import NumInput from '../shared/NumInput';
-import { CATEGORIAS } from '../contabilidad-v2/modules/registro/TransactionForm.jsx';
+import { CATEGORIAS } from '../shared/categorias.js';
 
 const ESTADOS = ['BORRADOR', 'ERROR', 'CONFIRMADO', 'DESCARTADO', 'TODOS'];
 const ESTADO_STYLE = {

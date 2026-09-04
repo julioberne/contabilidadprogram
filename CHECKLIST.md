@@ -49,6 +49,11 @@
 | DT-20 | Voz web (`.webm`) no queda adjunta como evidencia; la de Telegram (`.ogg`) sí. ¿Deliberado? | Baja |
 | ~~DT-22~~ | **CERRADA 02 sep** — pooler en transaction mode `6543` en local Y en Dokploy (verificado por API) + redeploy hecho. NUNCA volver a 5432 | ✅ |
 | DT-21 | Endpoints huérfanos (stubs `NOT_IMPLEMENTED` en `routers/hr.py`): `POST /api/hr/storage/sign-upload`, `POST /api/hr/salary/calculate` — remover o activar con DT-09 | Baja |
+| DT-23 | Fugas de conexión "solo en except" (~40 funciones patrón release-en-try): `control_tower_driver` (16 fn, además responden MOCK silencioso al fallar), `database_driver` (~20 fn), `inventory_driver`, `org_driver`. Las fugas 100% y las estructurales YA corregidas 04-sep | Media |
+| DT-24 | `hr_documents_driver.py` bypassea el pool (psycopg2.connect directo, sin timeout, 8 funciones) — migrar al pool con release en call sites | Media |
+| DT-25 | `IS_POSTGRES_ACTIVE` es un latch de una vía: si `init_db` falla al arrancar (blip de red), el backend sirve MOCK para siempre con health 200 — agregar re-chequeo o abortar arranque | **Alta** |
+| DT-26 | `DB_PORT` sin fail-fast: si la env falta en Dokploy, compose la resuelve vacía y libpq cae a 5432 (session mode, límite 15 → EMAXCONNSESSION otra vez) — validar en arranque | Media |
+| DT-27 | `dashboard-data` carga TODAS las transacciones + COA completo por request (5.2s en local); con miles de TXs necesitará paginación/caché. El poller del cliente ya bajó a 60s con pausa por pestaña oculta | Media |
 
 ### Funcional / calidad
 

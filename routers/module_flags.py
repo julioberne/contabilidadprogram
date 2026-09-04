@@ -46,7 +46,7 @@ class ModuleFlagUpdate(BaseModel):
 # Prioridad: company+role > company > role > global
 
 @router.get("/api/module-flags")
-async def get_module_flags(company_id: Optional[int] = None, role: Optional[str] = None):
+def get_module_flags(company_id: Optional[int] = None, role: Optional[str] = None):
     conn = _get_conn()
     if not conn:
         return {"flags": [], "source": "unavailable"}
@@ -100,7 +100,7 @@ async def get_module_flags(company_id: Optional[int] = None, role: Optional[str]
 # Devuelve TODOS los flags sin filtrar (para panel admin)
 
 @router.get("/api/module-flags/admin")
-async def get_all_module_flags():
+def get_all_module_flags():
     conn = _get_conn()
     if not conn:
         return {"flags": []}
@@ -134,7 +134,7 @@ async def get_all_module_flags():
 # Crea o actualiza un flag (upsert)
 
 @router.put("/api/module-flags")
-async def upsert_module_flag(flag: ModuleFlagUpdate, admin: dict = Depends(require_admin)):
+def upsert_module_flag(flag: ModuleFlagUpdate, admin: dict = Depends(require_admin)):
     conn = _get_conn()
     if not conn:
         raise HTTPException(status_code=503, detail="BD no disponible")
@@ -173,7 +173,7 @@ async def upsert_module_flag(flag: ModuleFlagUpdate, admin: dict = Depends(requi
 # Elimina un flag específico (vuelve al default del registry)
 
 @router.delete("/api/module-flags/{flag_id}")
-async def delete_module_flag(flag_id: int, _admin: dict = Depends(require_admin)):
+def delete_module_flag(flag_id: int, _admin: dict = Depends(require_admin)):
     conn = _get_conn()
     if not conn:
         raise HTTPException(status_code=503, detail="BD no disponible")

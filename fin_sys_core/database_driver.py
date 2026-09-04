@@ -438,7 +438,7 @@ def init_db():
         conn.commit()
         print("✅ Base de datos PostgreSQL conectada e inicializada correctamente.")
         cur.close()
-        conn.close()
+        release_db_connection(conn)   # antes conn.close(): quemaba 1 slot del pool al arrancar
     except Exception as e:
         global IS_POSTGRES_ACTIVE
         IS_POSTGRES_ACTIVE = False
@@ -1176,6 +1176,7 @@ def obtener_coa_tree(portfolio_name: str) -> List[Dict[str, Any]]:
     if not IS_POSTGRES_ACTIVE:
         return [] # Simulación no implementada para COA en memoria en esta versión base
 
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -1187,7 +1188,7 @@ def obtener_coa_tree(portfolio_name: str) -> List[Dict[str, Any]]:
 
         cur.execute("SELECT id, code, name, account_type, parent_id, is_group, description FROM chart_of_accounts WHERE portfolio_id = %s ORDER BY code", (portfolio_id,))
         accounts = cur.fetchall()
-        
+
         # Build tree
         acc_dict = {a["id"]: {**a, "children": []} for a in accounts}
         tree = []
@@ -1197,11 +1198,16 @@ def obtener_coa_tree(portfolio_name: str) -> List[Dict[str, Any]]:
                 acc_dict[parent_id]["children"].append(node)
             else:
                 tree.append(node)
-                
+
         return tree
     except Exception as e:
         print(f"Error obteniendo COA: {e}")
         return []
+    finally:
+        # Fugaba el 100% de las llamadas: 10 cargas del COA agotaban el pool
+        # del worker (auditoría 2026-09-04)
+        if conn is not None:
+            release_db_connection(conn)
 
 def cargar_plantilla_coa(portfolio_name: str, template_name: str = "ESTANDAR"):
     """Carga una plantilla en la base de datos para el portafolio"""
@@ -1211,6 +1217,7 @@ def cargar_plantilla_coa(portfolio_name: str, template_name: str = "ESTANDAR"):
     if not IS_POSTGRES_ACTIVE:
         return False
         
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -1223,7 +1230,7 @@ def cargar_plantilla_coa(portfolio_name: str, template_name: str = "ESTANDAR"):
         # Insertar Estándar como base
         for acc in COA_TEMPLATES["ESTANDAR"]:
             _insertar_cuenta_coa(cur, portfolio_id, acc)
-            
+
         if template_name != "ESTANDAR" and template_name in COA_TEMPLATES:
             for acc in COA_TEMPLATES[template_name]:
                 _insertar_cuenta_coa(cur, portfolio_id, acc)
@@ -1232,9 +1239,12 @@ def cargar_plantilla_coa(portfolio_name: str, template_name: str = "ESTANDAR"):
         return True
     except Exception as e:
         print(f"Error cargando plantilla COA: {e}")
-        if 'conn' in locals() and conn:
+        if conn:
             conn.rollback()
         return False
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 def _insertar_cuenta_coa(cur, portfolio_id, acc):
     # Buscar parent_id
@@ -1257,6 +1267,7 @@ def agregar_cuenta_coa(portfolio_name: str, account_data: Dict[str, Any]):
     if not IS_POSTGRES_ACTIVE:
         return False
         
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -1271,9 +1282,12 @@ def agregar_cuenta_coa(portfolio_name: str, account_data: Dict[str, Any]):
         return True
     except Exception as e:
         print(f"Error agregando cuenta al COA: {e}")
-        if 'conn' in locals() and conn:
+        if conn:
             conn.rollback()
         return False
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 def obtener_portafolios() -> List[Dict[str, Any]]:
     global IS_POSTGRES_ACTIVE, MOCK_PORTFOLIOS

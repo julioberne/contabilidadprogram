@@ -364,14 +364,16 @@ def create_cartera_entry(body: dict):
             print(f"⚠️ [CARTERA] Fallo emitiendo asiento {body['type']}-{lid}: {emit_err}")
         cur.close()
         release_db_connection(conn)
+        conn = None
         return {"status": "CREADO", "id": lid, "remaining_balance": remaining}
     except HTTPException:
         raise
     except Exception as e:
-        if conn:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn is not None:
             try: release_db_connection(conn)
             except Exception: pass
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── POST /api/third-parties — Crear tercero standalone ──

@@ -61,15 +61,21 @@ def _agregar_tx_delta(accounts, txs):
 
 @router.post("/api/reconcile-balances")
 def reconcile_balances():
+    conn = None
     try:
         from fin_sys_core.database_driver import get_db_connection, release_db_connection, recalcular_saldos_cuentas
         conn = get_db_connection()
         recalcular_saldos_cuentas(conn)
         conn.commit()
-        release_db_connection(conn)
         return {"status": "OK", "message": "Saldos reconciliados"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn is not None:
+            try:
+                release_db_connection(conn)
+            except Exception:
+                pass
 
 
 @router.get("/api/dashboard-data")

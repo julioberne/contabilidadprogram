@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { API } from '../../config';
-// 15s: las transacciones creadas por el Bot IA (proceso externo) deben
-// reflejarse en saldos/consolidado/libro sin recargar la página.
-const REFRESH_INTERVAL_MS = 15000;
+// Las transacciones del Bot IA (proceso externo) deben reflejarse sin recargar
+// la página. 60s + pausa con pestaña oculta: a 15s eran 480 req/hora y en
+// local cada ciclo cuesta ~5s de backend (auditoría 2026-09-04).
+const REFRESH_INTERVAL_MS = 60000;
 
 const DEFAULT_CAJA_VIVA = {
   total_ingresos: 0,
@@ -47,10 +48,12 @@ export function useDashboardData(activePortfolio) {
 
   const intervalRef = useRef(null);
 
-  const fetchAll = useCallback(async () => {
+  const fetchAll = useCallback(async (esRefrescoSilencioso = false) => {
     if (!activePortfolio) return;
     try {
-      setLoading(true);
+      // El refresco periódico no debe parpadear la UI: loading solo en cargas
+      // iniciadas por el usuario (montaje, cambio de portafolio, CRUD).
+      if (esRefrescoSilencioso !== true) setLoading(true);
       const [dashRes, tercerosRes] = await Promise.all([
         fetch(`${API}/dashboard-data?portfolio=${activePortfolio}`),
         fetch(`${API}/third-parties`),
@@ -152,10 +155,16 @@ export function useDashboardData(activePortfolio) {
     fetchAll();
 
     if (intervalRef.current) clearInterval(intervalRef.current);
-    intervalRef.current = setInterval(fetchAll, REFRESH_INTERVAL_MS);
+    // Con la pestaña oculta no se golpea el backend; al volver, se refresca.
+    intervalRef.current = setInterval(() => {
+      if (!document.hidden) fetchAll(true);
+    }, REFRESH_INTERVAL_MS);
+    const alVolver = () => { if (!document.hidden) fetchAll(true); };
+    document.addEventListener('visibilitychange', alVolver);
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      document.removeEventListener('visibilitychange', alVolver);
     };
   }, [fetchAll]);
 

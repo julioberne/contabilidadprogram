@@ -36,6 +36,13 @@ async def lifespan(app):
     """Arranque del servidor: sincroniza tablas y registra listeners (DT-02/DT-11)."""
     _startup()
     yield
+    # Apagado limpio: sin esto, en cada reload/SIGTERM las conexiones del pool
+    # quedaban colgando hasta que el pooler de Supabase las expirara.
+    try:
+        from fin_sys_core.db_pool import close_pool
+        close_pool()
+    except Exception:
+        pass
 
 app = FastAPI(
     lifespan=lifespan,
@@ -133,16 +140,26 @@ def _startup():
 @app.get("/api/health", tags=["system"])
 def health_check():
     """Endpoint ligero para verificar que el backend está vivo."""
+    # ⚠️ SIEMPRE devolver la conexión al pool, jamás conn.close(): psycopg2 no
+    # saca de _used una conexión cerrada a mano, así que cada close() quemaba
+    # un slot PERMANENTE. Con el healthcheck de Docker cada 30s, el pool moría
+    # completo a los ~10 min de cada deploy (auditoría 2026-09-04).
+    conn = None
     try:
-        from fin_sys_core.database_driver import get_db_connection
+        from fin_sys_core.database_driver import get_db_connection, release_db_connection
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("SELECT 1")
         cur.close()
-        conn.close()
         db_status = "connected"
     except Exception as e:
         db_status = f"error: {e}"
+    finally:
+        if conn is not None:
+            try:
+                release_db_connection(conn)
+            except Exception:
+                pass
     return {
         "status": "ok",
         "db": db_status,

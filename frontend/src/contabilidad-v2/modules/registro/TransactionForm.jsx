@@ -4,17 +4,9 @@ import IndustryWidgets from './IndustryWidgets';
 import AdvancedSections from './AdvancedSections';
 import NumInput from '../../../shared/NumInput';
 
-/* Categorías operativas — los MISMOS nombres de las posting_rules del kernel
-   (seed_puc.py): así cada registro manual matchea su regla contable y asienta
-   en la cuenta PUC correcta sin que el usuario toque el COA. El COA como
-   selector se retiró del Módulo 01 (decisión 2026-08-24): vivirá en un módulo
-   específico para contadores. */
-export const CATEGORIAS = {
-  INGRESO: ['Ventas', 'Servicios Prestados', 'Intereses', 'Otros Ingresos'],
-  GASTO: ['Alimentación', 'Transporte', 'Servicios', 'Suscripciones', 'Infraestructura',
-          'Publicidad', 'Papelería', 'Gastos Bancarios', 'Nómina', 'Otros Gastos'],
-  TRANSFERENCIA: ['Transferencia'],
-};
+/* Categorías compartidas desde shared/ (el COA como selector se retiró del
+   Módulo 01, decisión 2026-08-24: vivirá en un módulo para contadores). */
+import { CATEGORIAS } from '../../../shared/categorias.js';
 
 export default function TransactionForm({
   // Calculator state

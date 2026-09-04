@@ -92,10 +92,16 @@ def get_rag_context(user_voice_concept: str) -> str:
                 pass
         if conn:
             try:
-                conn.close()
+                # Devolver al pool — conn.close() quemaba un slot por cada
+                # llamada de voz/RAG (auditoría 2026-09-04)
+                from database_driver import release_db_connection
+                release_db_connection(conn)
             except Exception:
-                pass
-        
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
     if context_examples:
         return "\nHistorial contable de transacciones similares encontradas:\n" + "\n".join(context_examples)
     return "\nNo hay historial previo para este tipo de concepto. Infiere valores neutrales por defecto."
