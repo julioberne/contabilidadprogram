@@ -7,7 +7,8 @@ export default function CarteraNewForm({
   selectedTpId, selectedTpLabel, setSelectedTpId, setSelectedTpLabel,
   tpSearch, setTpSearch, filteredTps, showTpCreate, setShowTpCreate,
   newTpName, setNewTpName, newTpIdType, setNewTpIdType, newTpIdNum, setNewTpIdNum,
-  newTpEmail, setNewTpEmail, handleCreateTp,
+  newTpEmail, setNewTpEmail, newTpPhone, setNewTpPhone,
+  newTpAddress, setNewTpAddress, newTpMaps, setNewTpMaps, handleCreateTp,
   formStartDate, setFormStartDate, formDue, setFormDue,
   formFrequency, setFormFrequency, formFreqCustom, setFormFreqCustom,
   formAmount, setFormAmount, formPartial, setFormPartial, saldo,
@@ -95,6 +96,14 @@ export default function CarteraNewForm({
                 <input type="email" value={newTpEmail} onChange={e => setNewTpEmail(e.target.value)} placeholder="Email"
                   className="border border-black px-2 py-1 text-[10px] font-mono outline-none" />
               </div>
+              <div className="grid grid-cols-2 gap-1">
+                <input type="tel" value={newTpPhone} onChange={e => setNewTpPhone(e.target.value)} placeholder="📞 Teléfono"
+                  className="border border-black px-2 py-1 text-[10px] font-mono outline-none" />
+                <input type="text" value={newTpAddress} onChange={e => setNewTpAddress(e.target.value)} placeholder="📍 Dirección"
+                  className="border border-black px-2 py-1 text-[10px] font-mono outline-none" />
+              </div>
+              <input type="url" value={newTpMaps} onChange={e => setNewTpMaps(e.target.value)} placeholder="🗺️ Link de Google Maps (opcional)"
+                className="w-full border border-black px-2 py-1 text-[10px] font-mono outline-none" />
               <div className="flex gap-1">
                 <button onClick={handleCreateTp} className="flex-1 bg-black text-white border border-black px-2 py-1 text-[9px] font-bold hover:bg-brutalGreen hover:text-black">Crear y Seleccionar</button>
                 <button onClick={() => setShowTpCreate(false)} className="border border-black px-2 py-1 text-[9px] font-bold hover:bg-brutalBg">Cancelar</button>

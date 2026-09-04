@@ -10,7 +10,8 @@ export default function CarteraLedgerTable({
   abonoOpen, setAbonoOpen, abonoAmt, setAbonoAmt,
   abonoDate, setAbonoDate, abonoNote, setAbonoNote,
   handleAbono, setSelectedLedger, setPayments,
-  searchQ, setSearchQ, handleQuickCuota, handleSavePlan
+  searchQ, setSearchQ, handleQuickCuota, handleSavePlan,
+  handleDeletePayment, handleSaveLedger
 }) {
   // Edición inline del plan (📐 definir/cambiar cuota e interés)
   const [planEditId, setPlanEditId] = React.useState(null);
@@ -32,6 +33,26 @@ export default function CarteraLedgerTable({
     if (ok) setPlanEditId(null);
   };
   const fmtCorte = (iso) => iso ? new Date(iso + 'T00:00:00').toLocaleDateString('es-CO', {day:'2-digit', month:'short'}) : null;
+
+  // ✎ Edición inline de la CUENTA (monto, fechas, frecuencia, plazo)
+  const [ledgerEditId, setLedgerEditId] = React.useState(null);
+  const [ledgerDraft, setLedgerDraft] = React.useState({});
+  const abrirLedgerEdit = (c) => {
+    setLedgerEditId(c.id);
+    setLedgerDraft({
+      original_amount: c.original_amount || '',
+      start_date: c.start_date || '', due_date: c.due_date || '',
+      payment_frequency: String(c.payment_frequency || 30), term: c.term || 'Corto',
+    });
+  };
+  const guardarLedger = async (id) => {
+    const ok = await handleSaveLedger(id, {
+      original_amount: parseFloat(ledgerDraft.original_amount) > 0 ? parseFloat(ledgerDraft.original_amount) : null,
+      start_date: ledgerDraft.start_date || null, due_date: ledgerDraft.due_date || null,
+      payment_frequency: parseInt(ledgerDraft.payment_frequency) || null, term: ledgerDraft.term,
+    });
+    if (ok) setLedgerEditId(null);
+  };
 
   return (
     <>
@@ -163,8 +184,11 @@ export default function CarteraLedgerTable({
                         <div className="border-t-2 border-black bg-white">
                           {/* Header */}
                           <div className="flex items-center justify-between px-2 py-1 bg-gray-50 border-b border-gray-200">
-                            <span className="text-[9px] font-bold uppercase font-mono">
+                            <span className="text-[9px] font-bold uppercase font-mono flex items-center gap-1">
                               Historial de Abonos · {c.third_party_name}
+                              <button onClick={() => ledgerEditId === c.id ? setLedgerEditId(null) : abrirLedgerEdit(c)}
+                                title="Editar la cuenta (monto, fechas, frecuencia, plazo)"
+                                className="px-1 text-[10px] hover:text-blue-700">✎</button>
                             </span>
                             <div className="flex items-center gap-2">
                               <span className="text-[8px] font-mono text-gray-500">
@@ -177,6 +201,45 @@ export default function CarteraLedgerTable({
                               <span className="text-[8px] font-bold font-mono">{pct}%</span>
                             </div>
                           </div>
+
+                          {/* ✎ Editor inline de la CUENTA */}
+                          {ledgerEditId === c.id && (
+                            <div className="px-2 py-1.5 border-b border-black bg-blue-50 flex flex-wrap items-end gap-2 text-[9px] font-mono">
+                              <span className="font-bold uppercase">✎ Cuenta</span>
+                              <label className="text-[8px] font-bold uppercase">Monto total
+                                <NumInput value={ledgerDraft.original_amount}
+                                  onChange={e => setLedgerDraft(d => ({ ...d, original_amount: e.target.value }))}
+                                  className="block border border-black px-1 py-0.5 text-[10px] font-mono outline-none bg-white text-right w-28" />
+                              </label>
+                              <label className="text-[8px] font-bold uppercase">Inicio
+                                <input type="date" value={ledgerDraft.start_date}
+                                  onChange={e => setLedgerDraft(d => ({ ...d, start_date: e.target.value }))}
+                                  className="block border border-black px-1 py-0.5 text-[10px] font-mono bg-white" />
+                              </label>
+                              <label className="text-[8px] font-bold uppercase">Vencimiento
+                                <input type="date" value={ledgerDraft.due_date}
+                                  onChange={e => setLedgerDraft(d => ({ ...d, due_date: e.target.value }))}
+                                  className="block border border-black px-1 py-0.5 text-[10px] font-mono bg-white" />
+                              </label>
+                              <label className="text-[8px] font-bold uppercase">Corte c/días
+                                <input type="text" inputMode="numeric" value={ledgerDraft.payment_frequency}
+                                  onChange={e => setLedgerDraft(d => ({ ...d, payment_frequency: e.target.value.replace(/\D/g, '') }))}
+                                  className="block border border-black px-1 py-0.5 text-[10px] font-mono bg-white text-right w-14" />
+                              </label>
+                              <label className="text-[8px] font-bold uppercase">Plazo
+                                <select value={ledgerDraft.term}
+                                  onChange={e => setLedgerDraft(d => ({ ...d, term: e.target.value }))}
+                                  className="block border border-black px-1 py-0.5 text-[10px] font-mono bg-white">
+                                  <option value="Corto">Corto</option><option value="Mediano">Mediano</option><option value="Largo">Largo</option>
+                                </select>
+                              </label>
+                              <button onClick={() => guardarLedger(c.id)}
+                                className="px-2 py-0.5 text-[9px] font-bold uppercase border border-black bg-brutalGreen hover:bg-black hover:text-white">💾 Guardar</button>
+                              <button onClick={() => setLedgerEditId(null)}
+                                className="px-2 py-0.5 text-[9px] font-bold uppercase border border-black bg-white hover:bg-red-100">✕</button>
+                              <span className="text-[8px] text-gray-500 w-full">Si cambias el monto, el saldo se recalcula contra lo ya abonado. La cuota/interés se editan en 📐 Plan.</span>
+                            </div>
+                          )}
 
                           {/* 📐 Editor inline del plan (definir o cambiar cuota/interés) */}
                           {planEditId === c.id ? (
@@ -275,9 +338,14 @@ export default function CarteraLedgerTable({
                                           <td className="p-1 text-gray-400">
                                             <div className="flex items-center justify-between">
                                               <span className={expandedNote === p.id ? '' : 'truncate max-w-[70px]'}>{p.note||'—'}</span>
-                                              {p.note && p.note.length > 12 && (
-                                                <span className="text-[7px] text-gray-300 flex-shrink-0 ml-1">{expandedNote === p.id ? '▲' : '▼'}</span>
-                                              )}
+                                              <span className="flex items-center flex-shrink-0 ml-1">
+                                                {p.note && p.note.length > 12 && (
+                                                  <span className="text-[7px] text-gray-300">{expandedNote === p.id ? '▲' : '▼'}</span>
+                                                )}
+                                                <button onClick={(e) => { e.stopPropagation(); handleDeletePayment(p); }}
+                                                  title="Eliminar este abono (borra su asiento y recalcula el saldo)"
+                                                  className="px-1 text-[10px] text-gray-300 hover:text-red-600">🗑</button>
+                                              </span>
                                             </div>
                                           </td>
                                         </tr>

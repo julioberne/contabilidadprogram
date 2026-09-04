@@ -199,6 +199,7 @@ export default function ContextPanel({
           setAllThirdParties={setAllThirdParties}
           panelCartera={panelCartera}
           fetchCartera={fetchCartera}
+          setPanelCartera={setPanelCartera}
           SectionLabel={SectionLabel}
           API_BASE={API_BASE}
           refreshTP={refreshTP}

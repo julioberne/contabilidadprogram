@@ -9,7 +9,7 @@ import CarteraNewForm from '../cartera/CarteraNewForm';
 // ══════════════════════════════════════════════════════
 // CarteraTab — Componente completo CXC/CXP v2
 // ══════════════════════════════════════════════════════
-export default function CarteraTab({ cartera, allThirdParties, setAllThirdParties, panelCartera, fetchCartera, SectionLabel, API_BASE, refreshTP }) {
+export default function CarteraTab({ cartera, allThirdParties, setAllThirdParties, panelCartera, fetchCartera, setPanelCartera, SectionLabel, API_BASE, refreshTP }) {
   const today = new Date();
   const todayStr = today.toISOString().split('T')[0];
   const [kpiOpen, setKpiOpen] = React.useState(true);
@@ -22,6 +22,9 @@ export default function CarteraTab({ cartera, allThirdParties, setAllThirdPartie
   const [newTpIdType, setNewTpIdType] = React.useState('NIT');
   const [newTpIdNum, setNewTpIdNum] = React.useState('');
   const [newTpEmail, setNewTpEmail] = React.useState('');
+  const [newTpPhone, setNewTpPhone] = React.useState('');
+  const [newTpAddress, setNewTpAddress] = React.useState('');
+  const [newTpMaps, setNewTpMaps] = React.useState('');
   const [formType, setFormType] = React.useState('CXC');
   const [formTerm, setFormTerm] = React.useState('Corto');
   const [formStartDate, setFormStartDate] = React.useState(todayStr);
@@ -110,7 +113,8 @@ export default function CarteraTab({ cartera, allThirdParties, setAllThirdPartie
       const r = await fetch(`${API_BASE}/third-parties`, {
         method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ name: newTpName.trim(), identification_type: newTpIdType,
-          identification_number: newTpIdNum, email: newTpEmail })
+          identification_number: newTpIdNum, email: newTpEmail,
+          phone: newTpPhone, address: newTpAddress, maps_link: newTpMaps })
       });
       if (!r.ok) return;
       const created = await r.json();
@@ -122,6 +126,7 @@ export default function CarteraTab({ cartera, allThirdParties, setAllThirdPartie
       setSelectedTpId(newId);
       setSelectedTpLabel(newLabel);
       setShowTpCreate(false); setNewTpName(''); setNewTpIdNum(''); setNewTpEmail('');
+      setNewTpPhone(''); setNewTpAddress(''); setNewTpMaps('');
 
       // Guardar cuenta CXC/CXP directamente usando el id recién creado (no depender de state async)
       if (!formDue || !formAmount) return; // Sin monto/fecha no guardamos
@@ -167,26 +172,46 @@ export default function CarteraTab({ cartera, allThirdParties, setAllThirdPartie
       body: JSON.stringify({ amount: parseFloat(abonoAmt), payment_date: abonoDate, note: abonoNote })
     });
     if (r.ok) {
-      setAbonoAmt(''); setAbonoNote('');
-      // Re-fetch to get updated balance
-      const updatedList = await fetch(`${API_BASE}/cartera`).then(r2 => r2.ok ? r2.json() : []);
-      const updatedLedger = updatedList.find(c => c.id === selectedLedger.id);
-      if (updatedLedger) setSelectedLedger(updatedLedger);
-      await loadPayments(updatedLedger || selectedLedger);
-      fetchCartera();
+      setAbonoAmt(''); setAbonoNote(''); setAbonoOpen(false);
+      await refreshLedger(selectedLedger.id);   // un solo fetch, sin colapsar el detalle
     }
   };
 
-  // Refresco sin colapsar el detalle (para cuota rápida y edición de plan)
+  // 🗑 Eliminar un abono (corrección): borra la partida + su asiento y el
+  // saldo se recalcula solo (original - abonos restantes)
+  const handleDeletePayment = async (payment) => {
+    if (!selectedLedger) return;
+    if (!window.confirm(`¿Eliminar el abono de $${Number(payment.amount).toLocaleString('es-CO')} del ${payment.payment_date}?\n\nSe borra también su asiento contable y el saldo se recalcula.`)) return;
+    const r = await fetch(`${API_BASE}/cartera/payments/${payment.id}`, { method: 'DELETE' });
+    if (r.ok) await refreshLedger(selectedLedger.id);
+    else alert('No se pudo eliminar el abono.');
+  };
+
+  // ✎ Editar la cuenta (monto original, fechas, frecuencia, plazo)
+  const handleSaveLedger = async (ledgerId, data) => {
+    const r = await fetch(`${API_BASE}/cartera/${ledgerId}`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(data)
+    });
+    if (r.ok) { await refreshLedger(ledgerId); return true; }
+    const d = await r.json().catch(() => ({}));
+    alert(d.detail || 'No se pudo guardar la cuenta.');
+    return false;
+  };
+
+  // Refresco sin colapsar el detalle. UN solo fetch de la lista: la misma
+  // respuesta actualiza la fila seleccionada Y el panel (antes se pedía
+  // /api/cartera dos veces por acción — ~1s extra por la latencia a Supabase).
   const refreshLedger = async (id) => {
     const list = await fetch(`${API_BASE}/cartera`).then(r2 => r2.ok ? r2.json() : []);
+    if (setPanelCartera) setPanelCartera(list); else fetchCartera();
     const led = list.find(c => c.id === id);
     if (led) setSelectedLedger(led);
     try {
       const rp = await fetch(`${API_BASE}/cartera/${id}/payments`);
       if (rp.ok) setPayments(await rp.json());
     } catch(e) {}
-    fetchCartera();
+    fetch(`${API_BASE}/cartera/summary`).then(r2 => r2.ok ? r2.json() : null).then(d => d && setKpi(d)).catch(() => {});
   };
 
   // ⚡ Cuota rápida: registra un abono por la cuota mínima en un clic
@@ -251,6 +276,7 @@ export default function CarteraTab({ cartera, allThirdParties, setAllThirdPartie
         sortBy={sortBy} setSortBy={setSortBy} panelCartera={panelCartera}
         searchQ={searchQ} setSearchQ={setSearchQ}
         handleQuickCuota={handleQuickCuota} handleSavePlan={handleSavePlan}
+        handleDeletePayment={handleDeletePayment} handleSaveLedger={handleSaveLedger}
         cxcCount={cxcCount} cxpCount={cxpCount} SORT_OPTIONS={SORT_OPTIONS}
         selectedLedger={selectedLedger} loadPayments={loadPayments}
         payments={payments} loadingPay={loadingPay}
@@ -277,6 +303,9 @@ export default function CarteraTab({ cartera, allThirdParties, setAllThirdPartie
         newTpIdType={newTpIdType} setNewTpIdType={setNewTpIdType}
         newTpIdNum={newTpIdNum} setNewTpIdNum={setNewTpIdNum}
         newTpEmail={newTpEmail} setNewTpEmail={setNewTpEmail}
+        newTpPhone={newTpPhone} setNewTpPhone={setNewTpPhone}
+        newTpAddress={newTpAddress} setNewTpAddress={setNewTpAddress}
+        newTpMaps={newTpMaps} setNewTpMaps={setNewTpMaps}
         handleCreateTp={handleCreateTp}
         formStartDate={formStartDate} setFormStartDate={setFormStartDate}
         formDue={formDue} setFormDue={setFormDue}

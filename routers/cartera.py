@@ -27,6 +27,109 @@ def update_cartera_status(ledger_id: int, body: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.put("/api/cartera/{ledger_id}")
+def update_cartera_entry(ledger_id: int, body: dict):
+    """Edita una cuenta CXC/CXP existente: monto original, fechas, frecuencia,
+    plazo. Si cambia el monto, el saldo se recalcula contra lo ya abonado."""
+    from fin_sys_core.database_driver import get_db_connection, release_db_connection
+    CAMPOS = {"original_amount", "due_date", "start_date", "payment_frequency", "term"}
+    data = {k: v for k, v in (body or {}).items() if k in CAMPOS and v not in (None, "")}
+    if not data:
+        raise HTTPException(status_code=400, detail="Nada que editar.")
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT original_amount, status FROM cxp_cxc_ledger WHERE id=%s;", (ledger_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Cuenta no encontrada")
+        sets, params = [], []
+        for k in ("due_date", "start_date", "term"):
+            if k in data:
+                sets.append(f"{k} = %s"); params.append(data[k])
+        if "payment_frequency" in data:
+            sets.append("payment_frequency = %s"); params.append(int(data["payment_frequency"]))
+        nuevo_saldo = None
+        if "original_amount" in data:
+            nuevo = float(data["original_amount"])
+            if nuevo <= 0:
+                raise HTTPException(status_code=400, detail="Monto inválido.")
+            # El saldo se deriva SIEMPRE de monto - abonado (fuente de verdad:
+            # el historial de abonos, que no se toca aquí)
+            cur.execute("SELECT COALESCE(SUM(amount),0) FROM cartera_payments WHERE ledger_id=%s;", (ledger_id,))
+            abonado = float(cur.fetchone()[0])
+            nuevo_saldo = max(0.0, nuevo - abonado)
+            sets.append("original_amount = %s"); params.append(nuevo)
+            sets.append("remaining_balance = %s"); params.append(nuevo_saldo)
+            nuevo_status = "PAGADO" if nuevo_saldo == 0 else ("PENDIENTE" if row[1] == "PAGADO" else row[1])
+            sets.append("status = %s"); params.append(nuevo_status)
+        params.append(ledger_id)
+        cur.execute(f"UPDATE cxp_cxc_ledger SET {', '.join(sets)} WHERE id = %s;", params)
+        conn.commit()
+        cur.close()
+        release_db_connection(conn)
+        conn = None
+        return {"status": "OK", "remaining_balance": nuevo_saldo}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn is not None:
+            try: release_db_connection(conn)
+            except Exception: pass
+
+
+@router.delete("/api/cartera/payments/{payment_id}")
+def delete_cartera_payment(payment_id: int):
+    """Elimina un abono para corregirlo: borra la partida, sus líneas de asiento
+    en el kernel (referencia PAY-{id}) y recalcula saldo y estado de la cuenta."""
+    from fin_sys_core.database_driver import get_db_connection, release_db_connection
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM cartera_payments WHERE id = %s RETURNING ledger_id, amount;", (payment_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Abono no encontrado")
+        ledger_id = row[0]
+        # La partida contable del abono desaparece COMPLETA con él (2 líneas de
+        # partida doble con referencia PAY-{id}) — libros coherentes con cartera.
+        cur.execute("DELETE FROM kernel_journal_entries WHERE referencia = %s;", (f"PAY-{payment_id}",))
+        asientos_borrados = cur.rowcount
+        # Saldo SIEMPRE derivado: original - abonos restantes
+        cur.execute("""
+            UPDATE cxp_cxc_ledger l
+               SET remaining_balance = GREATEST(0, l.original_amount - COALESCE(
+                       (SELECT SUM(p.amount) FROM cartera_payments p WHERE p.ledger_id = l.id), 0)),
+                   status = CASE
+                       WHEN l.original_amount - COALESCE(
+                           (SELECT SUM(p.amount) FROM cartera_payments p WHERE p.ledger_id = l.id), 0) <= 0
+                       THEN 'PAGADO'
+                       WHEN l.status = 'PAGADO' THEN 'PENDIENTE'
+                       ELSE l.status END
+             WHERE l.id = %s
+            RETURNING remaining_balance, status;
+        """, (ledger_id,))
+        saldo, status = cur.fetchone()
+        conn.commit()
+        cur.close()
+        release_db_connection(conn)
+        conn = None
+        return {"status": "OK", "ledger_id": ledger_id, "new_balance": float(saldo),
+                "new_status": status, "journal_lines_removed": asientos_borrados}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn is not None:
+            try: release_db_connection(conn)
+            except Exception: pass
+
+
 @router.put("/api/cartera/{ledger_id}/plan")
 def update_cartera_plan(ledger_id: int, body: dict):
     """Define o edita el plan de pagos de una cuenta existente (Fase 1).
@@ -283,12 +386,14 @@ def create_third_party(body: dict):
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO third_parties (name, identification_type, identification_number, email, phone, website)
-            VALUES (%s, %s, %s, %s, %s, %s) RETURNING id;
+            INSERT INTO third_parties (name, identification_type, identification_number,
+                                       email, phone, website, address, maps_link)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
         """, (name, body.get("identification_type", "NIT"),
               body.get("identification_number", ""),
               body.get("email", ""), body.get("phone", ""),
-              body.get("website", "")))
+              body.get("website", ""), body.get("address", ""),
+              body.get("maps_link", "")))
         new_id = cur.fetchone()[0]
         conn.commit()
         cur.close()
