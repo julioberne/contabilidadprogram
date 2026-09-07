@@ -630,3 +630,56 @@ liberaba el semáforo) → saturación PERMANENTE. El bot cayó como víctima
   dev. Crear bot dev en @BotFather y ponerlo en el .env LOCAL (prod se queda
   con @COLFinsysbot). Mientras tanto: JAMÁS correr el poller local.
 - push (docs d57c6f8 + este lote) → CI verde total → deploy de inmunización.
+
+---
+
+## Checkpoint 2026-09-07 — Deep-linking, dinero huérfano visible, cuentas por empresa, saneo de portafolios
+
+**Commits del lote** (sobre `63c26e8`): `5087142` consolidado honesto ·
+`942412f` tab CUENTAS sincronizado con la empresa activa.
+
+### 1. Deep-linking por empresa (cierre del lote anterior)
+`/contabilidad/<id>-<slug>` verificado en vivo: F5 restaura la empresa,
+atrás/adelante navega entre empresas, favoritos funcionan (aplica también a
+producción — nginx ya sirve index.html en cualquier ruta).
+
+### 2. Consolidado: el dinero huérfano ya no desaparece (`5087142`)
+Reporte de Andrés: "no se suman ingresos/gastos por jerarquía". Diagnóstico:
+la jerarquía SÍ sumaba (columna CUENTAS con dedup de cuenta compartida);
+lo invisible eran los $2.354.000,50 de gastos en el portafolio "Negocio A",
+que ninguna empresa reclamaba — ni las filas ni el TOTAL los mostraban,
+mientras la alerta de déficit (global) sí. Fix backend: se consultan TODOS
+los portafolios con movimiento, el total cuadra con la caja viva global y la
+respuesta trae `sin_asignar[]`. Fix frontend: fila ámbar "⚠ SIN EMPRESA".
+
+### 3. Casi-incidente evitado: "borra Negocio A"
+Andrés pidió borrar "Negocio A" creyéndolo zombie. Auditoría previa: sus 12
+transacciones eran los GASTOS REALES de sep (7 creados ese mismo día vía
+bot). Causa del malentendido: "Negocio A" es el portafolio POR DEFECTO donde
+formulario y bot guardan todo. NO se borró; se explicó con evidencia.
+**Lección: auditar contenido antes de cualquier borrado pedido "de memoria".**
+
+### 4. Tab CUENTAS sincronizado con la empresa activa (`942412f`)
+- Filtro por empresa + subárbol (misma regla que el consolidado) +
+  compartidas; disponible total, contador y sobregiros sobre ese conjunto.
+- El tab carga `/api/accounts` completo (el prop del dashboard llegaba
+  pre-filtrado por portafolio y ocultaba cuentas del subárbol).
+- Alta con `entity_id`: la cuenta nace vinculada a la empresa activa real.
+- Botón "🌐 Ver todas". Sin cambios de esquema: `account_entity_links` ya
+  anclaba cuentas por id de empresa.
+
+### 5. Saneo de datos (BD compartida, aplica ya en local y prod)
+- `PUT /api/org/entities/20 {portfolio_id: 1}` → Finanzas Personales Julian
+  reclama "Negocio A": los gastos aparecen bajo Finanzas y suben al Holding;
+  `sin_asignar` quedó vacío. Verificado por API.
+- Portafolio 3 "MI EMPRESA": CERO referencias (auditadas todas las FKs) —
+  zombie real. El clasificador de permisos bloqueó el DELETE del agente;
+  queda el SQL para Andrés (ver CHECKLIST).
+- "Negocio A" NO se renombró: está hardcodeado como default en ~10 sitios
+  (EmpresaProvider, schemas, transactions, ai_engine, HomeDashboard…). El
+  renombre va con la fase "portafolio propio por empresa".
+
+### Verificación
+vitest 45/45 · build OK · UI verificada en navegador (fila SIN EMPresa,
+filtro por empresa en CUENTAS con 5/6 → 3/6 al cambiar, disponible filtrado)
+· consolidado por API: Finanzas y Holding con -$2.354.000,50, sin_asignar=[].

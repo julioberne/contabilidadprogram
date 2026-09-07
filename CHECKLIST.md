@@ -2,7 +2,7 @@
 
 > **Único archivo de estado vivo.** Aquí: qué hay, qué falta, cómo arrancar.
 > Lo que ya pasó (con verificación) va a `docs/checkpoints.md` — un checkpoint por sesión.
-> Última actualización: **04 Sep 2026**.
+> Última actualización: **07 Sep 2026**.
 
 ---
 
@@ -10,7 +10,7 @@
 
 | Dónde | Estado |
 |---|---|
-| `master` local | al día (04 sep: pool blindado, entry −81%, CI, fail-fast, calculadora de mora, concepto por cuenta) |
+| `master` local | al día (07 sep: deep-linking `/contabilidad/<id>-<slug>`, consolidado con dinero huérfano visible, tab CUENTAS filtrado por empresa activa, recursos por empresa) — **7 commits sin push** |
 | `origin/master` = producción :8080 | desplegado y verificado 04 sep. Deploy: `scratch/deploy_prod.py` (agente); push: Andrés. **CI en Actions**: frontend verde; backend verde tras el próximo push |
 | BD Supabase | compartida local↔prod · **reiniciada con `feat(reset)`: 0 TXs** · 6 entidades CT (2 vinculadas) · 5 cuentas · 4 portafolios · patrimonio $1.000.000 (verificado 26 ago) |
 
@@ -62,7 +62,8 @@
 - [ ] **Bot IA**: ✅ funcionando en producción (gpt-oss-120b) y **Etapa C COMPLETA** — bandeja web en uso real (4 borradores confirmados por Andrés). Quedan B.5 (RAG) y D–F
 - [ ] **Cartera Fase 2**: recordatorios personalizables por Telegram (tick en el poller, `cartera_reminders`, resumen periódico) — el diseño está en el checkpoint 03-sep
 - [ ] **Pipeline de etiquetas**: los tags NO llegan a la transacción en ningún flujo (falta campo en TransactionInput + persistencia) — hoy solo viven en el borrador del bot
-- [ ] **Portafolios**: la columna de vínculos se retiró del consolidado (02 sep) — reubicar con mejor funcionamiento y dar presupuesto a "Finanzas Personales Julian"
+- [ ] **Portafolios**: la columna de vínculos se retiró del consolidado (02 sep) — reubicar con mejor funcionamiento. 07-sep: "Finanzas Personales Julian" YA reclama el portafolio 1 "Negocio A" (sus gastos reales viven ahí). Fase pendiente: portafolio propio por empresa + renombrar "Negocio A" (hardcodeado como default en ~10 sitios — no renombrar sin migrarlos)
+- [ ] **Borrar portafolio zombie "MI EMPRESA" (id 3)**: cero referencias auditadas en todas las FKs; el clasificador bloquea el DELETE al agente. SQL para Andrés (editor SQL de Supabase): `DELETE FROM portfolios WHERE id = 3 AND name = 'MI EMPRESA';`
 - [ ] **NumInput en Control Tower** (`CTSidePanel`, `CTApprovalsCenter`): esperando aprobación Zero-Impact de Andrés
 - [ ] Andrés dejó un "punto 2" sin terminar en el chat del 02 sep — preguntarle qué era
 - [ ] Módulo 10 Trading (cuando Andrés lo priorice)
