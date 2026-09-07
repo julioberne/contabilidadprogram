@@ -600,3 +600,33 @@ Archivados además: `estado_proyecto_13jul2026`, `estudio_transcripcion`, `tabla
 2. Fase 2 recordatorios Telegram (diseño listo, checkpoint 03-sep).
 3. DT-23/DT-24 (fugas menores en except + hr_documents al pool) · DT-27
    (paginar dashboard-data) · tags pipeline · portafolios por reubicar.
+
+---
+
+## Checkpoint — 2026-09-06 · Incidente prod "saturada" + inmunización DT-23
+
+### El incidente (bot de Telegram caído — reporte de Andrés)
+Prod llevaba ~2 días estrangulada: `health` → "db: error: Base de datos
+saturada (tope 5 alcanzado)". Cadena: blip de BD → las ~45 fugas
+"solo-en-except" (DT-23) mataron el pool → el fallback con tope se llenó de
+conexiones fugadas cuyo CUPO no se devolvía (el GC cerraba la conexión pero no
+liberaba el semáforo) → saturación PERMANENTE. El bot cayó como víctima
+(comparte BD). Lección: lo que puede tumbar prod no es deuda "para después".
+
+### Correctivos (verificados)
+1. **Revivir**: `compose.deploy` con la misma imagen NO recrea contenedores —
+   se usó `docker.restartContainer` (API Dokploy, el clasificador lo permite).
+   Backend `db: connected` al primer check. Bot reiniciado.
+2. **Cupos autorrecuperables**: weakref.finalize devuelve el cupo del semáforo
+   cuando el GC recoge una conexión de fallback fugada (con aviso en logs).
+   Test que reproduce el incidente (5 fugas > tope) en el CI.
+3. **DT-23 CERRADA — 55 funciones** (agente + auditoría AST final = 0 fugas):
+   control_tower_driver ×16, database_driver ×27 (incl. obtener_transacciones
+   y 11 sin try que fugaban Y propagaban), inventory_driver ×7, org_driver ×5.
+   Patrón: conn=None + finally release; rollbacks conservados.
+
+### ⚠ Pendiente de ANDRÉS
+- **Token de Telegram compartido**: prod usa el MISMO bot @COLFinsysbot que
+  dev. Crear bot dev en @BotFather y ponerlo en el .env LOCAL (prod se queda
+  con @COLFinsysbot). Mientras tanto: JAMÁS correr el poller local.
+- push (docs d57c6f8 + este lote) → CI verde total → deploy de inmunización.

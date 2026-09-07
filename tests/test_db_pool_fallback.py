@@ -69,6 +69,20 @@ class TestFallbackConTope(unittest.TestCase):
             for c in conns:
                 db_pool.put_conn(c)
 
+    def test_conexion_fugada_devuelve_el_cupo_via_gc(self):
+        """Incidente prod 2026-09-06: un caller con fuga perdía la conexión de
+        fallback; el GC la cerraba pero el CUPO del semáforo quedaba perdido
+        para siempre → 'saturada' permanente. El finalize debe devolverlo."""
+        import gc
+        with mock.patch.object(db_pool.psycopg2, "connect", side_effect=lambda **k: FakeConn()):
+            for _ in range(db_pool.DB_FALLBACK_MAX + 3):   # más fugas que cupos
+                conn = db_pool.get_conn()
+                del conn                     # FUGA deliberada: nadie hace put_conn
+                gc.collect()
+            # Si los cupos no volvieran, este get_conn agotaría el semáforo
+            c = db_pool.get_conn()
+            db_pool.put_conn(c)
+
     def test_connect_fallido_libera_el_cupo(self):
         with mock.patch.object(db_pool.psycopg2, "connect", side_effect=OSError("sin red")):
             for _ in range(db_pool.DB_FALLBACK_MAX + 2):   # más veces que cupos

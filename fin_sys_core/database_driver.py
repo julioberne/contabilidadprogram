@@ -637,6 +637,7 @@ def obtener_transacciones(portfolio_name: Optional[str] = None, limit: Optional[
     Retorna dict: { "items": [...], "total_count": int }
     Nota: Para compatibilidad, si limit=None retorna lista plana (legacy).
     """
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -692,8 +693,7 @@ def obtener_transacciones(portfolio_name: Optional[str] = None, limit: Optional[
         cur.execute(query, params)
         rows = cur.fetchall()
         cur.close()
-        release_db_connection(conn)
-        
+
         items = [dict(r) for r in rows]
         
         # Si limit=None → retorno legacy (lista plana, para balance calculation)
@@ -739,6 +739,9 @@ def obtener_transacciones(portfolio_name: Optional[str] = None, limit: Optional[
         if limit is None:
             return results
         return {"items": results[offset:offset+limit], "total_count": len(results)}
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def actualizar_transaccion(tx_id: int, update_data: Dict[str, Any]) -> bool:
@@ -995,18 +998,21 @@ def obtener_perfil_usuario() -> Dict[str, Any]:
     global IS_POSTGRES_ACTIVE
     if not IS_POSTGRES_ACTIVE:
         return MOCK_USER_PROFILE
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute("SELECT name, email, role, avatar_style FROM user_profiles ORDER BY id ASC LIMIT 1;")
         row = cur.fetchone()
         cur.close()
-        release_db_connection(conn)
         if row:
             return dict(row)
         return MOCK_USER_PROFILE
     except Exception:
         return MOCK_USER_PROFILE
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def actualizar_perfil_usuario(data: Dict[str, Any]) -> bool:
@@ -1017,6 +1023,7 @@ def actualizar_perfil_usuario(data: Dict[str, Any]) -> bool:
                 MOCK_USER_PROFILE[k] = v
         save_mock_db()
         return True
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -1027,27 +1034,32 @@ def actualizar_perfil_usuario(data: Dict[str, Any]) -> bool:
         """, (data.get("name"), data.get("email"), data.get("role"), data.get("avatar_style")))
         conn.commit()
         cur.close()
-        release_db_connection(conn)
         return True
     except Exception as e:
         print(f"Error al actualizar perfil en BD: {e}")
         return False
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def obtener_cuentas() -> List[Dict[str, Any]]:
     global IS_POSTGRES_ACTIVE
     if not IS_POSTGRES_ACTIVE:
         return MOCK_USER_ACCOUNTS
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute("SELECT id, name, type, currency, initial_balance, current_balance FROM user_accounts ORDER BY id ASC;")
         rows = cur.fetchall()
         cur.close()
-        release_db_connection(conn)
         return [dict(r) for r in rows]
     except Exception:
         return MOCK_USER_ACCOUNTS
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def crear_cuenta(data: Dict[str, Any]) -> int:
@@ -1066,6 +1078,7 @@ def crear_cuenta(data: Dict[str, Any]) -> int:
         recalcular_saldos_cuentas()
         save_mock_db()
         return new_id
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -1077,12 +1090,14 @@ def crear_cuenta(data: Dict[str, Any]) -> int:
         new_id = cur.fetchone()[0]
         conn.commit()
         cur.close()
-        release_db_connection(conn)
         # Nueva cuenta: initial_balance = current_balance, no necesita recalcular
         return new_id
     except Exception as e:
         print(f"Error al crear cuenta: {e}")
         raise e
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def reset_db() -> bool:
@@ -1118,6 +1133,7 @@ def reset_db() -> bool:
         save_mock_db()
         return True
 
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -1157,7 +1173,6 @@ def reset_db() -> bool:
             
         conn.commit()
         cur.close()
-        release_db_connection(conn)
         print("✅ Base de datos PostgreSQL reiniciada y semillada a sus valores iniciales.")
         return True
     except Exception as e:
@@ -1165,6 +1180,9 @@ def reset_db() -> bool:
         if 'conn' in locals() and conn:
             conn.rollback()
         return False
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 # ==============================================================================
@@ -1293,17 +1311,20 @@ def obtener_portafolios() -> List[Dict[str, Any]]:
     global IS_POSTGRES_ACTIVE, MOCK_PORTFOLIOS
     if not IS_POSTGRES_ACTIVE:
         return MOCK_PORTFOLIOS
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute("SELECT id, name, industry_type, sub_industry_type FROM portfolios ORDER BY id ASC;")
         rows = cur.fetchall()
         cur.close()
-        release_db_connection(conn)
         return [dict(r) for r in rows]
     except Exception as e:
         print(f"Error obteniendo portafolios: {e}")
         return []
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 def crear_portafolio(name: str, industry_type: str = "ESTANDAR", sub_industry_type: str = "") -> Optional[int]:
     global IS_POSTGRES_ACTIVE, MOCK_PORTFOLIOS
@@ -1317,6 +1338,7 @@ def crear_portafolio(name: str, industry_type: str = "ESTANDAR", sub_industry_ty
         })
         save_mock_db()
         return new_id
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -1325,22 +1347,26 @@ def crear_portafolio(name: str, industry_type: str = "ESTANDAR", sub_industry_ty
         conn.commit()
         cur.close()
         release_db_connection(conn)
+        conn = None  # ya devuelta al pool: el finally no debe re-liberarla
         # Inicializar el COA correspondiente
         cargar_plantilla_coa(name, industry_type)
         return new_id
     except Exception as e:
         print(f"Error al crear portafolio: {e}")
         return None
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def obtener_terceros():
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute("SELECT id, identification_type, identification_number, name, email, phone, website FROM third_parties ORDER BY name ASC;")
         rows = cur.fetchall()
         cur.close()
-        release_db_connection(conn)
         return [dict(r) for r in rows]
     except Exception as e:
         print(f"Error obteniendo terceros: {e}")
@@ -1355,6 +1381,9 @@ def obtener_terceros():
                     "name": tx.get("third_party_name", "Desconocido")
                 })
         return mock_terceros
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def actualizar_cuenta(cuenta_id: int, data: Dict[str, Any]) -> bool:
@@ -1370,6 +1399,7 @@ def actualizar_cuenta(cuenta_id: int, data: Dict[str, Any]) -> bool:
                 save_mock_db()
                 return True
         return False
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -1386,11 +1416,13 @@ def actualizar_cuenta(cuenta_id: int, data: Dict[str, Any]) -> bool:
         updated = cur.rowcount > 0
         conn.commit()
         cur.close()
-        release_db_connection(conn)
         return updated
     except Exception as e:
         print(f"Error al actualizar cuenta {cuenta_id}: {e}")
         raise e
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def eliminar_cuenta(cuenta_id: int) -> bool:
@@ -1401,6 +1433,7 @@ def eliminar_cuenta(cuenta_id: int) -> bool:
         MOCK_USER_ACCOUNTS[:] = [a for a in MOCK_USER_ACCOUNTS if a["id"] != cuenta_id]
         save_mock_db()
         return len(MOCK_USER_ACCOUNTS) < original_len
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -1410,11 +1443,13 @@ def eliminar_cuenta(cuenta_id: int) -> bool:
         deleted = cur.rowcount > 0
         conn.commit()
         cur.close()
-        release_db_connection(conn)
         return deleted
     except Exception as e:
         print(f"Error al eliminar cuenta {cuenta_id}: {e}")
         raise e
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1426,6 +1461,7 @@ def ensure_panel_tables():
     """Crea las tablas nuevas si no existen: tag_definitions, custom_taxes_templates."""
     if not IS_POSTGRES_ACTIVE:
         return
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -1448,10 +1484,12 @@ def ensure_panel_tables():
         """)
         conn.commit()
         cur.close()
-        release_db_connection(conn)
         print("✅ Panel tables ensured: tag_definitions, custom_taxes_templates")
     except Exception as e:
         print(f"Error ensuring panel tables: {e}")
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 # ── Tags CRUD ──
@@ -1460,32 +1498,39 @@ def listar_tags() -> List[Dict[str, Any]]:
     """Lista todas las etiquetas globales."""
     if not IS_POSTGRES_ACTIVE:
         return []
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute("SELECT * FROM tag_definitions ORDER BY name;")
         rows = [dict(r) for r in cur.fetchall()]
         cur.close()
-        release_db_connection(conn)
         return rows
     except Exception as e:
         print(f"Error listando tags: {e}")
         return []
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def crear_tag(name: str, color: str = '#000000') -> Dict[str, Any]:
     """Crea una etiqueta nueva."""
-    conn = get_db_connection()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute(
-        "INSERT INTO tag_definitions (name, color) VALUES (%s, %s) RETURNING *;",
-        (name.strip(), color)
-    )
-    row = dict(cur.fetchone())
-    conn.commit()
-    cur.close()
-    release_db_connection(conn)
-    return row
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            "INSERT INTO tag_definitions (name, color) VALUES (%s, %s) RETURNING *;",
+            (name.strip(), color)
+        )
+        row = dict(cur.fetchone())
+        conn.commit()
+        cur.close()
+        return row
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def actualizar_tag(tag_id: int, name: str = None, color: str = None) -> bool:
@@ -1500,26 +1545,34 @@ def actualizar_tag(tag_id: int, name: str = None, color: str = None) -> bool:
     if not sets:
         return False
     params.append(tag_id)
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(f"UPDATE tag_definitions SET {', '.join(sets)} WHERE id = %s;", params)
-    updated = cur.rowcount > 0
-    conn.commit()
-    cur.close()
-    release_db_connection(conn)
-    return updated
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(f"UPDATE tag_definitions SET {', '.join(sets)} WHERE id = %s;", params)
+        updated = cur.rowcount > 0
+        conn.commit()
+        cur.close()
+        return updated
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def eliminar_tag(tag_id: int) -> bool:
     """Elimina una etiqueta."""
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM tag_definitions WHERE id = %s;", (tag_id,))
-    deleted = cur.rowcount > 0
-    conn.commit()
-    cur.close()
-    release_db_connection(conn)
-    return deleted
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM tag_definitions WHERE id = %s;", (tag_id,))
+        deleted = cur.rowcount > 0
+        conn.commit()
+        cur.close()
+        return deleted
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 # ── Custom Taxes Templates CRUD ──
@@ -1528,32 +1581,39 @@ def listar_custom_taxes() -> List[Dict[str, Any]]:
     """Lista todas las plantillas de impuestos custom."""
     if not IS_POSTGRES_ACTIVE:
         return []
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute("SELECT * FROM custom_taxes_templates ORDER BY name;")
         rows = [dict(r) for r in cur.fetchall()]
         cur.close()
-        release_db_connection(conn)
         return rows
     except Exception as e:
         print(f"Error listando custom taxes: {e}")
         return []
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def crear_custom_tax(name: str, rate: float, tax_type: str = 'ADDITIVE') -> Dict[str, Any]:
     """Crea una plantilla de impuesto custom."""
-    conn = get_db_connection()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute(
-        "INSERT INTO custom_taxes_templates (name, rate, type) VALUES (%s, %s, %s) RETURNING *;",
-        (name.strip(), rate, tax_type.upper())
-    )
-    row = dict(cur.fetchone())
-    conn.commit()
-    cur.close()
-    release_db_connection(conn)
-    return row
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            "INSERT INTO custom_taxes_templates (name, rate, type) VALUES (%s, %s, %s) RETURNING *;",
+            (name.strip(), rate, tax_type.upper())
+        )
+        row = dict(cur.fetchone())
+        conn.commit()
+        cur.close()
+        return row
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def actualizar_custom_tax(tax_id: int, name: str = None, rate: float = None, tax_type: str = None) -> bool:
@@ -1571,26 +1631,34 @@ def actualizar_custom_tax(tax_id: int, name: str = None, rate: float = None, tax
     if not sets:
         return False
     params.append(tax_id)
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(f"UPDATE custom_taxes_templates SET {', '.join(sets)} WHERE id = %s;", params)
-    updated = cur.rowcount > 0
-    conn.commit()
-    cur.close()
-    release_db_connection(conn)
-    return updated
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(f"UPDATE custom_taxes_templates SET {', '.join(sets)} WHERE id = %s;", params)
+        updated = cur.rowcount > 0
+        conn.commit()
+        cur.close()
+        return updated
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def eliminar_custom_tax(tax_id: int) -> bool:
     """Elimina una plantilla de impuesto custom."""
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM custom_taxes_templates WHERE id = %s;", (tax_id,))
-    deleted = cur.rowcount > 0
-    conn.commit()
-    cur.close()
-    release_db_connection(conn)
-    return deleted
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM custom_taxes_templates WHERE id = %s;", (tax_id,))
+        deleted = cur.rowcount > 0
+        conn.commit()
+        cur.close()
+        return deleted
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 # ── Third Parties CRUD (PUT/DELETE — GET ya existe) ──
@@ -1621,28 +1689,36 @@ def actualizar_tercero(tp_id: int, name: str = None, identification_type: str = 
     if not sets:
         return False
     params.append(tp_id)
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(f"UPDATE third_parties SET {', '.join(sets)} WHERE id = %s;", params)
-    updated = cur.rowcount > 0
-    conn.commit()
-    cur.close()
-    release_db_connection(conn)
-    return updated
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(f"UPDATE third_parties SET {', '.join(sets)} WHERE id = %s;", params)
+        updated = cur.rowcount > 0
+        conn.commit()
+        cur.close()
+        return updated
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def eliminar_tercero(tp_id: int) -> bool:
     """Elimina un tercero. Desasocia transacciones primero."""
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("UPDATE transactions SET third_party_id = NULL WHERE third_party_id = %s;", (tp_id,))
-    cur.execute("UPDATE cxp_cxc_ledger SET third_party_id = NULL WHERE third_party_id = %s;", (tp_id,))
-    cur.execute("DELETE FROM third_parties WHERE id = %s;", (tp_id,))
-    deleted = cur.rowcount > 0
-    conn.commit()
-    cur.close()
-    release_db_connection(conn)
-    return deleted
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("UPDATE transactions SET third_party_id = NULL WHERE third_party_id = %s;", (tp_id,))
+        cur.execute("UPDATE cxp_cxc_ledger SET third_party_id = NULL WHERE third_party_id = %s;", (tp_id,))
+        cur.execute("DELETE FROM third_parties WHERE id = %s;", (tp_id,))
+        deleted = cur.rowcount > 0
+        conn.commit()
+        cur.close()
+        return deleted
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 # ── Assets standalone CRUD ──
@@ -1651,6 +1727,7 @@ def listar_assets(portfolio_name: str = None) -> List[Dict[str, Any]]:
     """Lista activos/recursos, opcionalmente filtrados por portafolio."""
     if not IS_POSTGRES_ACTIVE:
         return []
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -1667,11 +1744,13 @@ def listar_assets(portfolio_name: str = None) -> List[Dict[str, Any]]:
         cur.execute(query, params)
         rows = [dict(r) for r in cur.fetchall()]
         cur.close()
-        release_db_connection(conn)
         return rows
     except Exception as e:
         print(f"Error listando assets: {e}")
         return []
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def actualizar_asset(asset_id: int, name: str = None, custom_tag: str = None,
@@ -1690,26 +1769,34 @@ def actualizar_asset(asset_id: int, name: str = None, custom_tag: str = None,
     if not sets:
         return False
     params.append(asset_id)
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(f"UPDATE assets SET {', '.join(sets)} WHERE id = %s;", params)
-    updated = cur.rowcount > 0
-    conn.commit()
-    cur.close()
-    release_db_connection(conn)
-    return updated
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(f"UPDATE assets SET {', '.join(sets)} WHERE id = %s;", params)
+        updated = cur.rowcount > 0
+        conn.commit()
+        cur.close()
+        return updated
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def eliminar_asset(asset_id: int) -> bool:
     """Elimina un activo/recurso."""
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM assets WHERE id = %s;", (asset_id,))
-    deleted = cur.rowcount > 0
-    conn.commit()
-    cur.close()
-    release_db_connection(conn)
-    return deleted
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM assets WHERE id = %s;", (asset_id,))
+        deleted = cur.rowcount > 0
+        conn.commit()
+        cur.close()
+        return deleted
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 # ── Cartera CXC/CXP standalone ──
@@ -1718,6 +1805,7 @@ def listar_cartera(portfolio_name: str = None) -> List[Dict[str, Any]]:
     """Lista el ledger de CXC/CXP con datos del tercero y la transacción."""
     if not IS_POSTGRES_ACTIVE:
         return []
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -1760,11 +1848,13 @@ def listar_cartera(portfolio_name: str = None) -> List[Dict[str, Any]]:
         except Exception as plan_err:
             print(f"⚠️ Cartera sin anotación de plan: {plan_err}")
         cur.close()
-        release_db_connection(conn)
         return rows
     except Exception as e:
         print(f"Error listando cartera: {e}")
         return []
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def actualizar_cartera_status(ledger_id: int, status: str, remaining_balance: float = None) -> bool:
@@ -1774,11 +1864,15 @@ def actualizar_cartera_status(ledger_id: int, status: str, remaining_balance: fl
         sets.append("remaining_balance = %s")
         params.append(remaining_balance)
     params.append(ledger_id)
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(f"UPDATE cxp_cxc_ledger SET {', '.join(sets)} WHERE id = %s;", params)
-    updated = cur.rowcount > 0
-    conn.commit()
-    cur.close()
-    release_db_connection(conn)
-    return updated
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(f"UPDATE cxp_cxc_ledger SET {', '.join(sets)} WHERE id = %s;", params)
+        updated = cur.rowcount > 0
+        conn.commit()
+        cur.close()
+        return updated
+    finally:
+        if conn is not None:
+            release_db_connection(conn)

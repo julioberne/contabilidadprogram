@@ -71,6 +71,7 @@ MOCK_MEMBERS = []
 
 def init_control_tower_db():
     """Crea las 5 tablas del Control Tower si no existen."""
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -182,12 +183,14 @@ def init_control_tower_db():
 
         conn.commit()
         cur.close()
-        release_db_connection(conn)
         print("✅ Control Tower DB inicializado correctamente.")
         return True
     except Exception as e:
         print(f"⚠️ Control Tower DB error: {e}")
         return False
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 # ──────────────────────────────────────────────
@@ -196,6 +199,7 @@ def init_control_tower_db():
 
 def obtener_entidades_arbol() -> List[Dict[str, Any]]:
     """Retorna todas las entidades como árbol jerárquico anidado."""
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -209,10 +213,12 @@ def obtener_entidades_arbol() -> List[Dict[str, Any]]:
         cols = [d[0] for d in cur.description]
         flat = [dict(zip(cols, r)) for r in rows]
         cur.close()
-        release_db_connection(conn)
         return _build_tree(flat)
     except Exception:
         return _build_tree(MOCK_ENTITIES)
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def _build_tree(flat: List[Dict]) -> List[Dict]:
@@ -230,6 +236,7 @@ def _build_tree(flat: List[Dict]) -> List[Dict]:
 
 def crear_entidad(data: Dict[str, Any]) -> int:
     """Crea una nueva entidad en el árbol."""
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -249,42 +256,50 @@ def crear_entidad(data: Dict[str, Any]) -> int:
         new_id = cur.fetchone()[0]
         conn.commit()
         cur.close()
-        release_db_connection(conn)
         return new_id
     except Exception as e:
         print(f"Error creando entidad: {e}")
         new_id = max(e["id"] for e in MOCK_ENTITIES) + 1
         MOCK_ENTITIES.append({"id": new_id, **data, "children": []})
         return new_id
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def actualizar_estado_entidad(entity_id: int, status: str) -> bool:
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("UPDATE entities SET status = %s WHERE id = %s;", (status, entity_id))
         conn.commit()
         cur.close()
-        release_db_connection(conn)
         return True
     except Exception:
         for e in MOCK_ENTITIES:
             if e["id"] == entity_id:
                 e["status"] = status
         return True
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def eliminar_entidad(entity_id: int) -> bool:
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("DELETE FROM entities WHERE id = %s;", (entity_id,))
         conn.commit()
         cur.close()
-        release_db_connection(conn)
         return True
     except Exception:
         return False
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 # ──────────────────────────────────────────────
@@ -292,6 +307,7 @@ def eliminar_entidad(entity_id: int) -> bool:
 # ──────────────────────────────────────────────
 
 def obtener_workspace_users() -> List[Dict[str, Any]]:
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -308,14 +324,17 @@ def obtener_workspace_users() -> List[Dict[str, Any]]:
                 d["permissions"] = json.loads(d["permissions"])
             result.append(d)
         cur.close()
-        release_db_connection(conn)
         return result
     except Exception:
         return [{k: v for k, v in u.items() if k != "password_hash"}
                 for u in MOCK_WORKSPACE_USERS]
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def registrar_workspace_user(data: Dict[str, Any]) -> Dict[str, Any]:
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -335,10 +354,12 @@ def registrar_workspace_user(data: Dict[str, Any]) -> Dict[str, Any]:
         row = cur.fetchone()
         conn.commit()
         cur.close()
-        release_db_connection(conn)
         return {"id": row[0], "name": row[1], "email": row[2], "role_label": row[3]}
     except Exception as e:
         raise ValueError(f"Error registrando usuario: {e}")
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def login_workspace_user(email: str, password: str) -> Optional[Dict[str, Any]]:
@@ -375,6 +396,7 @@ def login_workspace_user(email: str, password: str) -> Optional[Dict[str, Any]]:
 # ──────────────────────────────────────────────
 
 def obtener_resource_ids(entity_id: int) -> List[Dict[str, Any]]:
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -385,13 +407,16 @@ def obtener_resource_ids(entity_id: int) -> List[Dict[str, Any]]:
         rows = cur.fetchall()
         cols = [d[0] for d in cur.description]
         cur.close()
-        release_db_connection(conn)
         return [dict(zip(cols, r)) for r in rows]
     except Exception:
         return [r for r in MOCK_RESOURCE_IDS if r.get("entity_id") == entity_id]
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def crear_resource_id(data: Dict[str, Any]) -> int:
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -406,25 +431,30 @@ def crear_resource_id(data: Dict[str, Any]) -> int:
         new_id = cur.fetchone()[0]
         conn.commit()
         cur.close()
-        release_db_connection(conn)
         return new_id
     except Exception as e:
         new_id = len(MOCK_RESOURCE_IDS) + 1
         MOCK_RESOURCE_IDS.append({"id": new_id, **data})
         return new_id
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def eliminar_resource_id(rid: int) -> bool:
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("DELETE FROM resource_ids WHERE id = %s;", (rid,))
         conn.commit()
         cur.close()
-        release_db_connection(conn)
         return True
     except Exception:
         return False
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 # ──────────────────────────────────────────────
@@ -432,6 +462,7 @@ def eliminar_resource_id(rid: int) -> bool:
 # ──────────────────────────────────────────────
 
 def obtener_aprobaciones(entity_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -459,13 +490,16 @@ def obtener_aprobaciones(entity_id: Optional[int] = None) -> List[Dict[str, Any]
         rows = cur.fetchall()
         cols = [d[0] for d in cur.description]
         cur.close()
-        release_db_connection(conn)
         return [dict(zip(cols, r)) for r in rows]
     except Exception:
         return MOCK_APPROVALS
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def crear_aprobacion(data: Dict[str, Any]) -> int:
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -479,15 +513,18 @@ def crear_aprobacion(data: Dict[str, Any]) -> int:
         new_id = cur.fetchone()[0]
         conn.commit()
         cur.close()
-        release_db_connection(conn)
         return new_id
     except Exception as e:
         new_id = len(MOCK_APPROVALS) + 1
         MOCK_APPROVALS.append({"id": new_id, "status": "PENDIENTE", **data})
         return new_id
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def resolver_aprobacion(approval_id: int, status: str, reviewer_id: int, notes: str = "") -> bool:
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -498,13 +535,15 @@ def resolver_aprobacion(approval_id: int, status: str, reviewer_id: int, notes: 
         """, (status, reviewer_id, notes, approval_id))
         conn.commit()
         cur.close()
-        release_db_connection(conn)
         return True
     except Exception:
         for a in MOCK_APPROVALS:
             if a["id"] == approval_id:
                 a["status"] = status
         return True
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 # ──────────────────────────────────────────────
@@ -512,6 +551,7 @@ def resolver_aprobacion(approval_id: int, status: str, reviewer_id: int, notes: 
 # ──────────────────────────────────────────────
 
 def obtener_miembros_entidad(entity_id: int) -> List[Dict[str, Any]]:
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -526,14 +566,17 @@ def obtener_miembros_entidad(entity_id: int) -> List[Dict[str, Any]]:
         rows = cur.fetchall()
         cols = [d[0] for d in cur.description]
         cur.close()
-        release_db_connection(conn)
         return [dict(zip(cols, r)) for r in rows]
     except Exception:
         return []
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 def invitar_miembro(entity_id: int, user_id: int, role_label: str,
                     permissions: dict, expires_at=None) -> int:
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -548,10 +591,12 @@ def invitar_miembro(entity_id: int, user_id: int, role_label: str,
         new_id = cur.fetchone()[0]
         conn.commit()
         cur.close()
-        release_db_connection(conn)
         return new_id
     except Exception as e:
         raise ValueError(f"Error invitando miembro: {e}")
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
 
 
 # ──────────────────────────────────────────────
@@ -560,6 +605,7 @@ def invitar_miembro(entity_id: int, user_id: int, role_label: str,
 
 def obtener_kpis_entidad(entity_id: int) -> Dict[str, Any]:
     """Calcula KPIs consolidados de una entidad y todos sus hijos."""
+    conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -634,7 +680,6 @@ def obtener_kpis_entidad(entity_id: int) -> Dict[str, Any]:
         child_count = cur.fetchone()[0]
 
         cur.close()
-        release_db_connection(conn)
 
         return {
             "total_ingresos": total_ingresos,
@@ -658,3 +703,6 @@ def obtener_kpis_entidad(entity_id: int) -> Dict[str, Any]:
             "child_entities": 4,
             "entity_ids_in_scope": 7
         }
+    finally:
+        if conn is not None:
+            release_db_connection(conn)

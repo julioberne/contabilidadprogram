@@ -171,6 +171,7 @@ _mock_mov_counter = 100
 def get_items(portfolio_name: str, company_id: int = None) -> List[Dict[str, Any]]:
     """Retorna todos los artículos de un portafolio.
     Opcionalmente filtra por company_id."""
+    conn = None
     try:
         conn = get_conn()
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -186,7 +187,6 @@ def get_items(portfolio_name: str, company_id: int = None) -> List[Dict[str, Any
         cur.execute(query, params)
         rows = [dict(r) for r in cur.fetchall()]
         cur.close()
-        put_conn(conn)
 
         # Serializar campos especiales
         for r in rows:
@@ -204,6 +204,9 @@ def get_items(portfolio_name: str, company_id: int = None) -> List[Dict[str, Any
             if i["portfolio_name"] == portfolio_name
             and (company_id is None or i.get("company_id") == company_id)
         ]
+    finally:
+        if conn is not None:
+            put_conn(conn)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -215,6 +218,7 @@ def create_item(data: dict) -> Dict[str, Any]:
     Requerido: portfolio_name, name.
     Opcional: sku, category, unit, cost_price, sell_price,
               current_stock, min_stock, company_id."""
+    conn = None
     try:
         conn = get_conn()
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -239,7 +243,6 @@ def create_item(data: dict) -> Dict[str, Any]:
         created = dict(cur.fetchone())
         conn.commit()
         cur.close()
-        put_conn(conn)
 
         # Serializar
         for k in ['cost_price', 'sell_price']:
@@ -271,6 +274,9 @@ def create_item(data: dict) -> Dict[str, Any]:
         }
         MOCK_ITEMS.append(nuevo)
         return nuevo
+    finally:
+        if conn is not None:
+            put_conn(conn)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -281,6 +287,7 @@ def update_item(item_id: int, data: dict) -> Dict[str, Any]:
     """Actualiza campos de un artículo existente.
     Campos permitidos: name, sku, category, unit, cost_price,
     sell_price, current_stock, min_stock, status."""
+    conn = None
     try:
         conn = get_conn()
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -317,7 +324,6 @@ def update_item(item_id: int, data: dict) -> Dict[str, Any]:
         updated = dict(updated)
         conn.commit()
         cur.close()
-        put_conn(conn)
 
         # Serializar
         for k in ['cost_price', 'sell_price']:
@@ -338,6 +344,9 @@ def update_item(item_id: int, data: dict) -> Dict[str, Any]:
                         item[campo] = data[campo]
                 return item
         raise ValueError(f"Artículo con ID {item_id} no encontrado en mock.")
+    finally:
+        if conn is not None:
+            put_conn(conn)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -347,6 +356,7 @@ def update_item(item_id: int, data: dict) -> Dict[str, Any]:
 def delete_item(item_id: int) -> Dict[str, Any]:
     """Marca un artículo como ELIMINADO (soft delete).
     No borra el registro de la base de datos."""
+    conn = None
     try:
         conn = get_conn()
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -362,7 +372,6 @@ def delete_item(item_id: int) -> Dict[str, Any]:
         deleted = dict(deleted)
         conn.commit()
         cur.close()
-        put_conn(conn)
         return deleted
     except Exception as e:
         print(f"⚠️ [INVENTORY_DRIVER] Fallback mock en delete_item: {e}")
@@ -371,6 +380,9 @@ def delete_item(item_id: int) -> Dict[str, Any]:
                 item["status"] = "ELIMINADO"
                 return {"id": item["id"], "name": item["name"], "status": "ELIMINADO"}
         raise ValueError(f"Artículo con ID {item_id} no encontrado en mock.")
+    finally:
+        if conn is not None:
+            put_conn(conn)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -388,6 +400,7 @@ def register_movement(data: dict) -> Dict[str, Any]:
       - SALIDA:  current_stock -= quantity
       - AJUSTE:  current_stock = quantity (set absoluto)
     """
+    conn = None
     try:
         conn = get_conn()
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -442,7 +455,6 @@ def register_movement(data: dict) -> Dict[str, Any]:
 
         conn.commit()
         cur.close()
-        put_conn(conn)
 
         # Serializar
         for k in ['unit_price', 'total']:
@@ -490,6 +502,9 @@ def register_movement(data: dict) -> Dict[str, Any]:
 
         MOCK_MOVEMENTS.append(nuevo_mov)
         return nuevo_mov
+    finally:
+        if conn is not None:
+            put_conn(conn)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -500,6 +515,7 @@ def get_movements(item_id: int = None, portfolio_name: str = None,
                   limit: int = 50) -> List[Dict[str, Any]]:
     """Retorna movimientos de inventario.
     Filtra por item_id y/o portfolio_name. Máximo `limit` registros."""
+    conn = None
     try:
         conn = get_conn()
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -526,7 +542,6 @@ def get_movements(item_id: int = None, portfolio_name: str = None,
         cur.execute(query, params)
         rows = [dict(r) for r in cur.fetchall()]
         cur.close()
-        put_conn(conn)
 
         # Serializar campos especiales
         for r in rows:
@@ -542,6 +557,9 @@ def get_movements(item_id: int = None, portfolio_name: str = None,
         if item_id is not None:
             result = [m for m in result if m["item_id"] == item_id]
         return result[:limit]
+    finally:
+        if conn is not None:
+            put_conn(conn)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -558,6 +576,7 @@ def get_stock_summary(portfolio_name: str, company_id: int = None) -> Dict[str, 
     - total_value: alias de total_cost (compatibilidad hacia atrás)
     - low_stock_count / low_stock_alerts: alertas de stock bajo
     """
+    conn = None
     try:
         conn = get_conn()
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -599,7 +618,6 @@ def get_stock_summary(portfolio_name: str, company_id: int = None) -> Dict[str, 
         alerts = [dict(r) for r in cur.fetchall()]
 
         cur.close()
-        put_conn(conn)
 
         summary["low_stock_alerts"] = alerts
         summary["low_stock_count"]  = len(alerts)
@@ -630,3 +648,6 @@ def get_stock_summary(portfolio_name: str, company_id: int = None) -> Dict[str, 
             "low_stock_alerts": low_stock,
             "low_stock_count": len(low_stock),
         }
+    finally:
+        if conn is not None:
+            put_conn(conn)

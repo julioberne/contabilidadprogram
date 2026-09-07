@@ -64,6 +64,22 @@ _fallback_sem = threading.BoundedSemaphore(DB_FALLBACK_MAX)
 # 2026-09-04, tumbó terceros/cartera en local). WeakSet: si un caller pierde
 # la conexión sin devolverla, el GC la saca sola del registro.
 _fallback_conns = weakref.WeakSet()
+# Finalizers por conexión de fallback: si un caller con fuga (los DT-23) pierde
+# la conexión, el GC la cierra pero el CUPO del semáforo quedaba perdido para
+# siempre — con 5 fugas el sistema entero quedaba en "saturada" permanente
+# hasta reiniciar (incidente prod 2026-09-06). El finalize devuelve el cupo.
+_fallback_finalizers = {}
+
+
+def _cupo_perdido_por_gc(conn_id):
+    """El GC recogió una conexión de fallback fugada: devolver su cupo."""
+    _fallback_finalizers.pop(conn_id, None)
+    try:
+        _fallback_sem.release()
+    except ValueError:
+        pass
+    print("⚠️ [db_pool] Conexión de fallback FUGADA recuperada por GC — "
+          "hay un caller sin release (ver DT-23).")
 
 
 def init_pool(minconn: int = DB_POOL_MIN, maxconn: int = DB_POOL_MAX):
@@ -126,6 +142,8 @@ def get_conn():
     try:
         conn = psycopg2.connect(**_CONN_KWARGS)
         _fallback_conns.add(conn)   # put_conn libera el semáforo con esto
+        _fallback_finalizers[id(conn)] = weakref.finalize(
+            conn, _cupo_perdido_por_gc, id(conn))
         return conn
     except Exception:
         if conn is not None:
@@ -147,6 +165,9 @@ def put_conn(conn):
     # Conexión de fallback: cerrarla y devolver el cupo del semáforo.
     if conn in _fallback_conns:
         _fallback_conns.discard(conn)
+        fin = _fallback_finalizers.pop(id(conn), None)
+        if fin is not None:
+            fin.detach()   # devolución normal: el finalizer del GC ya no aplica
         try:
             conn.close()
         finally:

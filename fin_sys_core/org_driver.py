@@ -114,6 +114,7 @@ def get_entities_for_selector() -> List[Dict[str, Any]]:
     """Retorna todas las entidades formateadas para el dropdown del selector.
     Cada elemento: {id, name, type, parent_id, industry, portfolio_id, status, level}
     Ordenado jerárquicamente (padre antes que hijos)."""
+    conn = None
     try:
         conn = get_conn()
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -125,7 +126,6 @@ def get_entities_for_selector() -> List[Dict[str, Any]]:
         """)
         rows = [dict(r) for r in cur.fetchall()]
         cur.close()
-        put_conn(conn)
 
         # Calcular niveles y ordenar jerárquicamente
         rows = _calcular_niveles(rows)
@@ -134,6 +134,9 @@ def get_entities_for_selector() -> List[Dict[str, Any]]:
     except Exception as e:
         print(f"⚠️ [ORG_DRIVER] Fallback mock en get_entities_for_selector: {e}")
         return _ordenar_jerarquico(list(MOCK_ENTITIES))
+    finally:
+        if conn is not None:
+            put_conn(conn)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -314,6 +317,7 @@ def get_consolidated_by_entity() -> Dict[str, Any]:
 def create_entity_basic(data: dict) -> Dict[str, Any]:
     """Crea una nueva entidad con campos: name, type, parent_id, industry, portfolio_id.
     Retorna la entidad creada con todos sus campos."""
+    conn = None
     try:
         conn = get_conn()
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -332,7 +336,6 @@ def create_entity_basic(data: dict) -> Dict[str, Any]:
         created = dict(cur.fetchone())
         conn.commit()
         cur.close()
-        put_conn(conn)
         return created
     except Exception as e:
         print(f"⚠️ [ORG_DRIVER] Fallback mock en create_entity_basic: {e}")
@@ -350,6 +353,9 @@ def create_entity_basic(data: dict) -> Dict[str, Any]:
         }
         MOCK_ENTITIES.append(nueva)
         return nueva
+    finally:
+        if conn is not None:
+            put_conn(conn)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -359,6 +365,7 @@ def create_entity_basic(data: dict) -> Dict[str, Any]:
 def update_entity_basic(entity_id: int, data: dict) -> Dict[str, Any]:
     """Actualiza name, type, industry, status, parent_id de una entidad.
     Retorna la entidad actualizada."""
+    conn = None
     try:
         conn = get_conn()
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -391,7 +398,6 @@ def update_entity_basic(entity_id: int, data: dict) -> Dict[str, Any]:
         updated = dict(updated)
         conn.commit()
         cur.close()
-        put_conn(conn)
         return updated
     except Exception as e:
         print(f"⚠️ [ORG_DRIVER] Fallback mock en update_entity_basic: {e}")
@@ -402,6 +408,9 @@ def update_entity_basic(entity_id: int, data: dict) -> Dict[str, Any]:
                         ent[campo] = data[campo]
                 return ent
         raise ValueError(f"Entidad con ID {entity_id} no encontrada en mock.")
+    finally:
+        if conn is not None:
+            put_conn(conn)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -411,6 +420,7 @@ def update_entity_basic(entity_id: int, data: dict) -> Dict[str, Any]:
 def update_entity_industry(entity_id: int, industry: str) -> Dict[str, Any]:
     """Actualiza SOLAMENTE el campo industry de una entidad.
     Retorna la entidad actualizada."""
+    conn = None
     try:
         conn = get_conn()
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -425,7 +435,6 @@ def update_entity_industry(entity_id: int, industry: str) -> Dict[str, Any]:
         updated = dict(updated)
         conn.commit()
         cur.close()
-        put_conn(conn)
         return updated
     except Exception as e:
         print(f"⚠️ [ORG_DRIVER] Fallback mock en update_entity_industry: {e}")
@@ -434,6 +443,9 @@ def update_entity_industry(entity_id: int, industry: str) -> Dict[str, Any]:
                 ent["industry"] = industry
                 return ent
         raise ValueError(f"Entidad con ID {entity_id} no encontrada en mock.")
+    finally:
+        if conn is not None:
+            put_conn(conn)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -443,6 +455,7 @@ def update_entity_industry(entity_id: int, industry: str) -> Dict[str, Any]:
 def get_entity_tree() -> List[Dict[str, Any]]:
     """Retorna el árbol completo de entidades con hijos anidados.
     Cada nodo: {id, name, type, industry, status, children[]}."""
+    conn = None
     try:
         conn = get_conn()
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -453,8 +466,10 @@ def get_entity_tree() -> List[Dict[str, Any]]:
         """)
         rows = [dict(r) for r in cur.fetchall()]
         cur.close()
-        put_conn(conn)
         return _build_tree(rows)
     except Exception as e:
         print(f"⚠️ [ORG_DRIVER] Fallback mock en get_entity_tree: {e}")
         return _build_tree(list(MOCK_ENTITIES))
+    finally:
+        if conn is not None:
+            put_conn(conn)
