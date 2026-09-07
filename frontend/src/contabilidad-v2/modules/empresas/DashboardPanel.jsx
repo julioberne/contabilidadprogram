@@ -40,6 +40,9 @@ export default function DashboardPanel({
   const [sinAsignar, setSinAsignar] = useState([]);
   const [unlinkedCount, setUnlinkedCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  // DT-28: sin conexión con la BD el backend ya responde ERROR (no datos
+  // inventados); aquí se avisa y se reintenta solo.
+  const [fetchError, setFetchError] = useState(false);
 
   useEffect(() => {
     try { localStorage.setItem(LS_KEY, String(collapsed)); } catch {}
@@ -62,22 +65,31 @@ export default function DashboardPanel({
       setTotals(d.totals || { ingresos: 0, gastos: 0, balance: 0 });
       setSinAsignar(d.sin_asignar || []);
       setUnlinkedCount(d.unlinked_count || 0);
+      setFetchError(false);
     } catch {
       // Fallback: al menos listar las empresas, sin cifras inventadas
       try {
         const res2 = await fetch(`${API}/org/entities/selector`);
-        if (res2.ok) setEntities(await res2.json());
+        if (res2.ok) { setEntities(await res2.json()); setFetchError(false); }
         else {
           const res3 = await fetch(`${API}/ct/entities`);
-          if (res3.ok) setEntities(flattenTree(await res3.json()));
+          if (res3.ok) { setEntities(flattenTree(await res3.json())); setFetchError(false); }
+          else setFetchError(true);
         }
-      } catch (_) {}
+      } catch (_) { setFetchError(true); }
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => { fetchConsolidated(); }, [fetchConsolidated]);
+
+  // Reintento automático mientras no haya conexión (cada 30s)
+  useEffect(() => {
+    if (!fetchError) return;
+    const t = setTimeout(fetchConsolidated, 30000);
+    return () => clearTimeout(t);
+  }, [fetchError, fetchConsolidated]);
 
   /* La vinculación empresa↔portafolio se retiró de esta vista (02 sep 2026,
      pedido de Andrés): se reubicará con mejor funcionamiento. El vínculo
@@ -128,6 +140,13 @@ export default function DashboardPanel({
             pedido de Andrés): eran UI de la era portafolios y confundían.
             El portafolio activo sigue operando por debajo para el registro. */}
         <span style={S.headerLabel}>▼ CONSOLIDADO · {entities.length} EMPRESAS</span>
+        {fetchError && (
+          <span style={{ fontSize: 8, fontWeight: 700, background: '#d50000', color: '#fff',
+                         padding: '1px 6px', letterSpacing: 1 }}
+                title="El servidor no pudo consultar la base de datos (¿sin internet o Supabase caído?). No se muestran datos inventados; se reintenta cada 30 segundos.">
+            ⚠ SIN CONEXIÓN BD — reintentando
+          </span>
+        )}
         <span style={{ flex: 1 }} />
         {/* Accesos rápidos inline */}
         <QBtn label="📝 Registro" onClick={() => onQuickAction?.('registro')} />

@@ -15,6 +15,10 @@ import json
 
 # SOL-02: Pool centralizado — reemplaza conexiones directas
 from fin_sys_core.db_pool import get_conn as _pool_get_conn, put_conn as _pool_put_conn
+# DT-28: ante fallo de BD, error visible; mock solo con FINSYS_ALLOW_MOCK=1.
+# El modo simulación explícito (IS_POSTGRES_ACTIVE=False) NO pasa por esta
+# política: ese lo activa el operador a propósito.
+from fin_sys_core.mock_policy import mock_permitido
 # SOL-01: Cálculo incremental O(1) — reemplaza recalculación completa
 from fin_sys_core.incremental_balance import aplicar_delta_incremental, revertir_delta_incremental
 
@@ -580,6 +584,10 @@ def registrar_transaccion(tx_data: Dict[str, Any]) -> int:
         import traceback
         print("❌ ERROR REGISTRANDO TRANSACCIÓN EN BD:")
         traceback.print_exc()
+        # DT-28: fingir que el registro quedó guardado (en memoria) hacía que
+        # el usuario perdiera transacciones sin enterarse. Sin el flag: error.
+        if not mock_permitido():
+            raise
         # Fallback de Simulación en Memoria
         print(f"🔌 [MODO SIMULACIÓN] Registrando transacción local en memoria: {tx_data['concept']}")
         transaction_id = len(MOCK_TRANSACTIONS) + 1
@@ -703,6 +711,8 @@ def obtener_transacciones(portfolio_name: Optional[str] = None, limit: Optional[
         # Si limit → retorno paginado con metadata
         return {"items": items, "total_count": total_count}
     except Exception:
+        if not mock_permitido():
+            raise   # DT-28: transacciones inventadas jamás como si fueran reales
         # Fallback de Simulación en Memoria
         results = []
         for tx in MOCK_TRANSACTIONS:
@@ -830,6 +840,8 @@ def actualizar_transaccion(tx_id: int, update_data: Dict[str, Any]) -> bool:
         conn = None  # ya devuelta al pool: el finally no debe re-liberarla
         return True
     except Exception as e:
+        if not mock_permitido():
+            raise   # DT-28: no fingir que la edición quedó guardada
         print(f"🔌 [MODO SIMULACIÓN] Actualizando transacción local en memoria ID {tx_id}")
         for tx in MOCK_TRANSACTIONS:
             if tx.get("id") == tx_id:
@@ -1007,8 +1019,10 @@ def obtener_perfil_usuario() -> Dict[str, Any]:
         cur.close()
         if row:
             return dict(row)
-        return MOCK_USER_PROFILE
+        return MOCK_USER_PROFILE   # BD sana pero sin perfil creado: default útil
     except Exception:
+        if not mock_permitido():
+            raise   # DT-28
         return MOCK_USER_PROFILE
     finally:
         if conn is not None:
@@ -1056,6 +1070,8 @@ def obtener_cuentas() -> List[Dict[str, Any]]:
         cur.close()
         return [dict(r) for r in rows]
     except Exception:
+        if not mock_permitido():
+            raise   # DT-28: cuentas inventadas fue el síntoma del 07-sep
         return MOCK_USER_ACCOUNTS
     finally:
         if conn is not None:
@@ -1370,6 +1386,8 @@ def obtener_terceros():
         return [dict(r) for r in rows]
     except Exception as e:
         print(f"Error obteniendo terceros: {e}")
+        if not mock_permitido():
+            raise   # DT-28
         # Simulacion mock
         mock_terceros = []
         for tx in MOCK_TRANSACTIONS:

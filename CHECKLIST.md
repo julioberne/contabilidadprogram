@@ -54,7 +54,7 @@
 | ~~DT-25~~ | ✅ CERRADA 04-sep: el arranque ABORTA si Postgres no responde (FINSYS_ALLOW_MOCK=1 solo dev) | — |
 | ~~DT-26~~ | ✅ CERRADA 04-sep: el arranque ABORTA si DB_PORT falta o es 5432 (FINSYS_ALLOW_5432=1 override) | — |
 | DT-27 | `dashboard-data` carga TODAS las transacciones + COA completo por request (5.2s en local); con miles de TXs necesitará paginación/caché. El poller del cliente ya bajó a 60s con pausa por pestaña oculta | Media |
-| DT-28 | Fallback MOCK silencioso ante fallo de BD (org_driver selector, database_driver cuentas, inventory): durante el corte del 07-sep la UI mostró empresas INVENTADAS como si fueran reales (y el frontend llegó a pedir ensure-portfolio de una entidad mock — rechazado sin daño). Mejor error visible que datos falsos: quitar mocks o marcarlos `"mock": true` para que la UI avise | Media |
+| ~~DT-28~~ | ✅ CERRADA 07-sep (autorizada por Andrés): 18 fallbacks mock gateados con `mock_policy.mock_permitido()` (org ×5, database ×6, inventory ×7) — fallo de BD ⇒ error visible; mock SOLO con `FINSYS_ALLOW_MOCK=1`. El modo simulación explícito (`IS_POSTGRES_ACTIVE=False`) se conserva. UI: chip rojo "⚠ SIN CONEXIÓN BD" en el consolidado + reintento 30s. Tests en CI (`test_mock_policy`). **Resto**: `control_tower_driver` aún tiene MOCK_ENTITIES en su except (16 fn, Zero-Impact CT) — misma receta cuando se toque | — |
 
 ### Funcional / calidad
 

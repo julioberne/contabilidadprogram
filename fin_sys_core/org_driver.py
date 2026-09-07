@@ -17,6 +17,10 @@ from psycopg2.extras import RealDictCursor
 # Conexión directa al pool centralizado (mismo patrón que database_driver.py)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from db_pool import get_conn, put_conn
+# DT-28: ante fallo de BD, error visible; mock solo con FINSYS_ALLOW_MOCK=1
+# (incidente 2026-09-07: el selector mostró estas empresas inventadas como
+# reales durante un corte de red y el frontend llegó a operar sobre ellas).
+from mock_policy import mock_permitido
 
 
 # ═══════════════════════════════════════════════════════════
@@ -133,6 +137,8 @@ def get_entities_for_selector() -> List[Dict[str, Any]]:
         return rows
     except Exception as e:
         print(f"⚠️ [ORG_DRIVER] Fallback mock en get_entities_for_selector: {e}")
+        if not mock_permitido():
+            raise
         return _ordenar_jerarquico(list(MOCK_ENTITIES))
     finally:
         if conn is not None:
@@ -433,6 +439,8 @@ def create_entity_basic(data: dict) -> Dict[str, Any]:
         return created
     except Exception as e:
         print(f"⚠️ [ORG_DRIVER] Fallback mock en create_entity_basic: {e}")
+        if not mock_permitido():
+            raise   # DT-28: no fingir que la empresa quedó creada
         # Simulación en memoria
         new_id = max(e["id"] for e in MOCK_ENTITIES) + 1 if MOCK_ENTITIES else 1
         nueva = {
@@ -495,6 +503,8 @@ def update_entity_basic(entity_id: int, data: dict) -> Dict[str, Any]:
         return updated
     except Exception as e:
         print(f"⚠️ [ORG_DRIVER] Fallback mock en update_entity_basic: {e}")
+        if not mock_permitido():
+            raise   # DT-28
         for ent in MOCK_ENTITIES:
             if ent["id"] == entity_id:
                 for campo in ["name", "type", "industry", "status", "parent_id", "portfolio_id"]:
@@ -532,6 +542,8 @@ def update_entity_industry(entity_id: int, industry: str) -> Dict[str, Any]:
         return updated
     except Exception as e:
         print(f"⚠️ [ORG_DRIVER] Fallback mock en update_entity_industry: {e}")
+        if not mock_permitido():
+            raise   # DT-28
         for ent in MOCK_ENTITIES:
             if ent["id"] == entity_id:
                 ent["industry"] = industry
@@ -563,6 +575,8 @@ def get_entity_tree() -> List[Dict[str, Any]]:
         return _build_tree(rows)
     except Exception as e:
         print(f"⚠️ [ORG_DRIVER] Fallback mock en get_entity_tree: {e}")
+        if not mock_permitido():
+            raise   # DT-28
         return _build_tree(list(MOCK_ENTITIES))
     finally:
         if conn is not None:

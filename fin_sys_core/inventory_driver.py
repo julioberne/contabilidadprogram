@@ -17,6 +17,8 @@ from psycopg2.extras import RealDictCursor
 # Conexión directa al pool centralizado (mismo patrón que org_driver.py)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from db_pool import get_conn, put_conn
+# DT-28: ante fallo de BD, error visible; mock solo con FINSYS_ALLOW_MOCK=1
+from mock_policy import mock_permitido
 
 
 # ═══════════════════════════════════════════════════════════
@@ -199,6 +201,8 @@ def get_items(portfolio_name: str, company_id: int = None) -> List[Dict[str, Any
         return rows
     except Exception as e:
         print(f"⚠️ [INVENTORY_DRIVER] Fallback mock en get_items: {e}")
+        if not mock_permitido():
+            raise   # DT-28
         return [
             i for i in MOCK_ITEMS
             if i["portfolio_name"] == portfolio_name
@@ -254,6 +258,8 @@ def create_item(data: dict) -> Dict[str, Any]:
         return created
     except Exception as e:
         print(f"⚠️ [INVENTORY_DRIVER] Fallback mock en create_item: {e}")
+        if not mock_permitido():
+            raise   # DT-28: no fingir creaciones
         global _mock_item_counter
         _mock_item_counter += 1
         nuevo = {
@@ -335,6 +341,8 @@ def update_item(item_id: int, data: dict) -> Dict[str, Any]:
         return updated
     except Exception as e:
         print(f"⚠️ [INVENTORY_DRIVER] Fallback mock en update_item: {e}")
+        if not mock_permitido():
+            raise   # DT-28
         for item in MOCK_ITEMS:
             if item["id"] == item_id:
                 for campo in ["name", "sku", "category", "unit",
@@ -375,6 +383,8 @@ def delete_item(item_id: int) -> Dict[str, Any]:
         return deleted
     except Exception as e:
         print(f"⚠️ [INVENTORY_DRIVER] Fallback mock en delete_item: {e}")
+        if not mock_permitido():
+            raise   # DT-28
         for item in MOCK_ITEMS:
             if item["id"] == item_id:
                 item["status"] = "ELIMINADO"
@@ -467,6 +477,8 @@ def register_movement(data: dict) -> Dict[str, Any]:
         return movement
     except Exception as e:
         print(f"⚠️ [INVENTORY_DRIVER] Fallback mock en register_movement: {e}")
+        if not mock_permitido():
+            raise   # DT-28: no fingir movimientos de stock
         global _mock_mov_counter
         _mock_mov_counter += 1
 
@@ -553,6 +565,8 @@ def get_movements(item_id: int = None, portfolio_name: str = None,
         return rows
     except Exception as e:
         print(f"⚠️ [INVENTORY_DRIVER] Fallback mock en get_movements: {e}")
+        if not mock_permitido():
+            raise   # DT-28
         result = MOCK_MOVEMENTS[:]
         if item_id is not None:
             result = [m for m in result if m["item_id"] == item_id]
@@ -624,6 +638,8 @@ def get_stock_summary(portfolio_name: str, company_id: int = None) -> Dict[str, 
         return summary
     except Exception as e:
         print(f"⚠️ [INVENTORY_DRIVER] Fallback mock en get_stock_summary: {e}")
+        if not mock_permitido():
+            raise   # DT-28
         activos = [
             i for i in MOCK_ITEMS
             if i["portfolio_name"] == portfolio_name and i["status"] == "ACTIVO"
