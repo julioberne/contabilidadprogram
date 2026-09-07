@@ -90,5 +90,100 @@ class TestFallbackConTope(unittest.TestCase):
                     db_pool.get_conn()
 
 
+class FakePoolConn:
+    """Conexión 'del pool': igual que psycopg2 (sin __dict__), con socket
+    simulable. `muerta=True` reproduce el corte SSL de Supabase."""
+    __slots__ = ("__weakref__", "closed", "viva", "cerrada")
+
+    def __init__(self, muerta=False):
+        self.closed = 0
+        self.viva = not muerta
+        self.cerrada = False
+
+    def poll(self):
+        if not self.viva:
+            raise RuntimeError("SSL connection has been closed unexpectedly")
+
+    def rollback(self):
+        if not self.viva:
+            raise RuntimeError("SSL connection has been closed unexpectedly")
+
+    def close(self):
+        self.cerrada = True
+        self.closed = 1
+
+
+class FakePool:
+    maxconn = 10
+
+    def __init__(self, conns):
+        self.conns = list(conns)
+        self.descartadas = []   # putconn(close=True)
+        self.devueltas = []     # putconn normal
+
+    def getconn(self):
+        if not self.conns:
+            raise Exception("connection pool exhausted")
+        return self.conns.pop(0)
+
+    def putconn(self, conn, close=False):
+        if close:
+            conn.close()
+            self.descartadas.append(conn)
+        else:
+            self.devueltas.append(conn)
+
+
+class TestPoolSeCuraSolo(unittest.TestCase):
+    """Incidente local 2026-09-07: un corte de red con Supabase dejó el pool
+    lleno de conexiones muertas que circulaban para siempre (put→get de
+    veneno); solo reiniciar el server lo 'curaba'. El pool debe sanearse solo:
+    descartar muertas al prestar Y al devolver."""
+
+    def setUp(self):
+        self._pool_orig = db_pool._pool
+        self._failed_orig = db_pool._init_failed
+
+    def tearDown(self):
+        db_pool._pool = self._pool_orig
+        db_pool._init_failed = self._failed_orig
+
+    def test_get_conn_descarta_muertas_y_entrega_una_viva(self):
+        muertas = [FakePoolConn(muerta=True) for _ in range(3)]
+        viva = FakePoolConn()
+        db_pool._pool = FakePool(muertas + [viva])
+        db_pool._init_failed = False
+
+        conn = db_pool.get_conn()
+
+        self.assertIs(conn, viva)
+        self.assertEqual(db_pool._pool.descartadas, muertas)
+        self.assertTrue(all(m.cerrada for m in muertas))
+        self.assertEqual(db_pool._pool.devueltas, [])
+
+    def test_put_conn_no_devuelve_veneno_al_pool(self):
+        db_pool._pool = FakePool([])
+        db_pool._init_failed = False
+
+        rota = FakePoolConn(muerta=True)
+        db_pool.put_conn(rota)
+        self.assertIn(rota, db_pool._pool.descartadas)
+        self.assertEqual(db_pool._pool.devueltas, [])
+
+        sana = FakePoolConn()
+        db_pool.put_conn(sana)
+        self.assertIn(sana, db_pool._pool.devueltas)
+        self.assertFalse(sana.cerrada)
+
+    def test_conexion_ya_cerrada_no_vuelve_al_pool(self):
+        db_pool._pool = FakePool([])
+        db_pool._init_failed = False
+        cerrada = FakePoolConn()
+        cerrada.close()
+        db_pool.put_conn(cerrada)
+        self.assertIn(cerrada, db_pool._pool.descartadas)
+        self.assertEqual(db_pool._pool.devueltas, [])
+
+
 if __name__ == "__main__":
     unittest.main()

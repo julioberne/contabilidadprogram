@@ -125,10 +125,35 @@ def get_conn():
                     _init_failed = True   # sin pool posible: fallback directo estable
 
     if _pool is not None:
-        try:
-            return _pool.getconn()
-        except Exception as e:
-            print(f"⚠️ Pool agotado o error, fallback a conexión directa: {e}")
+        # Sanear al PRESTAR (incidente local 2026-09-07): tras un corte de red
+        # con Supabase ("SSL connection has been closed unexpectedly"), el pool
+        # queda lleno de conexiones muertas. `closed` + `poll()` detectan el
+        # socket roto SIN round-trip a la BD; la rota se descarta
+        # (putconn close=True) y psycopg2 repone una fresca en el siguiente
+        # getconn. Sin esto, el veneno circulaba para siempre y solo un
+        # reinicio "curaba" el server.
+        for _ in range(getattr(_pool, "maxconn", DB_POOL_MAX) + 1):
+            try:
+                conn = _pool.getconn()
+            except Exception as e:
+                print(f"⚠️ Pool agotado o error, fallback a conexión directa: {e}")
+                break
+            try:
+                if not conn.closed:
+                    conn.poll()   # socket muerto → OperationalError inmediato
+                    return conn
+            except Exception:
+                pass
+            try:
+                _pool.putconn(conn, close=True)   # descartar la muerta
+            except Exception:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+        else:
+            print("⚠️ Pool: todas las conexiones prestadas estaban muertas — "
+                  "descartadas; fallback directo.")
 
     # Fallback CON TOPE (DB_FALLBACK_MAX simultáneas): si el pool se agota, el
     # sistema debe fallar rápido y visible, no inundar el pooler de Supabase
@@ -178,12 +203,24 @@ def put_conn(conn):
         return
     try:
         if _pool is not None:
-            # Higiene: jamás devolver al pool una transacción a medias — el
-            # siguiente usuario heredaría un "idle in transaction".
+            # Higiene doble: rollback evita devolver una transacción a medias
+            # ("idle in transaction"), y si el rollback FALLA es que el socket
+            # está roto — esa conexión se DESCARTA (close=True) en vez de
+            # volver al pool. Devolverla rota era el bug que dejaba el pool
+            # envenenado tras un corte de red (2026-09-07).
             try:
+                if conn.closed:
+                    raise psycopg2.OperationalError("conexión ya cerrada")
                 conn.rollback()
             except Exception:
-                pass
+                try:
+                    _pool.putconn(conn, close=True)
+                except Exception:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                return
             _pool.putconn(conn)
         else:
             conn.close()
