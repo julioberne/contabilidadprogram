@@ -73,11 +73,13 @@ export default function ContextPanel({
     if (activeTab === 'impuestos') fetchTaxes();
     if (activeTab === 'activos') fetchAssets();
     if (activeTab === 'cartera') fetchCartera();
-  }, [activeTab, activePortfolio]);
+  }, [activeTab, activePortfolio, activeCompany?.id]);
 
   const fetchTags = async () => { try { const r = await fetch(`${API_BASE}/tags`); if (r.ok) setPanelTags(await r.json()); } catch(e) {} };
   const fetchTaxes = async () => { try { const r = await fetch(`${API_BASE}/custom-taxes`); if (r.ok) setPanelTaxes(await r.json()); } catch(e) {} };
-  const fetchAssets = async () => { try { const r = await fetch(`${API_BASE}/assets?portfolio=${encodeURIComponent(activePortfolio)}`); if (r.ok) setPanelAssets(await r.json()); } catch(e) {} };
+  // Recursos por EMPRESA activa (+ legado del portafolio). El endpoint existe
+  // desde 2026-09-06 — antes esta llamada recibía el index.html del catch-all.
+  const fetchAssets = async () => { try { const r = await fetch(`${API_BASE}/assets?portfolio=${encodeURIComponent(activePortfolio)}${activeCompany?.id ? `&entity_id=${activeCompany.id}` : ''}`); if (r.ok) setPanelAssets(await r.json()); } catch(e) {} };
   const fetchCartera = async () => { try { const r = await fetch(`${API_BASE}/cartera`); if (r.ok) setPanelCartera(await r.json()); } catch(e) {} };
   const refreshTP = async () => { const r = await fetch(`${API_BASE}/third-parties`); if (r.ok) setAllThirdParties(await r.json()); };
 
@@ -214,6 +216,7 @@ export default function ContextPanel({
           editingId={editingId} setEditingId={setEditingId}
           editData={editData} setEditData={setEditData}
           deleteItem={deleteItem} fetchAssets={fetchAssets}
+          createItem={createItem} updateItem={updateItem}
           activePortfolio={activePortfolio}
           activeCompany={activeCompany}
           SectionLabel={SectionLabel}
