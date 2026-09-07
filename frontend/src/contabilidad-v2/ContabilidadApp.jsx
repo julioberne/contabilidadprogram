@@ -4,11 +4,11 @@
    arquitectura modular v2: providers (Empresa → Tenant → Draft)
    + módulos adapter que montan los componentes v1 reales.
    ============================================================ */
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import './contabilidad-v2.css';
 
 // Engine: providers (Empresa → Tenant → Draft)
-import { EmpresaProvider, useEmpresa } from './engine/EmpresaProvider.jsx';
+import { EmpresaProvider, useEmpresa, empresaIdDesdeURL } from './engine/EmpresaProvider.jsx';
 import { TenantProvider } from './engine/TenantProvider.jsx';
 import { TransactionDraftProvider, useTransactionDraft } from './engine/TransactionDraftProvider.jsx';
 
@@ -46,15 +46,32 @@ function ContabilidadInner() {
   const [evidenceUrl, setEvidenceUrl] = useState(null);
   const [selectedEvidenceTx, setSelectedEvidenceTx] = useState(null);
 
-  // ── Auto-selección de primera empresa ──────────────────────
-  // useCallback: antes era una arrow inline → nueva referencia en cada
-  // render → CompanySelector refetcheaba entities en bucle continuo.
+  // ── Selección inicial: la URL manda; si no, primera empresa ─
+  // Deep-linking (2026-09-06): /contabilidad/<id>-<slug> restaura la empresa
+  // en F5, enlaces compartidos y atrás/adelante del navegador.
+  const entitiesRef = useRef([]);
   const handleCompaniesLoaded = useCallback((entities) => {
+    entitiesRef.current = entities;
     if (!activeCompany && entities.length > 0) {
-      const firstEmpresa = entities.find(e => e.type === 'EMPRESA') || entities[0];
+      const urlId = empresaIdDesdeURL();
+      const desdeURL = urlId != null ? entities.find(e => e.id === urlId) : null;
+      const firstEmpresa = desdeURL
+        || entities.find(e => e.type === 'EMPRESA') || entities[0];
       handleSelectCompany(firstEmpresa);
     }
   }, [activeCompany, handleSelectCompany]);
+
+  // Atrás/adelante del navegador entre empresas
+  useEffect(() => {
+    const onPop = () => {
+      const urlId = empresaIdDesdeURL();
+      if (urlId == null) return;
+      const found = entitiesRef.current.find(e => e.id === urlId);
+      if (found && found.id !== activeCompany?.id) handleSelectCompany(found);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [activeCompany?.id, handleSelectCompany]);
 
   return (
     <div className="min-h-screen bg-brutalBg text-black font-mono p-2 flex flex-col antialiased selection:bg-brutalGreen">

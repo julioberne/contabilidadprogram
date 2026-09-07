@@ -56,11 +56,19 @@ export function useRoute() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  // Normaliza la URL si se entró por un path desconocido (/foo → /)
+  // Normaliza la URL si se entró por un path desconocido (/foo → /).
+  // OJO: si el PRIMER segmento es un módulo válido, se conserva el resto del
+  // path — los módulos usan sub-rutas (ej. /contabilidad/19-constructora-blu
+  // para la empresa activa, 2026-09-06) y borrarlas rompía el F5.
   useEffect(() => {
-    const canonical = viewToPath(pathToView(window.location.pathname));
-    if (window.location.pathname !== canonical) {
-      window.history.replaceState({ view }, '', canonical + window.location.search);
+    const primerSeg = (window.location.pathname || '/').split('/').filter(Boolean)[0];
+    const v = pathToView(window.location.pathname);
+    const esRutaValida = primerSeg && (primerSeg === v || SHELL_ROUTES[v] === primerSeg);
+    if (!esRutaValida) {
+      const canonical = viewToPath(v);
+      if (window.location.pathname !== canonical) {
+        window.history.replaceState({ view }, '', canonical + window.location.search);
+      }
     }
     // Solo al montar: después, navigate() mantiene la URL en sync.
     // eslint-disable-next-line react-hooks/exhaustive-deps

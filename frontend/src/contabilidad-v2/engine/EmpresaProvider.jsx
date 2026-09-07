@@ -12,6 +12,20 @@ import { useDashboardData } from '../hooks/useDashboardData.js';
 
 const EmpresaContext = createContext(null);
 
+/* Deep-linking por empresa (2026-09-06, pedido de Andrés): la empresa activa
+   vive en la URL — /contabilidad/<id>-<slug> — así el F5 no la pierde, los
+   enlaces se comparten y atrás/adelante navega entre empresas. El id manda
+   (único e inmutable); el slug es solo legibilidad. */
+export const slugEmpresa = (name) => String(name || '')
+  .normalize('NFD').replace(/[̀-ͯ]/g, '')   // sin tildes
+  .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  .slice(0, 40);
+
+export const empresaIdDesdeURL = () => {
+  const m = window.location.pathname.match(/^\/contabilidad\/(\d+)(?:-|$)/);
+  return m ? Number(m[1]) : null;
+};
+
 export function EmpresaProvider({ children }) {
   const [activePortfolio, setActivePortfolio] = useState('Negocio A');
   const [activeCompany, setActiveCompany] = useState(null);
@@ -23,6 +37,15 @@ export function EmpresaProvider({ children }) {
   // Port verbatim de App.jsx handleSelectCompany
   const handleSelectCompany = useCallback((entity) => {
     setActiveCompany(entity);
+    // Sincronizar la URL con la empresa activa (pushState: atrás/adelante
+    // recorre empresas). Solo dentro del módulo contabilidad.
+    if (entity?.id && window.location.pathname.startsWith('/contabilidad')) {
+      const destino = `/contabilidad/${entity.id}-${slugEmpresa(entity.name)}`;
+      if (window.location.pathname !== destino) {
+        window.history.pushState({ view: 'contabilidad', empresaId: entity.id }, '',
+                                 destino + window.location.search);
+      }
+    }
     // Bridge: buscar el portfolio asociado a esta entity para mantener compatibilidad
     if (entity.portfolio_id) {
       const matchedPort = dashboard.portfolios.find(p => p.id === entity.portfolio_id);
