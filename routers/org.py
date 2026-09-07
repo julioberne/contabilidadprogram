@@ -93,6 +93,24 @@ def org_create_entity(body: OrgEntityCreateInput):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/api/org/entities/{entity_id}/ensure-portfolio")
+def org_ensure_portfolio(entity_id: int):
+    """Garantiza presupuesto propio para la entidad (lo crea si no tiene).
+    Lo llama el frontend al seleccionar empresa: el registro contable se
+    atribuye al portafolio activo, así que cada empresa necesita el suyo."""
+    try:
+        from fin_sys_core.org_driver import ensure_portfolio_for_entity
+        out = ensure_portfolio_for_entity(entity_id)
+        if out.get("error"):
+            status = 404 if out["error"].startswith("entidad") else 500
+            raise HTTPException(status_code=status, detail=out["error"])
+        return out
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.put("/api/org/entities/{entity_id}")
 def org_update_entity(entity_id: int, body: OrgEntityUpdateInput):
     """Actualiza campos de una entidad existente."""

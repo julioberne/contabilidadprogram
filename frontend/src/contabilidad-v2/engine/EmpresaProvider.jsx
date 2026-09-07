@@ -7,7 +7,8 @@
    - bridge entity → portfolio (semántica exacta de App.jsx:301-313)
    - datos consolidados vía useDashboardData (auto-refresh 30s)
    ============================================================ */
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useRef } from 'react';
+import { API } from '../../config';
 import { useDashboardData } from '../hooks/useDashboardData.js';
 
 const EmpresaContext = createContext(null);
@@ -33,9 +34,15 @@ export function EmpresaProvider({ children }) {
   // Hook maestro: reemplaza el fetchData() de App.jsx
   const dashboard = useDashboardData(activePortfolio);
 
+  // Guarda anti-carrera: si el usuario cambia de empresa mientras el
+  // ensure-portfolio de la anterior sigue en vuelo, esa respuesta tardía
+  // no debe pisar el portafolio de la selección nueva.
+  const seleccionRef = useRef(0);
+
   // --- Selección de Empresa desde CompanySelector (bridge entity → portfolio) ---
   // Port verbatim de App.jsx handleSelectCompany
   const handleSelectCompany = useCallback((entity) => {
+    const marca = ++seleccionRef.current;
     setActiveCompany(entity);
     // Sincronizar la URL con la empresa activa (pushState: atrás/adelante
     // recorre empresas). Solo dentro del módulo contabilidad.
@@ -54,8 +61,21 @@ export function EmpresaProvider({ children }) {
         return;
       }
     }
-    // Si no hay portfolio_id, mantener el portfolio actual (no pisar con entity.name)
-    // El usuario puede cambiar portfolio manualmente desde el DashboardPanel
+    // Sin presupuesto propio (o lista de portafolios desactualizada): el
+    // backend lo garantiza — lo crea con el nombre de la empresa si no existe
+    // (2026-09-07, pedido de Andrés). Así lo que se registre estando en
+    // /contabilidad/<id>-<slug> queda atribuido a ESA empresa en el
+    // consolidado, no al portafolio que estuviera activo antes.
+    if (entity?.id) {
+      fetch(`${API}/org/entities/${entity.id}/ensure-portfolio`, { method: 'POST' })
+        .then(r => (r.ok ? r.json() : null))
+        .then(d => {
+          if (d?.portfolio_name && seleccionRef.current === marca) {
+            setActivePortfolio(d.portfolio_name);
+          }
+        })
+        .catch(() => {});   // sin red: se queda el portafolio anterior (como antes)
+    }
   }, [dashboard.portfolios]);
 
   const value = {

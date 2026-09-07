@@ -333,6 +333,78 @@ def get_consolidated_by_entity() -> Dict[str, Any]:
 
 
 # ═══════════════════════════════════════════════════════════
+# 1c. PRESUPUESTO PROPIO POR EMPRESA
+# ═══════════════════════════════════════════════════════════
+
+def ensure_portfolio_for_entity(entity_id: int) -> Dict[str, Any]:
+    """Garantiza que la entidad tenga presupuesto (portafolio) PROPIO.
+
+    Es la pieza que ancla el registro a la empresa activa (2026-09-07,
+    pedido de Andrés): el formulario registra sobre `activePortfolio`, así
+    que cada empresa necesita el suyo. Si ya lo tiene se devuelve tal cual;
+    si no:
+      1. adopta un portafolio existente con su MISMO nombre si ninguna otra
+         entidad lo reclama, o
+      2. crea uno nuevo con el nombre de la entidad (sufijo ` (id)` si el
+         nombre ya es el presupuesto de otra empresa).
+    """
+    conn = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT id, name, portfolio_id FROM entities WHERE id = %s",
+                    (entity_id,))
+        ent = cur.fetchone()
+        if not ent:
+            return {"error": "entidad no existe", "entity_id": entity_id}
+
+        if ent["portfolio_id"]:
+            cur.execute("SELECT name FROM portfolios WHERE id = %s",
+                        (ent["portfolio_id"],))
+            row = cur.fetchone()
+            if row:
+                return {"entity_id": entity_id,
+                        "portfolio_id": ent["portfolio_id"],
+                        "portfolio_name": row["name"], "created": False}
+            # portfolio_id colgante (portafolio borrado): crear uno nuevo
+
+        nombre = (ent["name"] or f"Empresa {entity_id}").strip()
+        cur.execute("SELECT id FROM portfolios WHERE name = %s", (nombre,))
+        row = cur.fetchone()
+        pid, created = None, False
+        if row:
+            cur.execute("""SELECT COUNT(*) AS n FROM entities
+                           WHERE portfolio_id = %s AND id <> %s""",
+                        (row["id"], entity_id))
+            if cur.fetchone()["n"] == 0:
+                pid = row["id"]                      # homónimo libre: adoptar
+            else:
+                nombre = f"{nombre} ({entity_id})"   # tomado por otra empresa
+        if pid is None:
+            cur.execute("INSERT INTO portfolios (name) VALUES (%s) RETURNING id",
+                        (nombre,))
+            pid = cur.fetchone()["id"]
+            created = True
+        cur.execute("UPDATE entities SET portfolio_id = %s WHERE id = %s",
+                    (pid, entity_id))
+        conn.commit()
+        cur.close()
+        return {"entity_id": entity_id, "portfolio_id": pid,
+                "portfolio_name": nombre, "created": created}
+    except Exception as e:
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        print(f"⚠️ [ORG_DRIVER] ensure_portfolio_for_entity({entity_id}): {e}")
+        return {"error": str(e), "entity_id": entity_id}
+    finally:
+        if conn is not None:
+            put_conn(conn)
+
+
+# ═══════════════════════════════════════════════════════════
 # 2. CREAR ENTIDAD BÁSICA
 # ═══════════════════════════════════════════════════════════
 
