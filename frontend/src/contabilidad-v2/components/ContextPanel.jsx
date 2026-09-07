@@ -102,7 +102,7 @@ export default function ContextPanel({
     try {
       const r = await fetch(`${API_BASE}/accounts`, {
         method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ name: newAccName.trim(), type: newAccType, currency: newAccCurrency, initial_balance: parseFloat(newAccBalance) || 0, portfolio: activePortfolio })
+        body: JSON.stringify({ name: newAccName.trim(), type: newAccType, currency: newAccCurrency, initial_balance: parseFloat(newAccBalance) || 0, portfolio: activePortfolio, entity_id: activeCompany?.id || null })
       });
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));

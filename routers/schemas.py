@@ -37,6 +37,10 @@ class AccountInput(BaseModel):
     initial_balance: float = 0.0
     # Nombre del portafolio dueño de la cuenta. None = compartida (global).
     portfolio: Optional[str] = None
+    # EMPRESA del árbol a la que nace vinculada (account_entity_links). Tiene
+    # prioridad sobre portfolio: la mayoría de empresas no tienen portafolio
+    # propio y la resolución por nombre dejaba la cuenta compartida.
+    entity_id: Optional[int] = None
 
 
 class AccountUpdateInput(BaseModel):

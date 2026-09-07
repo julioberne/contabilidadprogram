@@ -81,6 +81,46 @@ export default function CuentasTab({
   useEffect(() => { setLinksOverlay({}); }, [accounts]);   // datos frescos mandan
   const linksDe = (acc) => linksOverlay[acc.id] ?? acc.entity_links ?? [];
 
+  // ── Filtro por empresa activa (2026-09-07, pedido de Andrés) ──
+  // Al cambiar de empresa el tab muestra SUS cuentas: las vinculadas a ella o
+  // a cualquiera de sus descendientes (misma regla de subárbol que la columna
+  // CUENTAS del consolidado) + las compartidas (sin vínculos). El botón 🌐
+  // permite ver el universo completo sin cambiar de empresa.
+  const [verTodas, setVerTodas] = useState(false);
+  // El prop `accounts` llega pre-filtrado por PORTAFOLIO (lógica heredada del
+  // dashboard) y puede omitir cuentas del subárbol de la empresa activa. Este
+  // tab trabaja sobre el universo completo y filtra por EMPRESA aquí.
+  const [todasCuentas, setTodasCuentas] = useState(null);
+  useEffect(() => {
+    let vivo = true;
+    fetch(`${API}/accounts`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (vivo && Array.isArray(d)) setTodasCuentas(d); })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, [accounts]);   // el refresh del dashboard refresca también el universo
+  const universo = todasCuentas ?? accounts;
+  const idsSubarbol = React.useMemo(() => {
+    if (!empresaActiva) return null;
+    const ids = new Set([empresaActiva.id]);
+    let crecio = true;
+    while (crecio) {
+      crecio = false;
+      for (const e of empresas) {
+        if (e.parent_id != null && ids.has(e.parent_id) && !ids.has(e.id)) {
+          ids.add(e.id); crecio = true;
+        }
+      }
+    }
+    return ids;
+  }, [empresaActiva, empresas]);
+  const visibles = (verTodas || !idsSubarbol)
+    ? universo
+    : universo.filter(a => {
+        const ls = linksDe(a);
+        return ls.length === 0 || ls.some(l => idsSubarbol.has(l.id));
+      });
+
   const vincular = (acc, entityId) => {
     const empresa = empresas.find(e => e.id === Number(entityId));
     if (empresa) {
@@ -113,21 +153,22 @@ export default function CuentasTab({
       const todas = await r.json();
       setOtrasCuentas(todas.filter(a =>
         a.entity_links?.length &&
-        (!empresaActiva || !a.entity_links.some(l => l.id === empresaActiva.id))));
+        (!idsSubarbol || !a.entity_links.some(l => idsSubarbol.has(l.id)))));
     } catch { setOtrasCuentas([]); }
   };
 
-  // ── Totales por moneda: real, esperado y desfase ──
-  const totales = accounts.reduce((acc, a) => {
+  // ── Totales por moneda: real, esperado y desfase (de las cuentas VISIBLES:
+  // el disponible refleja la empresa activa, no el universo entero) ──
+  const totales = visibles.reduce((acc, a) => {
     const cur = a.currency || 'COP';
     acc[cur] = acc[cur] || { real: 0, esperado: 0 };
     acc[cur].real += Number(a.current_balance || 0);
     acc[cur].esperado += esperadoDe(a);
     return acc;
   }, {});
-  const hayDesfase = accounts.some(a => Math.abs(desfaseDe(a)) > 1);
+  const hayDesfase = visibles.some(a => Math.abs(desfaseDe(a)) > 1);
 
-  const enRojo = accounts.filter(a => Number(a.current_balance || 0) < 0 && !esCuentaCredito(a));
+  const enRojo = visibles.filter(a => Number(a.current_balance || 0) < 0 && !esCuentaCredito(a));
 
   const startEdit = (acc) => {
     setEditingId(acc.id);
@@ -159,7 +200,7 @@ export default function CuentasTab({
       {/* ═══ RESUMEN: REAL vs ESPERADO ═══ */}
       <div className="border-2 border-black bg-black text-white p-2 space-y-1">
         <div className="text-[8px] font-mono uppercase tracking-widest text-gray-400">
-          Disponible total · {activePortfolio || 'todas'}
+          Disponible total · {verTodas || !empresaActiva ? 'todas las empresas' : empresaActiva.name}
         </div>
         {Object.keys(totales).length === 0 && (
           <div className="text-[10px] font-mono text-gray-500">Sin cuentas registradas</div>
@@ -221,8 +262,17 @@ export default function CuentasTab({
 
       {/* ═══ TABLA / CRUD ═══ */}
       <div className="flex justify-between items-center gap-1">
-        <SectionLabel text={`user_accounts · ${accounts.length} registros`} />
+        <SectionLabel text={`user_accounts · ${visibles.length}${!verTodas && empresaActiva && visibles.length !== universo.length ? ` de ${universo.length}` : ''} registros`} />
         <div className="flex gap-1 shrink-0">
+          {empresaActiva && (
+            <button
+              onClick={() => setVerTodas(v => !v)}
+              title={verTodas
+                ? `Volver a ver solo las cuentas de ${empresaActiva.name} (y sus dependientes) + compartidas`
+                : 'Ver las cuentas de TODAS las empresas sin cambiar de empresa'}
+              className={`border border-black px-2 py-0.5 text-[8px] font-mono font-bold uppercase ${verTodas ? 'bg-black text-white' : 'hover:bg-black hover:text-white'}`}
+            >{verTodas ? '🏢 Solo esta empresa' : '🌐 Ver todas'}</button>
+          )}
           <button
             onClick={() => { const abrir = !traerOpen; setTraerOpen(abrir); if (abrir) cargarOtras(); }}
             title="Traer una cuenta de otra empresa/portafolio a esta"
@@ -268,7 +318,7 @@ export default function CuentasTab({
           <th className="p-1 text-[8px]">Acc.</th>
         </tr></thead>
         <tbody className="divide-y divide-gray-200">
-          {accounts.map(acc => {
+          {visibles.map(acc => {
             const saldo = Number(acc.current_balance || 0);
             const negativo = saldo < 0;
             const alerta = negativo && !esCuentaCredito(acc);
@@ -369,7 +419,11 @@ export default function CuentasTab({
           })}
         </tbody>
       </table>
-      {accounts.length === 0 && <p className="text-center text-[10px] text-gray-300 font-mono uppercase py-2">Sin cuentas</p>}
+      {visibles.length === 0 && (
+        <p className="text-center text-[10px] text-gray-300 font-mono uppercase py-2">
+          {universo.length === 0 ? 'Sin cuentas' : `Sin cuentas en ${empresaActiva?.name || 'esta empresa'} — usa 🔗 Traer cuenta o 🌐 Ver todas`}
+        </p>
+      )}
     </>
   );
 }

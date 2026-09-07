@@ -158,10 +158,16 @@ def add_account(acc: AccountInput):
     try:
         from database_driver import crear_cuenta
         new_id = crear_cuenta(acc.dict())
-        # La cuenta nace vinculada a la(s) EMPRESA(s) cuyo presupuesto es el
-        # portafolio activo (el form manda el portafolio; la dueña real es la
-        # empresa del árbol). Sin empresa resoluble → compartida.
-        if acc.portfolio:
+        # La cuenta nace vinculada a la EMPRESA activa si el form la manda
+        # (entity_id, 2026-09-07). Fallback: resolver por portafolio — solo
+        # funciona si alguna empresa tiene ese presupuesto. Sin empresa
+        # resoluble → compartida.
+        if acc.entity_id:
+            try:
+                _link_cuenta(new_id, acc.entity_id)
+            except Exception as e:
+                print(f"⚠️ Cuenta {new_id} creada pero sin empresa vinculada: {e}")
+        elif acc.portfolio:
             try:
                 from db_pool import get_conn, put_conn
                 conn = get_conn()
