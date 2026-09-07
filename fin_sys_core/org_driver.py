@@ -177,14 +177,24 @@ def get_consolidated_by_entity() -> Dict[str, Any]:
         """)
         accounts = [dict(r) for r in cur.fetchall()]
 
-        # Solo se consulta lo que alguna entidad realmente usa
-        vinculados = sorted({
+        # TODOS los portafolios con movimiento, no solo los vinculados a una
+        # empresa: el dinero registrado en un portafolio huérfano debe verse
+        # (2026-09-07, reporte de Andrés: la tabla decía $0 en todo mientras
+        # la alerta global marcaba déficit — los gastos estaban en "Negocio A",
+        # que ninguna empresa reclama).
+        cur.execute("""
+            SELECT DISTINCT portfolio_id FROM transactions
+            WHERE portfolio_id IS NOT NULL;
+        """)
+        con_movimiento = {r["portfolio_id"] for r in cur.fetchall()}
+        vinculados = {
             e["portfolio_id"] for e in entities
             if e.get("portfolio_id") in portfolios
-        })
+        }
+        a_consultar = sorted((con_movimiento | vinculados) & set(portfolios))
 
         por_portafolio: Dict[int, Dict[str, float]] = {}
-        for pid in vinculados:
+        for pid in a_consultar:
             cur.execute("""
                 SELECT type, net_value, transaction_currency
                 FROM transactions WHERE portfolio_id = %s;
@@ -289,6 +299,17 @@ def get_consolidated_by_entity() -> Dict[str, Any]:
             "cuentas_count": len(cuentas_ids),
         })
 
+    # Portafolios con movimiento que NINGUNA empresa reclama: se listan aparte
+    # para que la UI los muestre como fila "SIN EMPRESA" en vez de esconderlos.
+    reclamados = {e.get("portfolio_id") for e in entities}
+    sin_asignar = [
+        {"portfolio_id": pid, "portfolio_name": portfolios.get(pid),
+         **por_portafolio[pid]}
+        for pid in sorted(por_portafolio) if pid not in reclamados
+    ]
+
+    # El total incluye los huérfanos: debe cuadrar con la caja viva global
+    # (la misma que dispara la alerta de déficit), no solo con lo vinculado.
     totales = {"ingresos": 0.0, "gastos": 0.0, "balance": 0.0}
     for c in por_portafolio.values():  # una vez por portafolio, no por fila
         totales["ingresos"] += c["ingresos"]
@@ -301,6 +322,7 @@ def get_consolidated_by_entity() -> Dict[str, Any]:
 
     return {
         "entities": filas,
+        "sin_asignar": sin_asignar,
         "totals": totales,
         "patrimonio_global_cop": calculate_caja_viva([], accounts)["patrimonio_cop"],
         "linked_count": sum(1 for f in filas if f["linked"]),

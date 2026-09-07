@@ -37,6 +37,7 @@ export default function DashboardPanel({
   });
   const [entities, setEntities] = useState([]);
   const [totals, setTotals] = useState({ ingresos: 0, gastos: 0, balance: 0 });
+  const [sinAsignar, setSinAsignar] = useState([]);
   const [unlinkedCount, setUnlinkedCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
@@ -59,6 +60,7 @@ export default function DashboardPanel({
       const d = await res.json();
       setEntities(d.entities || []);
       setTotals(d.totals || { ingresos: 0, gastos: 0, balance: 0 });
+      setSinAsignar(d.sin_asignar || []);
       setUnlinkedCount(d.unlinked_count || 0);
     } catch {
       // Fallback: al menos listar las empresas, sin cifras inventadas
@@ -219,6 +221,27 @@ export default function DashboardPanel({
                 );
               })
             )}
+            {/* Dinero registrado en portafolios que NINGUNA empresa reclama.
+                Ocultarlo hacía que la tabla dijera $0 mientras la alerta de
+                déficit (global) sí lo veía (2026-09-07). */}
+            {!loading && sinAsignar.map(p => (
+              <tr key={`pf-${p.portfolio_id}`}
+                  style={{ borderBottom: '1px solid #eee', background: '#fffbeb' }}
+                  title={`Movimientos del portafolio contable "${p.portfolio_name}", que no está vinculado a ninguna empresa. Vincula una empresa a este portafolio para atribuirle estas cifras.`}>
+                <td style={{ ...S.td, paddingLeft: 8, whiteSpace: 'nowrap' }}>
+                  <span style={{ display: 'inline-block', width: 22 }} />
+                  <span style={{ fontSize: 10 }}>⚠️</span> {p.portfolio_name}
+                  <span style={{ fontSize: 7, background: '#b45309', color: '#fff',
+                                 padding: '0 4px', marginLeft: 4, letterSpacing: 0.5,
+                                 verticalAlign: 'middle' }}>SIN EMPRESA</span>
+                </td>
+                <td style={{ ...S.td, textAlign: 'right', color: '#ccc' }}>—</td>
+                <td style={{ ...S.td, textAlign: 'right', color: '#00c853' }}>{fmt(p.ingresos)}</td>
+                <td style={{ ...S.td, textAlign: 'right', color: '#d50000' }}>{fmt(p.gastos)}</td>
+                <td style={{ ...S.td, textAlign: 'right', fontWeight: 700,
+                             color: (p.balance || 0) >= 0 ? '#00c853' : '#d50000' }}>{fmt(p.balance)}</td>
+              </tr>
+            ))}
           </tbody>
           {/* Fila de TOTAL */}
           {!loading && entities.length > 0 && (
