@@ -47,15 +47,20 @@ AYUDA = (
     "🤖 FIN-SYS Bot — registro contable por chat\n\n"
     "Envíame un gasto o ingreso en lenguaje natural, por texto o nota de voz:\n"
     "  \"Gasté 45.000 en almuerzo con Juan, pagué desde Bancolombia\"\n\n"
+    "📸 También acepto FOTOS de comprobantes:\n"
+    "  · Foto con texto → crea el borrador con la foto como evidencia\n"
+    "  · Foto respondiendo a un borrador → se adjunta a ESE borrador\n"
+    "  · Foto suelta → se adjunta a tu último borrador pendiente\n\n"
     "Yo lo convierto en un BORRADOR. Nada toca tu contabilidad hasta que\n"
-    "respondas \"Confirmar #N\".\n\n"
+    "confirmes (botón ✅ o \"Confirmar #N\").\n\n"
     "Comandos:\n"
     "  Confirmar #N — oficializa el borrador (crea transacción + asiento)\n"
     "  Descartar #N — elimina el borrador\n"
+    "  /empresa — muestra o cambia la empresa donde registro por defecto\n"
     "  /borradores — lista tus borradores pendientes\n"
     "  /ayuda — este mensaje\n\n"
-    "Para corregir un borrador: descártalo y envía la operación de nuevo\n"
-    "(o edítalo desde la Bandeja en la web)."
+    "Para corregir un borrador: usa 🏢 Cambiar empresa, o descártalo y envía\n"
+    "la operación de nuevo (o edítalo desde la Bandeja en la web)."
 )
 
 NO_VINCULADO = (
@@ -65,8 +70,8 @@ NO_VINCULADO = (
 )
 
 NO_SOPORTADO = (
-    "Por ahora entiendo texto y notas de voz. Fotos de facturas y ubicación\n"
-    "llegan en una próxima etapa 📸📍"
+    "Por ahora entiendo texto, notas de voz y fotos de comprobantes.\n"
+    "Ubicación, stickers y documentos llegan en una próxima etapa 📍"
 )
 
 # ── Comandos deterministas (regex — confirmar/descartar JAMÁS pasan por el LLM) ──
@@ -75,6 +80,7 @@ _RE_DISCARD = re.compile(r"^\s*/?descartar\s*#?\s*(\d+)?\s*$", re.IGNORECASE)
 _RE_LINK    = re.compile(r"^\s*/?vincular\s+([A-Za-z0-9]{4,12})\s*$", re.IGNORECASE)
 _RE_AYUDA   = re.compile(r"^\s*/(start|ayuda|help)\s*$", re.IGNORECASE)
 _RE_DRAFTS  = re.compile(r"^\s*/?borradores\s*$", re.IGNORECASE)
+_RE_EMPRESA = re.compile(r"^\s*/empresa\s*(.*)$", re.IGNORECASE)
 
 
 def parse_command(text: str):
@@ -93,6 +99,9 @@ def parse_command(text: str):
         return "ayuda", None
     if _RE_DRAFTS.match(t):
         return "borradores", None
+    m = _RE_EMPRESA.match(t)
+    if m:
+        return "empresa", (m.group(1) or "").strip() or None
     return None, None
 
 
@@ -129,8 +138,11 @@ def render_summary(draft_id: int, payload: dict, inferred=None, missing=None) ->
 # ══════════════════════════════════════════════════════════════════════════════
 
 def handle_message(msg: dict):
-    """Procesa un InboundMessage y devuelve el texto de respuesta (o None si
-    el mensaje es un duplicado ya procesado)."""
+    """Procesa un InboundMessage. Devuelve:
+      · None — duplicado ya procesado
+      · str — respuesta de texto plano
+      · dict {"text", "draft_id", "buttons"} — resumen de borrador con botones
+        inline (Etapa E); el adaptador del canal decide cómo pintarlos."""
     from db_pool import get_conn, put_conn
     conn = get_conn()
     try:
@@ -170,6 +182,16 @@ def handle_message(msg: dict):
             if cmd == "confirmar":
                 return confirmar_draft(draft_id, chat_link_id=link["id"])
             return descartar_draft(draft_id, chat_link_id=link["id"])
+        if cmd == "empresa":
+            reply = _cmd_empresa(cur, link, arg)
+            conn.commit()
+            return reply
+
+        # ── 📸 Foto (Etapa E): evidencia de un borrador o borrador nuevo ──
+        if msg.get("kind") == "photo":
+            reply = _flujo_foto(cur, link, msg, msg_row_id)
+            conn.commit()
+            return reply
 
         # ── Entrada no soportada en el MVP ──
         if msg.get("kind") == "unsupported":
@@ -180,7 +202,9 @@ def handle_message(msg: dict):
         texto = msg.get("text") or ""
         if msg.get("kind") == "audio":
             from ai_engine import transcribe_audio_only
-            texto = transcribe_audio_only(msg["media_path"])
+            # transcribe_path: archivo local temporal (Whisper necesita FS);
+            # media_path puede ser ya la URL del bucket (Etapa E).
+            texto = transcribe_audio_only(msg.get("transcribe_path") or msg["media_path"])
             if not (texto or "").strip():
                 conn.commit()
                 return "No pude transcribir la nota de voz. Intenta de nuevo o escríbeme el movimiento."
@@ -317,7 +341,9 @@ def _crear_borrador(cur, link, texto, msg, msg_row_id):
 
     media_db = None
     if msg.get("media_path"):
-        media_db = "/" + str(msg["media_path"]).replace("\\", "/").lstrip("/")
+        media_db = str(msg["media_path"]).replace("\\", "/")
+        if not media_db.startswith("http"):     # URL del bucket va tal cual
+            media_db = "/" + media_db.lstrip("/")
 
     cur.execute("""
         INSERT INTO transaction_drafts
@@ -331,7 +357,261 @@ def _crear_borrador(cur, link, texto, msg, msg_row_id):
     draft_id = cur.fetchone()[0]
     cur.execute("UPDATE bot_messages SET draft_id = %s, chat_link_id = %s WHERE id = %s",
                 (draft_id, link["id"], msg_row_id))
-    return render_summary(draft_id, payload, inferred, missing)
+    texto_resumen = render_summary(draft_id, payload, inferred, missing)
+    if msg.get("media_path"):
+        texto_resumen = "📎 Evidencia adjunta.\n" + texto_resumen
+    return {"text": texto_resumen, "draft_id": draft_id,
+            "buttons": _botones_borrador(draft_id)}
+
+
+def _botones_borrador(draft_id: int):
+    """Botonera estándar bajo el resumen (Etapa E). Formato canal-agnóstico:
+    filas de (etiqueta, callback_data). El texto 'Confirmar #N' del resumen
+    se mantiene como fallback para canales sin botones."""
+    return [
+        [("✅ Confirmar", f"ok:{draft_id}"), ("❌ Descartar", f"no:{draft_id}")],
+        [("🏢 Cambiar empresa", f"emp:{draft_id}")],
+    ]
+
+
+def _flujo_foto(cur, link, msg, msg_row_id):
+    """📸 Foto entrante (ya subida al bucket por el adaptador — media_path=URL).
+
+    Reglas acordadas con Andrés (2026-09-09, cero inferencia):
+      · con texto (caption) → borrador NUEVO con la foto como evidencia
+      · respondiendo al mensaje de un borrador → evidencia de ESE borrador
+      · suelta → evidencia del ÚLTIMO borrador pendiente (se le informa cuál)
+    """
+    if not msg.get("media_path"):
+        return ("No pude guardar la foto (falló la subida al archivo). "
+                "Inténtalo de nuevo en un momento.")
+
+    texto = (msg.get("text") or "").strip()
+    if texto:
+        return _crear_borrador(cur, link, texto, msg, msg_row_id)
+
+    # ¿Es respuesta al mensaje-resumen de un borrador?
+    draft_id = None
+    if msg.get("reply_to_message_id"):
+        cur.execute("""
+            SELECT id FROM transaction_drafts
+            WHERE chat_link_id = %s AND bot_summary_message_id = %s
+        """, (link["id"], str(msg["reply_to_message_id"])))
+        row = cur.fetchone()
+        draft_id = row[0] if row else None
+
+    if draft_id is None:
+        cur.execute("""
+            SELECT id FROM transaction_drafts
+            WHERE chat_link_id = %s AND status = 'BORRADOR'
+            ORDER BY id DESC LIMIT 1
+        """, (link["id"],))
+        row = cur.fetchone()
+        draft_id = row[0] if row else None
+
+    if draft_id is None:
+        return ("Recibí la foto pero no tienes borradores pendientes.\n"
+                "Envíala de nuevo CON un texto describiendo el movimiento "
+                "(ej: \"mercado 45.000\") y creo el borrador con la foto "
+                "como evidencia.")
+
+    return _adjuntar_evidencia(cur, link, draft_id, msg["media_path"])
+
+
+def _adjuntar_evidencia(cur, link, draft_id, url):
+    """Adjunta/reemplaza la evidencia de un borrador editable del chat."""
+    cur.execute("""
+        UPDATE transaction_drafts
+           SET media_path = %s, updated_at = NOW()
+         WHERE id = %s AND chat_link_id = %s AND status IN ('BORRADOR', 'ERROR')
+        RETURNING id
+    """, (url, draft_id, link["id"]))
+    if cur.fetchone():
+        return (f"📎 Evidencia adjuntada al borrador #{draft_id}.\n"
+                f"Confirma con el botón ✅ o \"Confirmar #{draft_id}\".")
+    return (f"El borrador #{draft_id} ya no es editable (¿confirmado o "
+            "descartado?). Envía la foto con texto para crear uno nuevo.")
+
+
+def _empresas_reales(cur):
+    """Empresas del árbol para los botones de destino. → [(entity_id, label)].
+    Se listan ENTIDADES (no portafolios): es el lenguaje de Andrés; el
+    portafolio se garantiza al elegir (ensure_portfolio_for_entity)."""
+    cur.execute("""
+        SELECT id, name, type FROM entities
+        WHERE COALESCE(status, '') <> 'ARCHIVADA'
+        ORDER BY id
+        LIMIT 12
+    """)
+    iconos = {"HOLDING": "🏛️", "EMPRESA": "🏢", "SUB_EMPRESA": "📍", "PROYECTO": "📐"}
+    return [(r[0], f"{iconos.get(r[2], '🏢')} {r[1].strip()}") for r in cur.fetchall()]
+
+
+def _cmd_empresa(cur, link, arg):
+    """/empresa — muestra o cambia la empresa/portafolio default del chat.
+    DETERMINISTA: match difuso contra nombres reales, jamás el LLM."""
+    if not arg:
+        cur.execute("SELECT name FROM entities ORDER BY id LIMIT 12")
+        nombres = [r[0].strip() for r in cur.fetchall()]
+        lista = "\n".join(f"  · {n}" for n in nombres) or "  (sin empresas)"
+        return (f"🏢 Empresa/portafolio actual del chat: {link['default_portfolio']}\n\n"
+                f"Tus empresas:\n{lista}\n\n"
+                "Para cambiar: /empresa <nombre> (vale un pedazo del nombre)")
+
+    from draft_builder import norm
+    objetivo = norm(arg)
+    cur.execute("SELECT id, name, portfolio_id FROM entities ORDER BY id")
+    candidatos = [(r[0], r[1].strip(), r[2]) for r in cur.fetchall()]
+    elegido = next((c for c in candidatos if norm(c[1]) == objetivo), None) \
+        or next((c for c in candidatos if objetivo in norm(c[1])), None)
+    if not elegido:
+        return (f"No encontré ninguna empresa que se parezca a \"{arg}\".\n"
+                "Usa /empresa (sin nombre) para ver la lista.")
+
+    portfolio_name = _portafolio_de_entidad(cur, elegido[0])
+    if not portfolio_name:
+        return (f"No pude preparar la contabilidad de {elegido[1]}. "
+                "Ábrela una vez en la web e intenta de nuevo.")
+    cur.execute("UPDATE bot_chat_links SET default_portfolio = %s WHERE id = %s",
+                (portfolio_name, link["id"]))
+    return (f"✅ Listo: los próximos registros de este chat van a "
+            f"{elegido[1]} (portafolio \"{portfolio_name}\").")
+
+
+def _portafolio_de_entidad(cur, entity_id):
+    """Nombre del portafolio de la entidad, creándolo si no tiene (misma
+    garantía que la web al seleccionar empresa). → nombre o None."""
+    try:
+        from org_driver import ensure_portfolio_for_entity
+        out = ensure_portfolio_for_entity(int(entity_id))
+        return out.get("portfolio_name")
+    except Exception as e:
+        print(f"⚠️ [BOT] ensure_portfolio({entity_id}) falló: {e}")
+        return None
+
+
+def guardar_summary_message_id(draft_id: int, message_id) -> None:
+    """El adaptador registra el message_id del resumen enviado — habilita el
+    reply-con-foto y la edición del mensaje al confirmar por botón."""
+    from db_pool import get_conn, put_conn
+    try:
+        conn = get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                UPDATE transaction_drafts SET bot_summary_message_id = %s
+                WHERE id = %s
+            """, (str(message_id), draft_id))
+            conn.commit()
+        finally:
+            put_conn(conn)
+    except Exception:
+        pass   # best-effort: sin esto solo se pierde el reply-con-foto
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Callbacks de botones (Etapa E) — deterministas, el LLM no participa
+# ══════════════════════════════════════════════════════════════════════════════
+
+def handle_callback(channel: str, chat_id: str, data: str):
+    """Procesa el toque de un botón inline. → dict de instrucciones:
+      {"alert": toast corto,
+       "edit_text": nuevo texto del mensaje original (None = no tocar),
+       "edit_buttons": nueva botonera ([] = quitar, None = no tocar),
+       "text": mensaje NUEVO a enviar (None = ninguno)}
+    Idempotente: el estado del borrador en BD manda — un botón viejo en el
+    historial no puede confirmar dos veces."""
+    out = {"alert": None, "edit_text": None, "edit_buttons": None, "text": None}
+    partes = (data or "").split(":")
+    accion = partes[0] if partes else ""
+
+    from db_pool import get_conn, put_conn
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        link = _get_link(cur, channel, chat_id)
+        if link is None or link["status"] != "ACTIVO":
+            out["alert"] = "Chat no vinculado."
+            return out
+
+        try:
+            draft_id = int(partes[1])
+        except (IndexError, ValueError):
+            out["alert"] = "Botón inválido."
+            return out
+
+        if accion == "ok":
+            conn.commit()
+            resultado = confirmar_draft(draft_id, chat_link_id=link["id"])
+            out["alert"] = "Confirmando…"
+            out["edit_buttons"] = []          # el botón no puede volver a usarse
+            out["text"] = resultado
+            log_outbound(channel, chat_id, resultado, link["id"], draft_id)
+            return out
+
+        if accion == "no":
+            conn.commit()
+            resultado = descartar_draft(draft_id, chat_link_id=link["id"])
+            out["alert"] = "Descartado" if "descartado" in resultado.lower() else None
+            out["edit_buttons"] = []
+            out["text"] = resultado
+            log_outbound(channel, chat_id, resultado, link["id"], draft_id)
+            return out
+
+        if accion == "emp":
+            filas = [[(label, f"empset:{draft_id}:{eid}")]
+                     for eid, label in _empresas_reales(cur)]
+            filas.append([("« Volver", f"empback:{draft_id}")])
+            conn.commit()
+            out["alert"] = "¿A qué empresa va este registro?"
+            out["edit_buttons"] = filas
+            return out
+
+        if accion == "empback":
+            conn.commit()
+            out["edit_buttons"] = _botones_borrador(draft_id)
+            return out
+
+        if accion == "empset":
+            try:
+                entity_id = int(partes[2])
+            except (IndexError, ValueError):
+                out["alert"] = "Botón inválido."
+                return out
+            cur.execute("SELECT name FROM entities WHERE id = %s", (entity_id,))
+            row = cur.fetchone()
+            conn.commit()
+            if not row:
+                out["alert"] = "Esa empresa ya no existe."
+                out["edit_buttons"] = _botones_borrador(draft_id)
+                return out
+            portfolio_name = _portafolio_de_entidad(cur, entity_id)
+            if not portfolio_name:
+                out["alert"] = "No pude preparar esa empresa. Intenta desde la web."
+                out["edit_buttons"] = _botones_borrador(draft_id)
+                return out
+            editado = editar_draft(draft_id, {"portfolio_name": portfolio_name},
+                                   hub_user_id=link["hub_user_id"])
+            if editado.get("error"):
+                out["alert"] = editado["error"][:190]
+                out["edit_buttons"] = []
+                return out
+            out["alert"] = f"→ {row[0].strip()}"
+            out["edit_text"] = render_summary(draft_id, editado["payload"])
+            out["edit_buttons"] = _botones_borrador(draft_id)
+            return out
+
+        out["alert"] = "Botón desconocido."
+        return out
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        out["alert"] = f"Error: {e}"[:190]
+        return out
+    finally:
+        put_conn(conn)
 
 
 def _listar_borradores(cur, link):

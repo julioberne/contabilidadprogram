@@ -43,43 +43,129 @@ _client = httpx.Client(timeout=httpx.Timeout(POLL_TIMEOUT + 15, connect=10.0))
 _AUDIO_EXTS = {"ogg", "opus", "mp3", "m4a", "wav", "webm", "flac"}
 
 
-def send_message(chat_id: str, text: str) -> bool:
-    """Envía texto plano (sin parse_mode: cero problemas de escapado)."""
+def _markup(buttons):
+    """Botonera canal-agnóstica [(label, data)…] → InlineKeyboardMarkup."""
+    if buttons is None:
+        return None
+    return {"inline_keyboard": [
+        [{"text": lbl, "callback_data": data[:64]} for lbl, data in fila]
+        for fila in buttons
+    ]}
+
+
+def send_message(chat_id: str, text: str, buttons=None):
+    """Envía texto plano (sin parse_mode: cero problemas de escapado).
+    → message_id del mensaje enviado, o None si falló."""
     try:
-        r = _client.post(f"{API}/sendMessage",
-                         json={"chat_id": chat_id, "text": text[:4096]})
-        return r.status_code == 200
+        body = {"chat_id": chat_id, "text": text[:4096]}
+        mk = _markup(buttons)
+        if mk:
+            body["reply_markup"] = mk
+        r = _client.post(f"{API}/sendMessage", json=body)
+        if r.status_code == 200:
+            return r.json().get("result", {}).get("message_id")
+        print(f"⚠️ [TG] sendMessage {r.status_code}: {r.text[:120]}")
+        return None
     except Exception as e:
         print(f"⚠️ [TG] sendMessage falló: {e}")
-        return False
+        return None
 
 
-def _descargar_voz(file_id: str):
-    """Descarga una nota de voz a uploads/. → ruta FS relativa o None."""
+def answer_callback(callback_id: str, texto=None):
+    """Obligatorio tras cada callback_query — sin esto el botón queda girando."""
+    try:
+        body = {"callback_query_id": callback_id}
+        if texto:
+            body["text"] = str(texto)[:190]
+        _client.post(f"{API}/answerCallbackQuery", json=body)
+    except Exception as e:
+        print(f"⚠️ [TG] answerCallbackQuery falló: {e}")
+
+
+def edit_message(chat_id: str, message_id, text=None, buttons=None):
+    """Edita el mensaje del borrador: texto y/o botonera ([] = quitarla)."""
+    try:
+        if text is not None:
+            body = {"chat_id": chat_id, "message_id": message_id,
+                    "text": str(text)[:4096]}
+            mk = _markup(buttons)
+            if mk is not None:
+                body["reply_markup"] = mk
+            _client.post(f"{API}/editMessageText", json=body)
+        elif buttons is not None:
+            _client.post(f"{API}/editMessageReplyMarkup",
+                         json={"chat_id": chat_id, "message_id": message_id,
+                               "reply_markup": _markup(buttons)})
+    except Exception as e:
+        print(f"⚠️ [TG] editMessage falló: {e}")
+
+
+def _bajar_de_telegram(file_id: str):
+    """getFile + descarga. → (bytes, extensión) o (None, None)."""
     try:
         r = _client.get(f"{API}/getFile", params={"file_id": file_id})
         r.raise_for_status()
         remote_path = r.json()["result"]["file_path"]
-        ext = remote_path.rsplit(".", 1)[-1].lower() if "." in remote_path else "ogg"
-        if ext not in _AUDIO_EXTS:
-            ext = "ogg"
+        ext = remote_path.rsplit(".", 1)[-1].lower() if "." in remote_path else ""
         data = _client.get(f"{FILES}/{remote_path}")
         data.raise_for_status()
-        os.makedirs("uploads", exist_ok=True)
-        nombre = f"{uuid.uuid4().hex[:8]}_tg_voice.{ext}"
-        destino = os.path.join("uploads", nombre)
-        with open(destino, "wb") as fh:
-            fh.write(data.content)
-        return f"uploads/{nombre}"
+        return data.content, ext
     except Exception as e:
-        print(f"⚠️ [TG] descarga de voz falló: {e}")
+        print(f"⚠️ [TG] descarga de archivo falló: {e}")
+        return None, None
+
+
+def _descargar_voz(file_id: str):
+    """Nota de voz → (media_path, transcribe_path):
+      · transcribe_path: archivo LOCAL (Whisper necesita filesystem)
+      · media_path: URL del bucket (evidencia compartida local↔prod, DT-29);
+        si la subida falla, la ruta local hace de evidencia como antes."""
+    contenido, ext = _bajar_de_telegram(file_id)
+    if contenido is None:
+        return None, None
+    if ext not in _AUDIO_EXTS:
+        ext = "ogg"
+    os.makedirs("uploads", exist_ok=True)
+    nombre = f"{uuid.uuid4().hex[:8]}_tg_voice.{ext}"
+    destino = os.path.join("uploads", nombre)
+    with open(destino, "wb") as fh:
+        fh.write(contenido)
+
+    from storage_media import subir_evidencia
+    mime = "audio/ogg" if ext in ("ogg", "opus") else f"audio/{ext}"
+    url = subir_evidencia(nombre, contenido, mime)
+    return (url or f"uploads/{nombre}"), f"uploads/{nombre}"
+
+
+_FOTO_MIME = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+              "webp": "image/webp", "gif": "image/gif"}
+
+
+def _descargar_foto(m: dict):
+    """📸 message.photo → la resolución MÁS GRANDE → bucket. → URL o None.
+    La foto no toca el disco: pasa por memoria directo a Supabase Storage."""
+    fotos = m.get("photo") or []
+    if not fotos:
         return None
+    file_id = fotos[-1].get("file_id")      # Telegram las ordena de menor a mayor
+    contenido, ext = _bajar_de_telegram(file_id)
+    if contenido is None:
+        return None
+    from storage_media import subir_evidencia
+    mime = _FOTO_MIME.get(ext, "image/jpeg")
+    nombre = f"tg_foto.{ext or 'jpg'}"
+    return subir_evidencia(nombre, contenido, mime)
 
 
 def normalize(update: dict):
     """Update de Telegram → InboundMessage canal-agnóstico (o None si se ignora)."""
     m = update.get("message")
     if not m or not m.get("chat"):
+        return None
+    # Solo chat PRIVADO: en un grupo cualquiera podría dictarle gastos al bot
+    # (y con privacy mode ni vemos los mensajes completos). Silencio deliberado.
+    if m["chat"].get("type", "private") != "private":
+        print(f"🔇 [TG] mensaje de chat no privado ignorado ({m['chat'].get('type')})")
         return None
     base = {
         "channel": "telegram",
@@ -94,16 +180,49 @@ def normalize(update: dict):
         return base
     voz = m.get("voice") or m.get("audio")
     if voz and voz.get("file_id"):
-        path = _descargar_voz(voz["file_id"])
-        if path is None:
+        media, transcribe = _descargar_voz(voz["file_id"])
+        if media is None:
             base["kind"] = "unsupported"
             return base
         base["kind"] = "audio"
-        base["media_path"] = path
+        base["media_path"] = media           # URL del bucket (o local si falló)
+        base["transcribe_path"] = transcribe  # archivo local para Whisper
         return base
-    # Fotos, ubicación, stickers, documentos… → Etapa E
+    # 📸 Fotos (Etapa E): al bucket; caption = texto; reply → borrador exacto
+    if m.get("photo"):
+        base["kind"] = "photo"
+        base["media_path"] = _descargar_foto(m)   # None si falló (driver avisa)
+        base["text"] = m.get("caption")
+        reply = m.get("reply_to_message") or {}
+        if reply.get("message_id"):
+            base["reply_to_message_id"] = str(reply["message_id"])
+        return base
+    # Ubicación, stickers, documentos… → próxima etapa
     base["kind"] = "unsupported"
     return base
+
+
+def _procesar_callback(bot_driver, cb: dict):
+    """callback_query → bot_driver.handle_callback → acciones en Telegram.
+    answerCallbackQuery SIEMPRE se responde (aunque falle lo demás)."""
+    cb_id = cb.get("id")
+    try:
+        m = cb.get("message") or {}
+        chat = (m.get("chat") or {})
+        if chat.get("type", "private") != "private":
+            answer_callback(cb_id)
+            return
+        chat_id = str(chat.get("id", ""))
+        out = bot_driver.handle_callback("telegram", chat_id, cb.get("data") or "")
+        answer_callback(cb_id, out.get("alert"))
+        if out.get("edit_text") is not None or out.get("edit_buttons") is not None:
+            edit_message(chat_id, m.get("message_id"),
+                         text=out.get("edit_text"), buttons=out.get("edit_buttons"))
+        if out.get("text"):
+            send_message(chat_id, out["text"])
+    except Exception as e:
+        print(f"⚠️ [TG] callback falló: {e}")
+        answer_callback(cb_id, "Error procesando el botón.")
 
 
 def main():
@@ -132,6 +251,13 @@ def main():
             r.raise_for_status()
             for update in r.json().get("result", []):
                 offset = update["update_id"] + 1
+
+                # ── Botones inline (Etapa E) ──
+                cb = update.get("callback_query")
+                if cb:
+                    _procesar_callback(bot_driver, cb)
+                    continue
+
                 msg = normalize(update)
                 if not msg:
                     continue
@@ -139,7 +265,16 @@ def main():
                     reply = bot_driver.handle_message(msg)
                 except Exception as e:
                     reply = f"⚠ Error interno del bot: {e}"
-                if reply:
+                if not reply:
+                    continue
+                if isinstance(reply, dict):
+                    mid = send_message(msg["chat_id"], reply["text"],
+                                       buttons=reply.get("buttons"))
+                    if mid and reply.get("draft_id"):
+                        bot_driver.guardar_summary_message_id(reply["draft_id"], mid)
+                    bot_driver.log_outbound("telegram", msg["chat_id"], reply["text"],
+                                            draft_id=reply.get("draft_id"))
+                else:
                     send_message(msg["chat_id"], reply)
                     bot_driver.log_outbound("telegram", msg["chat_id"], reply)
             backoff = 1
