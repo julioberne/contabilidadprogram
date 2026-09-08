@@ -62,7 +62,8 @@
 - [ ] **TestSprite**: re-correr sobre el build actual y avanzar TC031–TC050 (última corrida 29 jul: 25/30 ✅)
 - [ ] **Bot IA**: ✅ funcionando en producción (gpt-oss-120b) y **Etapa C COMPLETA** — bandeja web en uso real (4 borradores confirmados por Andrés). Quedan B.5 (RAG) y D–F
 - [ ] **Cartera Fase 2**: recordatorios personalizables por Telegram (tick en el poller, `cartera_reminders`, resumen periódico) — el diseño está en el checkpoint 03-sep
-- [ ] **Pipeline de etiquetas**: los tags NO llegan a la transacción en ningún flujo (falta campo en TransactionInput + persistencia) — hoy solo viven en el borrador del bot
+- [x] **Pipeline de etiquetas** ✅ CERRADO 08-sep: `transactions.tags TEXT[]` (migrate_transaction_tags.py, aplicada), TransactionInput.tags, INSERT/SELECT, transaction_service; chips en fila expandida del Libro Diario (ya existían) + sección 🏷️ en el comprobante. Verificado e2e (TX 14). El bot las guarda cuando se editan en la bandeja
+- [ ] **Eliminar transacciones**: NO existe (ni endpoint ni botón) — las TXs de prueba de Andrés (#13 $100.000, #14 $1.000 del 08-sep) quedan en el libro para siempre; decidir si se agrega borrado con reversa contable (como el de abonos de cartera)
 - [ ] **Portafolios**: la columna de vínculos se retiró del consolidado (02 sep) — reubicar con mejor funcionamiento. 07-sep: "Finanzas Personales Julian" YA reclama el portafolio 1 "Negocio A" (sus gastos reales viven ahí). Fase pendiente: portafolio propio por empresa + renombrar "Negocio A" (hardcodeado como default en ~10 sitios — no renombrar sin migrarlos)
 - [ ] **Borrar portafolio zombie "MI EMPRESA" (id 3)**: cero referencias auditadas en todas las FKs; el clasificador bloquea el DELETE al agente. SQL para Andrés (editor SQL de Supabase): `DELETE FROM portfolios WHERE id = 3 AND name = 'MI EMPRESA';`
 - [ ] **NumInput en Control Tower** (`CTSidePanel`, `CTApprovalsCenter`): esperando aprobación Zero-Impact de Andrés

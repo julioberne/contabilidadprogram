@@ -99,7 +99,10 @@ def create_transaction(tx_input) -> dict:
         "recurrence_days": tx_input.recurrence_days,
         "recurrence_max_reps": tx_input.recurrence_max_reps,
         "recurrence_start_date": tx_input.recurrence_start_date,
-        "recurrence_end_date": tx_input.recurrence_end_date
+        "recurrence_end_date": tx_input.recurrence_end_date,
+        # Etiquetas (2026-09-08): getattr por si el llamador construye un
+        # TransactionInput viejo sin el campo (bot con schema cacheado).
+        "tags": getattr(tx_input, "tags", None),
     }
 
     # 3. Guardar en la base de datos PostgreSQL

@@ -7,6 +7,11 @@ export default function EvidenceModal({
   onClose,
   profile,
 }) {
+  // El archivo puede NO existir en este entorno: la BD es compartida
+  // local↔prod pero /uploads es disco local de cada uno (2026-09-08).
+  // Antes un placeholder negro "EVIDENCIA FÍSICA" tapaba el error.
+  const [imgRota, setImgRota] = React.useState(false);
+  React.useEffect(() => { setImgRota(false); }, [selectedEvidenceTx?.id]);
   if (!evidenceUrl) return null;
 
   return (
@@ -170,6 +175,18 @@ export default function EvidenceModal({
                 </div>
               )}
 
+              {/* Etiquetas asignadas (2026-09-08) */}
+              {selectedEvidenceTx.tags && selectedEvidenceTx.tags.length > 0 && (
+                <div className="border-b border-black pb-2">
+                  <span className="font-bold text-gray-500 block text-[9px] mb-1">🏷️ ETIQUETAS:</span>
+                  <div className="flex flex-wrap gap-1">
+                    {selectedEvidenceTx.tags.map(tag => (
+                      <span key={tag} className="bg-black text-white px-1.5 py-0.5 text-[9px] font-bold uppercase border border-black">{tag}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Auditor / Issuer Information */}
               <div className="border-b border-black pb-2 flex justify-between text-[10px] font-bold uppercase">
                 <span className="text-gray-500">AUDITOR FIRMANTE:</span>
@@ -249,19 +266,28 @@ export default function EvidenceModal({
                   📂 ARCHIVO DE SOPORTE ADJUNTO
                 </div>
                 <div className="flex flex-col items-center justify-center p-2 bg-gray-50 border border-black">
-                  <img 
+                  {imgRota ? (
+                    <div className="w-full border-2 border-brutalCrimson bg-red-50 p-3 mb-2 text-center normal-case">
+                      <div className="font-bold text-red-700 text-[11px] uppercase">⚠ Archivo no disponible en este entorno</div>
+                      <div className="text-[9px] text-red-700 font-mono mt-1 leading-snug">
+                        El comprobante quedó guardado en el disco del computador donde se subió
+                        (la base de datos es compartida, pero los archivos de <b>/uploads</b> no).
+                        Si lo subiste trabajando en local, ábrelo desde local — o vuelve a adjuntarlo aquí.
+                      </div>
+                      <div className="text-[8px] text-gray-500 font-mono mt-1 break-all">{selectedEvidenceTx.evidence_file_path}</div>
+                    </div>
+                  ) : (
+                  <img
                     src={
                       selectedEvidenceTx.evidence_file_path.startsWith("http")
                         ? selectedEvidenceTx.evidence_file_path
                         : `/${selectedEvidenceTx.evidence_file_path}`
-                    } 
-                    alt="Respaldo Físico" 
+                    }
+                    alt="Respaldo Físico"
                     className="max-h-40 object-contain border border-black shadow-brutal mb-2"
-                    onError={(e) => {
-                      e.target.onerror = null;
-                      e.target.src = "https://placehold.co/400x200/000000/ffffff?text=EVIDENCIA+F%C3%8DSICA";
-                    }}
+                    onError={() => setImgRota(true)}
                   />
+                  )}
                   <a
                     href={
                       selectedEvidenceTx.evidence_file_path.startsWith("http")

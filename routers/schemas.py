@@ -104,6 +104,9 @@ class TransactionInput(BaseModel):
     recurrence_max_reps: Optional[int] = None
     recurrence_start_date: Optional[str] = None
     recurrence_end_date: Optional[str] = None
+    # Etiquetas libres (2026-09-08): el form y la bandeja del bot ya las
+    # enviaban — sin este campo pydantic las descartaba en silencio.
+    tags: Optional[List[str]] = None
 
 
 class StructureRequest(BaseModel):

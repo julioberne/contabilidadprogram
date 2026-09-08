@@ -1,6 +1,9 @@
 // LibroDiario.jsx — Extracted from App.jsx (Lines 1273-1692)
 import React from 'react';
 import NumInput from '../../../shared/NumInput';
+import { useEmpresa } from '../../engine/EmpresaProvider.jsx';
+
+const fmtCOP = (v) => `$${Number(v || 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default function LibroDiario({
   transactions,
@@ -21,10 +24,26 @@ export default function LibroDiario({
     setEditValue(currentValue !== null && currentValue !== undefined ? String(currentValue) : "");
   };
 
+  // Totalizador (2026-09-08, pedido de Andrés): cifras de la caja viva del
+  // portafolio ACTIVO completo — no de la página cargada, que con paginación
+  // (50 en 50) sumaría solo lo visible y mentiría.
+  const { cajaViva = {} } = useEmpresa();
+  const totIngresos = Number(cajaViva.total_ingresos_cop || 0);
+  const totGastos = Number(cajaViva.total_gastos_cop || 0);
+  const totBalance = Number(cajaViva.balance_neto_cop ?? (totIngresos - totGastos));
+
   return (
         <div className="w-full">
           <div className="bg-white border-2 border-black p-2 shadow-brutal overflow-hidden flex flex-col">
-            <h2 className="text-sm font-bold uppercase border-b-2 border-black pb-1 mb-2">📖 Módulo 02: Libro Diario Inteligente</h2>
+            <div className="flex items-center justify-between border-b-2 border-black pb-1 mb-2 flex-wrap gap-1">
+              <h2 className="text-sm font-bold uppercase">📖 Módulo 02: Libro Diario Inteligente</h2>
+              <div className="flex items-center gap-1 font-mono text-[10px] font-bold uppercase"
+                   title="Totales de TODAS las transacciones del portafolio activo (no solo las filas cargadas abajo)">
+                <span className="border border-black bg-brutalGreen text-black px-2 py-0.5">▲ ING {fmtCOP(totIngresos)}</span>
+                <span className="border border-black bg-brutalCrimson text-white px-2 py-0.5">▼ GAS {fmtCOP(totGastos)}</span>
+                <span className={`border border-black px-2 py-0.5 ${totBalance >= 0 ? 'bg-black text-brutalGreen' : 'bg-black text-red-400'}`}>∑ {fmtCOP(totBalance)}</span>
+              </div>
+            </div>
             
             {/* Rejilla de Movimientos Históricos */}
             <div className="overflow-x-auto">

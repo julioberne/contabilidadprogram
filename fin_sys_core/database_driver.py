@@ -493,8 +493,9 @@ def registrar_transaccion(tx_data: Dict[str, Any]) -> int:
             payment_method, category, tax_iva_percentage, tax_iva_amount, tax_gmf_percentage, 
             tax_gmf_amount, custom_tax_amount, net_value, geo_latitude, geo_longitude, 
             geo_maps_link, evidence_file_path,
-            account_id, dest_account_id, trm, transaction_currency, is_recurring, recurrence_interval, recurrence_days, recurrence_max_reps, recurrence_start_date, recurrence_end_date
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            account_id, dest_account_id, trm, transaction_currency, is_recurring, recurrence_interval, recurrence_days, recurrence_max_reps, recurrence_start_date, recurrence_end_date,
+            tags
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id;
         """, (
             portfolio_id,
@@ -525,7 +526,8 @@ def registrar_transaccion(tx_data: Dict[str, Any]) -> int:
             tx_data.get("recurrence_days", 30),
             tx_data.get("recurrence_max_reps"),
             tx_data.get("recurrence_start_date"),
-            tx_data.get("recurrence_end_date")
+            tx_data.get("recurrence_end_date"),
+            tx_data.get("tags") or None   # lista Python → TEXT[] (psycopg2)
         ))
         transaction_id = cur.fetchone()[0]
         
@@ -671,6 +673,7 @@ def obtener_transacciones(portfolio_name: Optional[str] = None, limit: Optional[
             t.tax_iva_amount, t.tax_gmf_amount, t.net_value, t.geo_maps_link, t.evidence_file_path,
             t.account_id, t.dest_account_id, t.trm, t.transaction_currency, t.is_recurring,
             t.recurrence_interval, t.recurrence_days, t.recurrence_max_reps, t.recurrence_start_date, t.recurrence_end_date,
+            t.tags,
             p.name as portfolio_name, p.industry_type as portfolio_industry, p.sub_industry_type as portfolio_sub_industry,
             tp.identification_type, tp.identification_number, tp.name as third_party_name,
             a.name as account_name,
