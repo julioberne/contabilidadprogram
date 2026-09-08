@@ -103,6 +103,9 @@ def create_transaction(tx_input) -> dict:
         # Etiquetas (2026-09-08): getattr por si el llamador construye un
         # TransactionInput viejo sin el campo (bot con schema cacheado).
         "tags": getattr(tx_input, "tags", None),
+        # Etapa E.3: múltiples evidencias (la principal sigue en
+        # evidence_file_path; estas van a transaction_evidences).
+        "evidence_files": getattr(tx_input, "evidence_files", None),
     }
 
     # 3. Guardar en la base de datos PostgreSQL

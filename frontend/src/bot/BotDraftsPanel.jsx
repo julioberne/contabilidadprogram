@@ -239,6 +239,16 @@ function FragmentoFila({ d, p, editable, sel, toggleSel, busy, editingId, edit, 
         <td className="p-1 font-bold">#{d.id}</td>
         <td className="p-1 whitespace-nowrap" title={`Canal: ${d.channel} · ${d.created_at}`}>
           {d.channel === 'telegram' ? '✈' : d.channel === 'web' ? '🌐' : '💬'}{d.media_path ? ' 🎙' : ''}
+          {(d.media_paths?.length || 0) > 1 && (
+            <span className="text-[8px] font-bold ml-0.5" title={`${d.media_paths.length} evidencias adjuntas`}>
+              📎{d.media_paths.length}
+            </span>
+          )}
+          {p.geo_maps_link && (
+            <a href={p.geo_maps_link} target="_blank" rel="noreferrer"
+               title="Ubicación adjunta — abrir en Maps"
+               onClick={e => e.stopPropagation()} className="ml-0.5">📍</a>
+          )}
           <span className="text-gray-400 ml-1">{String(d.created_at).slice(5, 16)}</span>
         </td>
         <td className="p-1 max-w-[220px] truncate" title={d.raw_text || ''}>{d.raw_text || '—'}</td>

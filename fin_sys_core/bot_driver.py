@@ -124,6 +124,13 @@ def render_summary(draft_id: int, payload: dict, inferred=None, missing=None) ->
         f"Categoría: {payload.get('category')}" + _inf("category"),
         f"Pago: {payload.get('payment_method')}" + _inf("payment_method"),
         f"Tercero: {tp.get('name')} ({tp.get('identification_type')} {tp.get('identification_number')})" + _inf("third_party"),
+    ]
+    contacto = [v for v in (tp.get("phone") and f"📞 {tp['phone']}",
+                            tp.get("email") and f"✉ {tp['email']}",
+                            tp.get("address") and f"🏠 {tp['address']}") if v]
+    if contacto:
+        lineas.append("  " + " · ".join(contacto))
+    lineas += [
         f"Fecha: {payload.get('transaction_date')}",
         f"Portafolio: {payload.get('portfolio_name')}",
     ]
@@ -360,11 +367,12 @@ def _crear_borrador(cur, link, texto, msg, msg_row_id):
     cur.execute("""
         INSERT INTO transaction_drafts
             (chat_link_id, user_id, channel, portfolio_name, status, schema_version,
-             payload, raw_text, media_path, external_message_id)
-        VALUES (%s, %s, %s, %s, 'BORRADOR', %s, %s, %s, %s, %s)
+             payload, raw_text, media_path, media_paths, external_message_id)
+        VALUES (%s, %s, %s, %s, 'BORRADOR', %s, %s, %s, %s, %s, %s)
         RETURNING id
     """, (link["id"], link["hub_user_id"], msg["channel"], payload["portfolio_name"],
           SCHEMA_VERSION, json.dumps(payload), texto, media_db,
+          json.dumps([media_db] if media_db else []),
           str(msg.get("external_message_id"))))
     draft_id = cur.fetchone()[0]
     cur.execute("UPDATE bot_messages SET draft_id = %s, chat_link_id = %s WHERE id = %s",
@@ -432,20 +440,34 @@ def _flujo_foto(cur, link, msg, msg_row_id):
 
 
 def _adjuntar_evidencia(cur, link, draft_id, url):
-    """Adjunta/reemplaza la evidencia de un borrador editable del chat.
-    Devuelve la botonera de nuevo (pedido de Andrés 08-sep: sin ella tocaba
-    digitar el número a mano) — y el mensaje nuevo también acepta replies."""
+    """AÑADE una evidencia al borrador (Etapa E.3: pueden ser varias — 2 o 3
+    fotos, o foto + PDF). media_path (singular) queda = la primera, por
+    compat con la bandeja. Devuelve la botonera de nuevo."""
+    cur.execute("""
+        SELECT media_path, media_paths FROM transaction_drafts
+         WHERE id = %s AND chat_link_id = %s AND status IN ('BORRADOR', 'ERROR')
+         FOR UPDATE
+    """, (draft_id, link["id"]))
+    row = cur.fetchone()
+    if not row:
+        return (f"El borrador #{draft_id} ya no es editable (¿confirmado o "
+                "descartado?). Envía la foto con texto para crear uno nuevo.")
+    principal, lista = row
+    lista = lista if isinstance(lista, list) else json.loads(lista or "[]")
+    if not lista and principal:      # borradores anteriores a media_paths
+        lista = [principal]
+    if url not in lista:
+        lista.append(url)
     cur.execute("""
         UPDATE transaction_drafts
-           SET media_path = %s, updated_at = NOW()
-         WHERE id = %s AND chat_link_id = %s AND status IN ('BORRADOR', 'ERROR')
-        RETURNING id
-    """, (url, draft_id, link["id"]))
-    if cur.fetchone():
-        return {"text": f"📎 Evidencia adjuntada al borrador #{draft_id}.",
-                "draft_id": draft_id, "buttons": _botones_borrador(draft_id)}
-    return (f"El borrador #{draft_id} ya no es editable (¿confirmado o "
-            "descartado?). Envía la foto con texto para crear uno nuevo.")
+           SET media_path = %s, media_paths = %s, updated_at = NOW()
+         WHERE id = %s
+    """, (lista[0], json.dumps(lista), draft_id))
+    n = len(lista)
+    texto = (f"📎 Evidencia adjuntada al borrador #{draft_id}." if n == 1 else
+             f"📎 Evidencia {n} adjuntada al borrador #{draft_id} (van {n}).")
+    return {"text": texto, "draft_id": draft_id,
+            "buttons": _botones_borrador(draft_id)}
 
 
 def _flujo_ubicacion(cur, link, msg):
@@ -832,7 +854,7 @@ def confirmar_draft(draft_id: int, chat_link_id=None, hub_user_id=None) -> str:
                     OR (status = 'PROCESANDO' AND updated_at < NOW() - INTERVAL '5 minutes'))
                AND (%s::int IS NULL OR chat_link_id = %s)
                AND (%s::uuid IS NULL OR user_id = %s)
-            RETURNING payload, media_path
+            RETURNING payload, media_path, media_paths
         """, (draft_id, chat_link_id, chat_link_id,
               str(hub_user_id) if hub_user_id else None,
               str(hub_user_id) if hub_user_id else None))
@@ -843,9 +865,13 @@ def confirmar_draft(draft_id: int, chat_link_id=None, hub_user_id=None) -> str:
 
         payload = row[0] if isinstance(row[0], dict) else json.loads(row[0])
         media_path = row[1]
+        media_paths = row[2] if isinstance(row[2], list) else json.loads(row[2] or "[]")
+        if not media_paths and media_path:
+            media_paths = [media_path]
 
         try:
-            return _ejecutar_confirmacion(conn, cur, draft_id, payload, media_path)
+            return _ejecutar_confirmacion(conn, cur, draft_id, payload, media_path,
+                                          media_paths)
         except Exception as e:
             cur.execute("""
                 UPDATE transaction_drafts SET status = 'ERROR', error = %s, updated_at = NOW()
@@ -858,7 +884,8 @@ def confirmar_draft(draft_id: int, chat_link_id=None, hub_user_id=None) -> str:
         put_conn(conn)
 
 
-def _ejecutar_confirmacion(conn, cur, draft_id, payload, media_path):
+def _ejecutar_confirmacion(conn, cur, draft_id, payload, media_path,
+                           media_paths=None):
     # 1. Campos mínimos
     missing = compute_missing(payload)
     if missing:
@@ -904,6 +931,7 @@ def _ejecutar_confirmacion(conn, cur, draft_id, payload, media_path):
         apply_gmf=bool(payload.get("apply_gmf")),
         account_id=account_id,
         evidence_file_path=media_path,
+        evidence_files=media_paths or None,   # Etapa E.3: TODAS las evidencias
         # Etapa E.2 (2026-09-08): sin esto, las etiquetas puestas por botón o
         # en la bandeja y la ubicación adjunta SE PERDÍAN al confirmar.
         tags=payload.get("tags") or None,

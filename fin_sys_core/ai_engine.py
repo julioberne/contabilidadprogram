@@ -194,7 +194,10 @@ def structure_text_only(transcript: str, portfolio_name: str = "Negocio A") -> D
         "  \"third_party\": {\n"
         "    \"identification_type\": \"NIT\" | \"CC\" | null,\n"
         "    \"identification_number\": \"número de identificación sin puntos ni guiones\" | null,\n"
-        "    \"name\": \"nombre completo de la persona o empresa\"\n"
+        "    \"name\": \"nombre completo de la persona o empresa\",\n"
+        "    \"phone\": \"teléfono SOLO si el usuario lo dice\" | null,\n"
+        "    \"email\": \"correo SOLO si el usuario lo dice\" | null,\n"
+        "    \"address\": \"dirección SOLO si el usuario la dice\" | null\n"
         "  },\n"
         "  \"suggested_tags\": [\"etiqueta1\", \"etiqueta2\"],\n"
         "  \"inferred_fields\": [\"campo1\", \"campo2\"]\n"
@@ -257,7 +260,10 @@ def structure_text_only(transcript: str, portfolio_name: str = "Negocio A") -> D
                 "properties": {
                     "identification_type": {"type": "STRING", "description": "CC o NIT"},
                     "identification_number": {"type": "STRING", "description": "Número tributario"},
-                    "name": {"type": "STRING"}
+                    "name": {"type": "STRING"},
+                    "phone": {"type": "STRING", "description": "Teléfono solo si el usuario lo dice"},
+                    "email": {"type": "STRING", "description": "Correo solo si el usuario lo dice"},
+                    "address": {"type": "STRING", "description": "Dirección solo si el usuario la dice"}
                 },
                 "required": ["name"]
             },

@@ -135,23 +135,38 @@ export function TransactionDraftProvider({ children }) {
   // un solo mundo, sobrevive deploys, cero carga al backend (navegador →
   // bucket, mismo patrón que RRHH en hr-docs) y lo sirve el CDN de Supabase.
   const EVIDENCIA_MAX_MB = 5;
-  const handleUploadEvidence = async (file) => {
-    if (!file) return;
-    if (file.size > EVIDENCIA_MAX_MB * 1024 * 1024) {
-      alert(`❌ El comprobante pesa más de ${EVIDENCIA_MAX_MB}MB. Comprímelo o toma la foto en menor resolución.`);
-      return;
-    }
+  // Etapa E.3 (2026-09-08): VARIAS evidencias por transacción (2-3 fotos,
+  // foto+PDF). evidenceFilePath (singular) sigue siendo la primera, por
+  // compat con el payload y el visor viejos.
+  const [evidenceFilePaths, setEvidenceFilePaths] = useState([]);
+  const handleUploadEvidence = async (files) => {
+    const lista = Array.from(files?.length !== undefined ? files : [files]).filter(Boolean);
+    if (!lista.length) return;
     setIsUploadingEvidence(true);
     try {
       // Import perezoso: supabase-js solo se descarga si el usuario adjunta
       const { supabase, SUPABASE_URL } = await import('../../project-hub/lib/supabaseClient.js');
-      const seguro = file.name.normalize('NFD').replace(/[̀-ͯ]/g, '')
-        .replace(/[^a-zA-Z0-9._-]+/g, '_').slice(-60);
-      const ruta = `evidence/${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}_${seguro}`;
-      const { error } = await supabase.storage.from('hr-docs')
-        .upload(ruta, file, { contentType: file.type || 'application/octet-stream', upsert: false });
-      if (error) throw error;
-      setEvidenceFilePath(`${SUPABASE_URL}/storage/v1/object/public/hr-docs/${ruta}`);
+      const nuevas = [];
+      for (const file of lista) {
+        if (file.size > EVIDENCIA_MAX_MB * 1024 * 1024) {
+          alert(`❌ "${file.name}" pesa más de ${EVIDENCIA_MAX_MB}MB — se omite. Comprímelo e inténtalo de nuevo.`);
+          continue;
+        }
+        const seguro = file.name.normalize('NFD').replace(/[̀-ͯ]/g, '')
+          .replace(/[^a-zA-Z0-9._-]+/g, '_').slice(-60);
+        const ruta = `evidence/${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}_${seguro}`;
+        const { error } = await supabase.storage.from('hr-docs')
+          .upload(ruta, file, { contentType: file.type || 'application/octet-stream', upsert: false });
+        if (error) throw error;
+        nuevas.push(`${SUPABASE_URL}/storage/v1/object/public/hr-docs/${ruta}`);
+      }
+      if (nuevas.length) {
+        setEvidenceFilePaths(prev => {
+          const todas = [...prev, ...nuevas];
+          setEvidenceFilePath(todas[0]);
+          return todas;
+        });
+      }
     } catch (e) {
       console.error('Evidencia → Storage:', e);
       alert('❌ Error al subir comprobante: ' + (e.message || 'revisa tu conexión.'));
@@ -189,6 +204,7 @@ export function TransactionDraftProvider({ children }) {
     setAssetEstablecerActivo(false);
     setAssetRecurrente(false);
     setEvidenceFilePath("");
+    setEvidenceFilePaths([]);
     setSelectedTags([]);
   };
 
@@ -218,7 +234,7 @@ export function TransactionDraftProvider({ children }) {
       cxcCxpEnabled, cxcCxpType, cxcCxpDueDate, cxcCxpTerm, cxcCxpValue,
       assetEnabled, assetName, assetValue, assetTag,
       assetVincularImporte, assetEstablecerActivo, assetRecurrente,
-      evidenceFilePath, selectedTags, customTaxesList,
+      evidenceFilePath, evidenceFilePaths, selectedTags, customTaxesList,
     });
 
     setIsSubmitting(true);
@@ -396,6 +412,7 @@ export function TransactionDraftProvider({ children }) {
     assetEstablecerActivo, setAssetEstablecerActivo,
     assetRecurrente, setAssetRecurrente,
     evidenceFilePath, setEvidenceFilePath,
+    evidenceFilePaths,
     isUploadingEvidence, setIsUploadingEvidence,
     // Tags
     selectedTags, setSelectedTags,

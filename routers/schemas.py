@@ -21,6 +21,10 @@ class ThirdPartyInput(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     website: Optional[str] = None
+    # 2026-09-08 (bot Etapa E.3): el usuario dicta la dirección por voz y la
+    # columna third_parties.address ya existía (migración cartera) — solo
+    # faltaba el campo en el contrato.
+    address: Optional[str] = None
 
 
 class ProfileInput(BaseModel):
@@ -107,6 +111,9 @@ class TransactionInput(BaseModel):
     # Etiquetas libres (2026-09-08): el form y la bandeja del bot ya las
     # enviaban — sin este campo pydantic las descartaba en silencio.
     tags: Optional[List[str]] = None
+    # Múltiples evidencias (Etapa E.3): lista completa de URLs/rutas.
+    # evidence_file_path (singular) sigue siendo la principal, por compat.
+    evidence_files: Optional[List[str]] = None
 
 
 class StructureRequest(BaseModel):

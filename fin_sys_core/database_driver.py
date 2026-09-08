@@ -459,13 +459,20 @@ def registrar_transaccion(tx_data: Dict[str, Any]) -> int:
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # 1. Asegurar la existencia del tercero (NIT/CC)
+        # 1. Asegurar la existencia del tercero (NIT/CC). Los datos de
+        # contacto RELLENAN sin destruir: un valor nuevo actualiza, un null
+        # no borra lo que ya había (2026-09-08 — antes el ON CONFLICT solo
+        # tocaba name y el teléfono/correo/dirección dictados se perdían).
         third_party = tx_data["third_party"]
         cur.execute("""
-        INSERT INTO third_parties (identification_type, identification_number, name, email, phone, website)
-        VALUES (%s, %s, %s, %s, %s, %s)
-        ON CONFLICT (identification_number) 
-        DO UPDATE SET name = EXCLUDED.name
+        INSERT INTO third_parties (identification_type, identification_number, name, email, phone, website, address)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (identification_number)
+        DO UPDATE SET name = EXCLUDED.name,
+                      email   = COALESCE(EXCLUDED.email,   third_parties.email),
+                      phone   = COALESCE(EXCLUDED.phone,   third_parties.phone),
+                      website = COALESCE(EXCLUDED.website, third_parties.website),
+                      address = COALESCE(EXCLUDED.address, third_parties.address)
         RETURNING id;
         """, (
             third_party["identification_type"],
@@ -473,7 +480,8 @@ def registrar_transaccion(tx_data: Dict[str, Any]) -> int:
             third_party["name"],
             third_party.get("email"),
             third_party.get("phone"),
-            third_party.get("website")
+            third_party.get("website"),
+            third_party.get("address")
         ))
         third_party_id = cur.fetchone()[0]
 
@@ -530,7 +538,19 @@ def registrar_transaccion(tx_data: Dict[str, Any]) -> int:
             tx_data.get("tags") or None   # lista Python → TEXT[] (psycopg2)
         ))
         transaction_id = cur.fetchone()[0]
-        
+
+        # Etapa E.3: múltiples evidencias — la principal ya quedó en
+        # evidence_file_path; aquí se guardan TODAS (2-3 fotos, foto+PDF).
+        evidencias = tx_data.get("evidence_files") or []
+        principal = tx_data.get("evidence_file_path")
+        if principal and principal not in evidencias:
+            evidencias = [principal] + list(evidencias)
+        for ruta_ev in evidencias:
+            cur.execute("""
+                INSERT INTO transaction_evidences (transaction_id, file_path)
+                VALUES (%s, %s)
+            """, (transaction_id, ruta_ev))
+
         # [NEW] Registrar Cartera (CXC / CXP) si se envía
         cxc_cxp = tx_data.get("cxc_cxp")
         if cxc_cxp:
@@ -674,6 +694,9 @@ def obtener_transacciones(portfolio_name: Optional[str] = None, limit: Optional[
             t.account_id, t.dest_account_id, t.trm, t.transaction_currency, t.is_recurring,
             t.recurrence_interval, t.recurrence_days, t.recurrence_max_reps, t.recurrence_start_date, t.recurrence_end_date,
             t.tags,
+            (SELECT COALESCE(json_agg(ev.file_path ORDER BY ev.id), '[]'::json)
+               FROM transaction_evidences ev
+              WHERE ev.transaction_id = t.id) AS evidences,
             p.name as portfolio_name, p.industry_type as portfolio_industry, p.sub_industry_type as portfolio_sub_industry,
             tp.identification_type, tp.identification_number, tp.name as third_party_name,
             a.name as account_name,

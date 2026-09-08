@@ -75,7 +75,7 @@ export default function RegistroModule() {
       recurrenceMaxReps={draft.recurrenceMaxReps} setRecurrenceMaxReps={draft.setRecurrenceMaxReps}
       recurrenceStartDate={draft.recurrenceStartDate} setRecurrenceStartDate={draft.setRecurrenceStartDate}
       recurrenceEndDate={draft.recurrenceEndDate} setRecurrenceEndDate={draft.setRecurrenceEndDate}
-      evidenceFilePath={draft.evidenceFilePath} isUploadingEvidence={draft.isUploadingEvidence} handleUploadEvidence={draft.handleUploadEvidence}
+      evidenceFilePath={draft.evidenceFilePath} evidenceFilePaths={draft.evidenceFilePaths} isUploadingEvidence={draft.isUploadingEvidence} handleUploadEvidence={draft.handleUploadEvidence}
       formSuggestion={draft.formSuggestion} setFormSuggestion={draft.setFormSuggestion}
       handleRegister={draft.handleRegister}
       coaFlatAccounts={empresa.coaFlatAccounts} coaSearchQuery={coaSearchQuery} setCoaSearchQuery={setCoaSearchQuery}

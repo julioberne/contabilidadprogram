@@ -38,7 +38,7 @@ export default function TransactionForm({
   recurrenceStartDate, setRecurrenceStartDate,
   recurrenceEndDate, setRecurrenceEndDate,
   // Evidence
-  evidenceFilePath, isUploadingEvidence, handleUploadEvidence,
+  evidenceFilePath, evidenceFilePaths, isUploadingEvidence, handleUploadEvidence,
   // Form suggestion
   formSuggestion, setFormSuggestion,
   // Submit
@@ -511,20 +511,23 @@ export default function TransactionForm({
                 <label className="flex flex-col items-center justify-center border-2 border-dashed border-black p-2 bg-gray-50 cursor-pointer hover:bg-brutalBg transition-all select-none">
                   <span className="text-xl mb-1">📷</span>
                   <span className="text-[10px] font-bold uppercase font-mono text-center">
-                    {isUploadingEvidence 
-                      ? "SUBIENDO..." 
-                      : evidenceFilePath 
-                        ? `✅ COMPROBANTE SUBIDO: ${evidenceFilePath.split('/').pop()}` 
-                        : "SUBIR COMPROBANTE (JPG/PNG/PDF)"}
+                    {isUploadingEvidence
+                      ? "SUBIENDO..."
+                      : (evidenceFilePaths?.length || 0) > 1
+                        ? `✅ ${evidenceFilePaths.length} COMPROBANTES SUBIDOS — toca para añadir más`
+                        : evidenceFilePath
+                          ? `✅ COMPROBANTE SUBIDO: ${evidenceFilePath.split('/').pop()} — toca para añadir más`
+                          : "SUBIR COMPROBANTE(S) (JPG/PNG/PDF — puedes elegir varios)"}
                   </span>
-                  <input 
-                    type="file" 
+                  <input
+                    type="file"
+                    multiple
                     accept="image/*,application/pdf"
                     onChange={(e) => {
-                      const file = e.target.files[0];
-                      if (file) handleUploadEvidence(file);
+                      if (e.target.files?.length) handleUploadEvidence(e.target.files);
+                      e.target.value = "";   // permite volver a elegir los mismos
                     }}
-                    className="hidden" 
+                    className="hidden"
                   />
                 </label>
               </div>

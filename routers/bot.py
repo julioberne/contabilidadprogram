@@ -96,7 +96,8 @@ def list_drafts(status: str = "BORRADOR", user: dict = Depends(require_auth)):
             filtro = "" if status == "TODOS" else "AND status = %(status)s"
             cur.execute(f"""
                 SELECT id, status, channel, portfolio_name, payload, raw_text,
-                       media_path, error, confirmed_transaction_id, created_at
+                       media_path, error, confirmed_transaction_id, created_at,
+                       media_paths
                 FROM transaction_drafts
                 WHERE user_id = %(uid)s {filtro}
                 ORDER BY id DESC LIMIT 100
@@ -109,6 +110,7 @@ def list_drafts(status: str = "BORRADOR", user: dict = Depends(require_auth)):
             "id": r[0], "status": r[1], "channel": r[2], "portfolio_name": r[3],
             "payload": r[4], "raw_text": r[5], "media_path": r[6], "error": r[7],
             "confirmed_transaction_id": r[8], "created_at": str(r[9]),
+            "media_paths": r[10] or ([r[6]] if r[6] else []),
         } for r in rows]
     except HTTPException:
         raise

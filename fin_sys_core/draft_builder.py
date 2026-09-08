@@ -74,10 +74,16 @@ def build_payload(parsed: dict, portfolio_name: str):
               "name": "Sin especificar"}
         inferred.append("third_party")
     else:
+        contacto = {k: str(tp.get(k)).strip()
+                    for k in ("phone", "email", "address")
+                    if (tp.get(k) or "").strip()}
         tp = {
             "identification_type": tp.get("identification_type") or "NIT",
             "identification_number": (tp.get("identification_number") or "").strip() or "999999999",
             "name": (tp.get("name") or "").strip(),
+            # Contacto dictado por el usuario (2026-09-08): antes se descartaba
+            # aunque Whisper lo transcribiera perfecto.
+            **contacto,
         }
         if tp["identification_type"] not in ("NIT", "CC"):
             tp["identification_type"] = "NIT"

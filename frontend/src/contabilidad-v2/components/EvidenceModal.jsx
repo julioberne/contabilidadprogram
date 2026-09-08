@@ -10,8 +10,8 @@ export default function EvidenceModal({
   // El archivo puede NO existir en este entorno: la BD es compartida
   // local↔prod pero /uploads es disco local de cada uno (2026-09-08).
   // Antes un placeholder negro "EVIDENCIA FÍSICA" tapaba el error.
-  const [imgRota, setImgRota] = React.useState(false);
-  React.useEffect(() => { setImgRota(false); }, [selectedEvidenceTx?.id]);
+  const [imgRota, setImgRota] = React.useState({});
+  React.useEffect(() => { setImgRota({}); }, [selectedEvidenceTx?.id]);
   if (!evidenceUrl) return null;
 
   return (
@@ -259,50 +259,50 @@ export default function EvidenceModal({
               })()}
             </div>
 
-            {/* Evidencia física real (si existe) */}
-            {selectedEvidenceTx.evidence_file_path && selectedEvidenceTx.evidence_file_path !== "recibo_demo.png" && (
+            {/* Evidencias físicas (Etapa E.3: pueden ser VARIAS — fotos y PDF) */}
+            {(() => {
+              const lista = (selectedEvidenceTx.evidences?.length
+                ? selectedEvidenceTx.evidences
+                : [selectedEvidenceTx.evidence_file_path])
+                .filter(f => f && f !== "recibo_demo.png");
+              if (!lista.length) return null;
+              const urlDe = (f) => (f.startsWith("http") ? f : `/${f}`);
+              const esPdf = (f) => f.toLowerCase().split("?")[0].endsWith(".pdf");
+              const esAudio = (f) => /\.(ogg|webm|mp3|opus)(\?|$)/i.test(f);
+              return (
               <div className="border-2 border-black p-2 bg-white space-y-1 uppercase text-[10px]">
                 <div className="font-bold border-b border-black pb-1">
-                  📂 ARCHIVO DE SOPORTE ADJUNTO
+                  📂 {lista.length > 1 ? `${lista.length} ARCHIVOS DE SOPORTE ADJUNTOS` : "ARCHIVO DE SOPORTE ADJUNTO"}
                 </div>
-                <div className="flex flex-col items-center justify-center p-2 bg-gray-50 border border-black">
-                  {imgRota ? (
-                    <div className="w-full border-2 border-brutalCrimson bg-red-50 p-3 mb-2 text-center normal-case">
-                      <div className="font-bold text-red-700 text-[11px] uppercase">⚠ Archivo no disponible en este entorno</div>
-                      <div className="text-[9px] text-red-700 font-mono mt-1 leading-snug">
-                        El comprobante quedó guardado en el disco del computador donde se subió
-                        (la base de datos es compartida, pero los archivos de <b>/uploads</b> no).
-                        Si lo subiste trabajando en local, ábrelo desde local — o vuelve a adjuntarlo aquí.
-                      </div>
-                      <div className="text-[8px] text-gray-500 font-mono mt-1 break-all">{selectedEvidenceTx.evidence_file_path}</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {lista.map((f, i) => (
+                    <div key={i} className="flex flex-col items-center justify-center p-2 bg-gray-50 border border-black">
+                      {esPdf(f) ? (
+                        <div className="text-3xl mb-1" title="Documento PDF">📄</div>
+                      ) : esAudio(f) ? (
+                        <audio controls src={urlDe(f)} className="w-full mb-1" />
+                      ) : imgRota[i] ? (
+                        <div className="w-full border-2 border-brutalCrimson bg-red-50 p-2 mb-1 text-center normal-case">
+                          <div className="font-bold text-red-700 text-[10px] uppercase">⚠ No disponible en este entorno</div>
+                          <div className="text-[8px] text-red-700 font-mono mt-1 leading-snug">
+                            Quedó en el disco del computador donde se subió (los archivos de <b>/uploads</b> no se comparten). Re-adjúntalo si lo necesitas aquí.
+                          </div>
+                        </div>
+                      ) : (
+                        <img src={urlDe(f)} alt={`Respaldo ${i + 1}`}
+                             className="max-h-40 object-contain border border-black shadow-brutal mb-1"
+                             onError={() => setImgRota(r => ({ ...r, [i]: true }))} />
+                      )}
+                      <a href={urlDe(f)} target="_blank" rel="noreferrer"
+                         className="bg-black text-white text-[9px] font-bold px-2 py-1 hover:bg-brutalGreen hover:text-black border border-black transition-all">
+                        ABRIR {lista.length > 1 ? `#${i + 1}` : "ARCHIVO"} EN PESTAÑA NUEVA
+                      </a>
                     </div>
-                  ) : (
-                  <img
-                    src={
-                      selectedEvidenceTx.evidence_file_path.startsWith("http")
-                        ? selectedEvidenceTx.evidence_file_path
-                        : `/${selectedEvidenceTx.evidence_file_path}`
-                    }
-                    alt="Respaldo Físico"
-                    className="max-h-40 object-contain border border-black shadow-brutal mb-2"
-                    onError={() => setImgRota(true)}
-                  />
-                  )}
-                  <a
-                    href={
-                      selectedEvidenceTx.evidence_file_path.startsWith("http")
-                        ? selectedEvidenceTx.evidence_file_path
-                        : `/${selectedEvidenceTx.evidence_file_path}`
-                    }
-                    target="_blank"
-                    rel="noreferrer"
-                    className="bg-black text-white text-[9px] font-bold px-2 py-1 hover:bg-brutalGreen hover:text-black border border-black transition-all"
-                  >
-                    ABRIR ARCHIVO EN PESTAÑA NUEVA
-                  </a>
+                  ))}
                 </div>
               </div>
-            )}
+              );
+            })()}
           </div>
         ) : (
           <div className="text-center font-bold py-4">No se han cargado detalles del comprobante.</div>

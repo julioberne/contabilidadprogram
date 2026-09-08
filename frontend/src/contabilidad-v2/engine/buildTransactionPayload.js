@@ -87,6 +87,10 @@ export function buildTransactionPayload(s) {
       recurrence_amount: s.assetVincularImporte ? parseFloat(s.amount || 0) : parseFloat(s.assetValue || 0)
     } : null,
     evidence_file_path: s.evidenceFilePath || null,
+    // Etapa E.3: todas las evidencias (la principal repite como primera);
+    // clave ausente cuando no hay lista — los fixtures v1 no la conocen.
+    ...(s.evidenceFilePaths && s.evidenceFilePaths.length
+      ? { evidence_files: s.evidenceFilePaths } : {}),
     geo_maps_link: s.geoMapsLink || null,
     tags: s.selectedTags.length > 0 ? s.selectedTags : null
   };
