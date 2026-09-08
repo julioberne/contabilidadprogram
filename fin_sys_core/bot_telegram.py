@@ -197,7 +197,17 @@ def normalize(update: dict):
         if reply.get("message_id"):
             base["reply_to_message_id"] = str(reply["message_id"])
         return base
-    # Ubicación, stickers, documentos… → próxima etapa
+    # 📍 Ubicación (Etapa E.2): geolocalización explícita para el borrador
+    loc = m.get("location")
+    if loc and loc.get("latitude") is not None:
+        base["kind"] = "location"
+        base["latitude"] = loc["latitude"]
+        base["longitude"] = loc["longitude"]
+        reply = m.get("reply_to_message") or {}
+        if reply.get("message_id"):
+            base["reply_to_message_id"] = str(reply["message_id"])
+        return base
+    # Stickers, documentos… → próxima etapa
     base["kind"] = "unsupported"
     return base
 

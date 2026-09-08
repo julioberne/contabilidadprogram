@@ -51,6 +51,8 @@ AYUDA = (
     "  · Foto con texto → crea el borrador con la foto como evidencia\n"
     "  · Foto respondiendo a un borrador → se adjunta a ESE borrador\n"
     "  · Foto suelta → se adjunta a tu último borrador pendiente\n\n"
+    "📍 Y UBICACIÓN (clip 📎 → Ubicación): se adjunta al borrador igual que\n"
+    "la foto y queda como link de Maps en la transacción.\n\n"
     "Yo lo convierto en un BORRADOR. Nada toca tu contabilidad hasta que\n"
     "confirmes (botón ✅ o \"Confirmar #N\").\n\n"
     "Comandos:\n"
@@ -70,8 +72,8 @@ NO_VINCULADO = (
 )
 
 NO_SOPORTADO = (
-    "Por ahora entiendo texto, notas de voz y fotos de comprobantes.\n"
-    "Ubicación, stickers y documentos llegan en una próxima etapa 📍"
+    "Por ahora entiendo texto, notas de voz, fotos de comprobantes y "
+    "ubicación 📍.\nStickers y documentos llegan en una próxima etapa."
 )
 
 # ── Comandos deterministas (regex — confirmar/descartar JAMÁS pasan por el LLM) ──
@@ -125,6 +127,10 @@ def render_summary(draft_id: int, payload: dict, inferred=None, missing=None) ->
         f"Fecha: {payload.get('transaction_date')}",
         f"Portafolio: {payload.get('portfolio_name')}",
     ]
+    if payload.get("tags"):
+        lineas.append(f"🏷️ Etiquetas: {', '.join(payload['tags'])}")
+    if payload.get("geo_maps_link"):
+        lineas.append("📍 Ubicación adjunta")
     if payload.get("apply_iva"):
         lineas.append("IVA 19%: se calculará al confirmar")
     if missing:
@@ -190,6 +196,12 @@ def handle_message(msg: dict):
         # ── 📸 Foto (Etapa E): evidencia de un borrador o borrador nuevo ──
         if msg.get("kind") == "photo":
             reply = _flujo_foto(cur, link, msg, msg_row_id)
+            conn.commit()
+            return reply
+
+        # ── 📍 Ubicación (Etapa E.2): geolocalización del borrador ──
+        if msg.get("kind") == "location":
+            reply = _flujo_ubicacion(cur, link, msg)
             conn.commit()
             return reply
 
@@ -370,7 +382,8 @@ def _botones_borrador(draft_id: int):
     se mantiene como fallback para canales sin botones."""
     return [
         [("✅ Confirmar", f"ok:{draft_id}"), ("❌ Descartar", f"no:{draft_id}")],
-        [("🏢 Cambiar empresa", f"emp:{draft_id}")],
+        [("🏢 Cambiar empresa", f"emp:{draft_id}"), ("🏷️ Etiquetas", f"tags:{draft_id}")],
+        [("💤 Dejar en borrador", f"hold:{draft_id}")],
     ]
 
 
@@ -419,7 +432,9 @@ def _flujo_foto(cur, link, msg, msg_row_id):
 
 
 def _adjuntar_evidencia(cur, link, draft_id, url):
-    """Adjunta/reemplaza la evidencia de un borrador editable del chat."""
+    """Adjunta/reemplaza la evidencia de un borrador editable del chat.
+    Devuelve la botonera de nuevo (pedido de Andrés 08-sep: sin ella tocaba
+    digitar el número a mano) — y el mensaje nuevo también acepta replies."""
     cur.execute("""
         UPDATE transaction_drafts
            SET media_path = %s, updated_at = NOW()
@@ -427,10 +442,76 @@ def _adjuntar_evidencia(cur, link, draft_id, url):
         RETURNING id
     """, (url, draft_id, link["id"]))
     if cur.fetchone():
-        return (f"📎 Evidencia adjuntada al borrador #{draft_id}.\n"
-                f"Confirma con el botón ✅ o \"Confirmar #{draft_id}\".")
+        return {"text": f"📎 Evidencia adjuntada al borrador #{draft_id}.",
+                "draft_id": draft_id, "buttons": _botones_borrador(draft_id)}
     return (f"El borrador #{draft_id} ya no es editable (¿confirmado o "
             "descartado?). Envía la foto con texto para crear uno nuevo.")
+
+
+def _flujo_ubicacion(cur, link, msg):
+    """📍 Ubicación de Telegram (Etapa E.2): igual que la foto suelta —
+    respondiendo al resumen va a ESE borrador; suelta, al último pendiente.
+    Solo se guarda cuando TÚ la envías explícitamente (cero rastreo)."""
+    lat, lon = msg.get("latitude"), msg.get("longitude")
+    if lat is None or lon is None:
+        return NO_SOPORTADO
+
+    draft_id = None
+    if msg.get("reply_to_message_id"):
+        cur.execute("""
+            SELECT id FROM transaction_drafts
+            WHERE chat_link_id = %s AND bot_summary_message_id = %s
+        """, (link["id"], str(msg["reply_to_message_id"])))
+        row = cur.fetchone()
+        draft_id = row[0] if row else None
+    if draft_id is None:
+        cur.execute("""
+            SELECT id FROM transaction_drafts
+            WHERE chat_link_id = %s AND status = 'BORRADOR'
+            ORDER BY id DESC LIMIT 1
+        """, (link["id"],))
+        row = cur.fetchone()
+        draft_id = row[0] if row else None
+    if draft_id is None:
+        return ("Recibí la ubicación pero no tienes borradores pendientes.\n"
+                "Primero envíame el gasto/ingreso y luego la ubicación.")
+
+    cur.execute("""
+        SELECT payload FROM transaction_drafts
+         WHERE id = %s AND chat_link_id = %s AND status IN ('BORRADOR', 'ERROR')
+         FOR UPDATE
+    """, (draft_id, link["id"]))
+    row = cur.fetchone()
+    if not row:
+        return f"El borrador #{draft_id} ya no es editable."
+    payload = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+    payload["geo_latitude"] = float(lat)
+    payload["geo_longitude"] = float(lon)
+    payload["geo_maps_link"] = f"https://www.google.com/maps?q={float(lat)},{float(lon)}"
+    cur.execute("""
+        UPDATE transaction_drafts SET payload = %s, updated_at = NOW()
+        WHERE id = %s
+    """, (json.dumps(payload), draft_id))
+    return {"text": f"📍 Ubicación adjuntada al borrador #{draft_id}.",
+            "draft_id": draft_id, "buttons": _botones_borrador(draft_id)}
+
+
+def _tags_reales(cur):
+    """Etiquetas del módulo de Etiquetas (tag_definitions = fuente de la
+    verdad). → [(id, name)]."""
+    cur.execute("SELECT id, name FROM tag_definitions ORDER BY id LIMIT 12")
+    return [(r[0], str(r[1]).strip()) for r in cur.fetchall()]
+
+
+def _botones_tags(cur, draft_id, payload):
+    """Toggle de etiquetas: ✓ en las puestas; tocar añade/quita."""
+    puestas = set(payload.get("tags") or [])
+    filas = []
+    for tid, nombre in _tags_reales(cur):
+        marca = "✓ " if nombre in puestas else ""
+        filas.append([(f"{marca}{nombre}", f"tagset:{draft_id}:{tid}")])
+    filas.append([("✔ Listo", f"tagdone:{draft_id}")])
+    return filas
 
 
 def _empresas_reales(cur):
@@ -556,6 +637,89 @@ def handle_callback(channel: str, chat_id: str, data: str):
             out["edit_buttons"] = []
             out["text"] = resultado
             log_outbound(channel, chat_id, resultado, link["id"], draft_id)
+            return out
+
+        if accion == "hold":
+            # 💤 Dejar en borrador: no toca el estado (YA es BORRADOR) — solo
+            # retira la botonera para que quede "guardado para después".
+            conn.commit()
+            out["alert"] = "Guardado como borrador."
+            out["edit_buttons"] = []
+            out["text"] = (f"💤 El borrador #{draft_id} queda pendiente en la bandeja.\n"
+                           f"Lo retomas con \"Confirmar #{draft_id}\", /borradores "
+                           "o desde la web.")
+            log_outbound(channel, chat_id, out["text"], link["id"], draft_id)
+            return out
+
+        if accion == "tags":
+            cur.execute("""
+                SELECT payload FROM transaction_drafts
+                WHERE id = %s AND chat_link_id = %s
+            """, (draft_id, link["id"]))
+            row = cur.fetchone()
+            if not row:
+                conn.commit()
+                out["alert"] = "Borrador no encontrado."
+                return out
+            payload = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+            filas = _botones_tags(cur, draft_id, payload)
+            conn.commit()
+            if len(filas) == 1:      # solo el botón Listo: no hay etiquetas creadas
+                out["alert"] = "No tienes etiquetas. Créalas en el módulo 🏷️ de la web."
+                return out
+            out["alert"] = "Toca para poner/quitar etiquetas"
+            out["edit_buttons"] = filas
+            return out
+
+        if accion == "tagset":
+            try:
+                tag_id = int(partes[2])
+            except (IndexError, ValueError):
+                out["alert"] = "Botón inválido."
+                return out
+            cur.execute("SELECT name FROM tag_definitions WHERE id = %s", (tag_id,))
+            row = cur.fetchone()
+            if not row:
+                conn.commit()
+                out["alert"] = "Esa etiqueta ya no existe."
+                return out
+            nombre = str(row[0]).strip()
+            cur.execute("""
+                SELECT payload FROM transaction_drafts
+                WHERE id = %s AND chat_link_id = %s
+            """, (draft_id, link["id"]))
+            fila_d = cur.fetchone()
+            conn.commit()
+            if not fila_d:
+                out["alert"] = "Borrador no encontrado."
+                return out
+            payload = fila_d[0] if isinstance(fila_d[0], dict) else json.loads(fila_d[0])
+            puestas = list(payload.get("tags") or [])
+            if nombre in puestas:
+                puestas.remove(nombre)
+                out["alert"] = f"− {nombre}"
+            else:
+                puestas.append(nombre)
+                out["alert"] = f"+ {nombre}"
+            editado = editar_draft(draft_id, {"tags": puestas},
+                                   hub_user_id=link["hub_user_id"])
+            if editado.get("error"):
+                out["alert"] = editado["error"][:190]
+                return out
+            out["edit_buttons"] = _botones_tags(cur, draft_id, editado["payload"])
+            return out
+
+        if accion == "tagdone":
+            cur.execute("""
+                SELECT payload FROM transaction_drafts
+                WHERE id = %s AND chat_link_id = %s
+            """, (draft_id, link["id"]))
+            row = cur.fetchone()
+            conn.commit()
+            if row:
+                payload = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+                out["edit_text"] = render_summary(draft_id, payload)
+            out["edit_buttons"] = _botones_borrador(draft_id)
             return out
 
         if accion == "emp":
@@ -740,6 +904,12 @@ def _ejecutar_confirmacion(conn, cur, draft_id, payload, media_path):
         apply_gmf=bool(payload.get("apply_gmf")),
         account_id=account_id,
         evidence_file_path=media_path,
+        # Etapa E.2 (2026-09-08): sin esto, las etiquetas puestas por botón o
+        # en la bandeja y la ubicación adjunta SE PERDÍAN al confirmar.
+        tags=payload.get("tags") or None,
+        geo_maps_link=payload.get("geo_maps_link"),
+        geo_latitude=payload.get("geo_latitude"),
+        geo_longitude=payload.get("geo_longitude"),
     )
     resp = create_transaction(tx_input)
 

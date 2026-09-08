@@ -29,12 +29,23 @@ class TestBotones(unittest.TestCase):
     def test_botonera_estandar(self):
         filas = bot_driver._botones_borrador(43)
         planos = [data for fila in filas for _, data in fila]
-        self.assertIn("ok:43", planos)
-        self.assertIn("no:43", planos)
-        self.assertIn("emp:43", planos)
+        for esperado in ("ok:43", "no:43", "emp:43", "tags:43", "hold:43"):
+            self.assertIn(esperado, planos)
         # límite de Telegram: callback_data ≤ 64 bytes
         for d in planos:
             self.assertLessEqual(len(d.encode()), 64)
+
+    def test_resumen_muestra_tags_y_ubicacion(self):
+        payload = {"type": "GASTO", "amount": 1000, "concept": "x",
+                   "category": "Otros Gastos", "payment_method": "Efectivo",
+                   "third_party": {"name": "n", "identification_type": "NIT",
+                                    "identification_number": "1"},
+                   "transaction_date": "2026-09-08", "portfolio_name": "Negocio A",
+                   "tags": ["obra", "urgente"],
+                   "geo_maps_link": "https://www.google.com/maps?q=1,2"}
+        r = bot_driver.render_summary(9, payload)
+        self.assertIn("obra, urgente", r)
+        self.assertIn("📍 Ubicación adjunta", r)
 
     def test_markup_telegram(self):
         mk = bot_telegram._markup([[("✅ Confirmar", "ok:1")], [("« Volver", "empback:1")]])
@@ -69,6 +80,15 @@ class TestNormalizeFoto(unittest.TestCase):
         msg = bot_telegram.normalize(self._update({"text": "gasté 20.000 en taxi"}))
         self.assertEqual(msg["kind"], "text")
         self.assertEqual(msg["text"], "gasté 20.000 en taxi")
+
+    def test_ubicacion(self):
+        msg = bot_telegram.normalize(self._update({
+            "location": {"latitude": 4.6482, "longitude": -74.0648},
+            "reply_to_message": {"message_id": 321},
+        }))
+        self.assertEqual(msg["kind"], "location")
+        self.assertAlmostEqual(msg["latitude"], 4.6482)
+        self.assertEqual(msg["reply_to_message_id"], "321")
 
 
 if __name__ == "__main__":
