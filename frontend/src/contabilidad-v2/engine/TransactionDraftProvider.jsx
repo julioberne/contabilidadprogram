@@ -129,24 +129,32 @@ export function TransactionDraftProvider({ children }) {
   });
 
   // --- Subir Archivo de Evidencia ---
+  // 2026-09-08 (pedido de Andrés, caso PAGO MURDO): directo a Supabase
+  // Storage. La BD es compartida local↔prod pero /uploads era el disco de
+  // cada entorno: un comprobante subido en local daba 404 en prod. Ahora:
+  // un solo mundo, sobrevive deploys, cero carga al backend (navegador →
+  // bucket, mismo patrón que RRHH en hr-docs) y lo sirve el CDN de Supabase.
+  const EVIDENCIA_MAX_MB = 5;
   const handleUploadEvidence = async (file) => {
     if (!file) return;
+    if (file.size > EVIDENCIA_MAX_MB * 1024 * 1024) {
+      alert(`❌ El comprobante pesa más de ${EVIDENCIA_MAX_MB}MB. Comprímelo o toma la foto en menor resolución.`);
+      return;
+    }
     setIsUploadingEvidence(true);
-    const formData = new FormData();
-    formData.append("file", file);
     try {
-      const res = await fetch(`${API_BASE_URL}/upload-evidence`, {
-        method: "POST",
-        body: formData
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setEvidenceFilePath(data.file_path);
-      } else {
-        alert("❌ Error al subir comprobante");
-      }
-    } catch {
-      alert("❌ Error de conexión al subir comprobante.");
+      // Import perezoso: supabase-js solo se descarga si el usuario adjunta
+      const { supabase, SUPABASE_URL } = await import('../../project-hub/lib/supabaseClient.js');
+      const seguro = file.name.normalize('NFD').replace(/[̀-ͯ]/g, '')
+        .replace(/[^a-zA-Z0-9._-]+/g, '_').slice(-60);
+      const ruta = `evidence/${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}_${seguro}`;
+      const { error } = await supabase.storage.from('hr-docs')
+        .upload(ruta, file, { contentType: file.type || 'application/octet-stream', upsert: false });
+      if (error) throw error;
+      setEvidenceFilePath(`${SUPABASE_URL}/storage/v1/object/public/hr-docs/${ruta}`);
+    } catch (e) {
+      console.error('Evidencia → Storage:', e);
+      alert('❌ Error al subir comprobante: ' + (e.message || 'revisa tu conexión.'));
     } finally {
       setIsUploadingEvidence(false);
     }
