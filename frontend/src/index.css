@@ -65,3 +65,30 @@
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   IMPRESIÓN DEL COMPROBANTE (2026-09-09): el botón 🖨 del Visualizador
+   de Evidencia imprime SOLO el recibo — completo (sin recorte por el
+   scroll interno), sin fondos oscuros y sin controles de edición.
+   También sirve para "Guardar como PDF" desde el diálogo del navegador.
+   ══════════════════════════════════════════════════════════════════ */
+@media print {
+  body * { visibility: hidden !important; }
+  .print-area, .print-area * { visibility: visible !important; }
+  .print-area {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    max-width: 640px !important;
+    max-height: none !important;
+    box-shadow: none !important;
+    margin: 0 auto !important;
+  }
+  .print-area > div { overflow: visible !important; max-height: none !important; }
+  /* Los controles de edición no pertenecen al papel */
+  .print-area button,
+  .print-area input,
+  .print-area select,
+  .print-area textarea,
+  .print-area .border-dashed { display: none !important; }
+}

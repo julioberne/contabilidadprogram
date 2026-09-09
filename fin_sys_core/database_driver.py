@@ -693,7 +693,7 @@ def obtener_transacciones(portfolio_name: Optional[str] = None, limit: Optional[
             t.tax_iva_amount, t.tax_gmf_amount, t.net_value, t.geo_maps_link, t.evidence_file_path,
             t.account_id, t.dest_account_id, t.trm, t.transaction_currency, t.is_recurring,
             t.recurrence_interval, t.recurrence_days, t.recurrence_max_reps, t.recurrence_start_date, t.recurrence_end_date,
-            t.tags,
+            t.tags, t.note,
             (SELECT COALESCE(json_agg(ev.file_path ORDER BY ev.id), '[]'::json)
                FROM transaction_evidences ev
               WHERE ev.transaction_id = t.id) AS evidences,
@@ -814,7 +814,7 @@ def actualizar_transaccion(tx_id: int, update_data: Dict[str, Any]) -> bool:
         # 2. Actualizar datos en transactions
         tx_fields = []
         tx_params = []
-        for col in ["type", "amount", "concept", "transaction_date", "payment_method", "category", "net_value", "account_id", "dest_account_id", "trm", "transaction_currency", "is_recurring", "recurrence_interval", "recurrence_days", "recurrence_max_reps", "recurrence_start_date", "recurrence_end_date", "third_party_id", "geo_maps_link", "tags"]:
+        for col in ["type", "amount", "concept", "transaction_date", "payment_method", "category", "net_value", "account_id", "dest_account_id", "trm", "transaction_currency", "is_recurring", "recurrence_interval", "recurrence_days", "recurrence_max_reps", "recurrence_start_date", "recurrence_end_date", "third_party_id", "geo_maps_link", "tags", "note"]:
             if col in update_data and update_data[col] is not None:
                 tx_fields.append(f"{col} = %s")
                 tx_params.append(update_data[col])

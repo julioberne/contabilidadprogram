@@ -28,9 +28,12 @@ export default function EvidenceModal({
   const [editTags, setEditTags] = React.useState(false);
   const [tagsDefs, setTagsDefs] = React.useState(null);
   const [tagsSel, setTagsSel] = React.useState([]);
+  // 📝 Nota breve del comprobante (opcional, máx. 280)
+  const [editNota, setEditNota] = React.useState(false);
+  const [notaTxt, setNotaTxt] = React.useState('');
   React.useEffect(() => {
     setParche({}); setEditTp(false); setTpSel(''); setTpBusca('');
-    setGeoInput(''); setEditTags(false);
+    setGeoInput(''); setEditTags(false); setEditNota(false);
   }, [selectedEvidenceTx?.id]);
 
   const txv = { ...(selectedEvidenceTx || {}), ...parche };
@@ -187,6 +190,24 @@ export default function EvidenceModal({
     }
   };
 
+  const guardarNota = async () => {
+    setGuardando(true);
+    try {
+      const r = await fetch(`${API}/transactions/${txv.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note: notaTxt.trim().slice(0, 280) }),
+      });
+      if (!r.ok) throw new Error('No se pudo guardar la nota');
+      setParche(p => ({ ...p, note: notaTxt.trim().slice(0, 280) }));
+      setEditNota(false);
+      fetchAll?.(true);
+    } catch (e) {
+      alert('❌ ' + (e.message || 'Error guardando.'));
+    } finally {
+      setGuardando(false);
+    }
+  };
+
   const guardarGeo = async () => {
     const link = (geoInput || '').trim();
     if (!link) return;
@@ -227,16 +248,25 @@ export default function EvidenceModal({
          onClick={onClose}>
       {/* El recibo NUNCA supera la pantalla: alto máximo 94vh con scroll
           INTERNO — el encabezado con CERRAR queda siempre visible. */}
-      <div className="bg-white border-2 border-black p-2 max-w-lg w-full shadow-brutal font-mono flex flex-col max-h-[94vh]"
+      <div className="print-area bg-white border-2 border-black p-2 max-w-lg w-full shadow-brutal font-mono flex flex-col max-h-[94vh]"
            onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-between items-center border-b-2 border-black pb-1 mb-2 shrink-0">
           <span className="text-sm font-bold uppercase">📂 Visualizador de Evidencia</span>
-          <button
-            onClick={onClose}
-            className="bg-brutalCrimson text-white border border-black px-2 py-0.5 font-bold uppercase hover:bg-black"
-          >
-            Cerrar [X]
-          </button>
+          <div className="flex gap-1">
+            <button
+              onClick={() => window.print()}
+              title="Imprimir el comprobante (o guardarlo como PDF desde el diálogo)"
+              className="bg-black text-white border border-black px-2 py-0.5 font-bold uppercase hover:bg-brutalGreen hover:text-black"
+            >
+              🖨 Imprimir
+            </button>
+            <button
+              onClick={onClose}
+              className="bg-brutalCrimson text-white border border-black px-2 py-0.5 font-bold uppercase hover:bg-black"
+            >
+              Cerrar [X]
+            </button>
+          </div>
         </div>
 
         {selectedEvidenceTx ? (
@@ -502,6 +532,38 @@ export default function EvidenceModal({
                       </button>
                       <button onClick={() => setEditTags(false)}
                               className="px-2 border border-black bg-white text-[9px] font-bold uppercase hover:bg-black hover:text-white">✕</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 📝 Nota breve del comprobante (opcional, máx. 280) */}
+              <div className="border-b border-black pb-2">
+                <span className="font-bold text-gray-500 block text-[9px] mb-1">
+                  📝 NOTA:
+                  <button onClick={() => { setEditNota(v => !v); setNotaTxt(txv.note || ''); }}
+                          title="Escribir o editar una breve descripción (opcional)"
+                          className="ml-1.5 px-1 border border-black bg-white text-black text-[9px] font-bold hover:bg-black hover:text-white">✎</button>
+                </span>
+                {!editNota && (
+                  txv.note
+                    ? <div className="text-[10px] normal-case leading-snug whitespace-pre-wrap">{txv.note}</div>
+                    : <span className="text-[9px] text-gray-400">— sin nota —</span>
+                )}
+                {editNota && (
+                  <div className="border-2 border-dashed border-black bg-yellow-50 p-2 space-y-1 normal-case">
+                    <textarea value={notaTxt} maxLength={280} rows={3}
+                              onChange={e => setNotaTxt(e.target.value)}
+                              placeholder="Breve descripción u observación (opcional)…"
+                              className="w-full border border-black px-1 py-0.5 text-[10px] bg-white resize-none" />
+                    <div className="flex items-center gap-1">
+                      <button onClick={guardarNota} disabled={guardando}
+                              className="flex-1 bg-black text-white border border-black py-0.5 text-[9px] font-bold uppercase hover:bg-brutalGreen hover:text-black disabled:opacity-40">
+                        {guardando ? 'Guardando…' : '💾 Guardar nota'}
+                      </button>
+                      <button onClick={() => setEditNota(false)}
+                              className="px-2 border border-black bg-white text-[9px] font-bold uppercase hover:bg-black hover:text-white">✕</button>
+                      <span className="text-[8px] text-gray-500">{notaTxt.length}/280</span>
                     </div>
                   </div>
                 )}

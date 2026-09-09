@@ -137,6 +137,8 @@ class TransactionUpdateInput(BaseModel):
     third_party_id: Optional[int] = None
     geo_maps_link: Optional[str] = None
     tags: Optional[List[str]] = None
+    # Nota breve del comprobante (opcional, solo texto)
+    note: Optional[str] = Field(None, max_length=280)
     
     # Módulo de Cuentas
     account_id: Optional[int] = None
