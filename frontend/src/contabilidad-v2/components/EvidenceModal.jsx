@@ -19,23 +19,64 @@ export default function EvidenceModal({
   const [editTp, setEditTp] = React.useState(false);
   const [terceros, setTerceros] = React.useState(null);
   const [tpSel, setTpSel] = React.useState('');
-  const [tpForm, setTpForm] = React.useState({ phone: '', email: '', address: '' });
+  const [tpBusca, setTpBusca] = React.useState('');
+  const [tpForm, setTpForm] = React.useState({ phone: '', email: '', address: '',
+    identification_type: 'NIT', identification_number: '' });
   const [geoInput, setGeoInput] = React.useState('');
   const [guardando, setGuardando] = React.useState(false);
+  // 🏷️ Edición de etiquetas de la TX (fuente: tag_definitions del módulo web)
+  const [editTags, setEditTags] = React.useState(false);
+  const [tagsDefs, setTagsDefs] = React.useState(null);
+  const [tagsSel, setTagsSel] = React.useState([]);
   React.useEffect(() => {
-    setParche({}); setEditTp(false); setTpSel(''); setGeoInput('');
+    setParche({}); setEditTp(false); setTpSel(''); setTpBusca('');
+    setGeoInput(''); setEditTags(false);
   }, [selectedEvidenceTx?.id]);
 
   const txv = { ...(selectedEvidenceTx || {}), ...parche };
 
   const abrirEdicionTp = async () => {
     setEditTp(v => !v);
-    setTpForm({ phone: txv.tp_phone || '', email: txv.tp_email || '', address: txv.tp_address || '' });
+    setTpForm({ phone: txv.tp_phone || '', email: txv.tp_email || '', address: txv.tp_address || '',
+      identification_type: txv.identification_type || 'NIT',
+      identification_number: (txv.identification_number && txv.identification_number !== '999999999')
+        ? txv.identification_number : '' });
+    // UNA sola petición: el buscador filtra EN MEMORIA (cero requests por
+    // tecla — con miles de terceros sigue siendo instantáneo).
     if (terceros === null) {
       try {
         const r = await fetch(`${API}/third-parties`);
         if (r.ok) setTerceros(await r.json());
       } catch { setTerceros([]); }
+    }
+  };
+
+  const abrirEdicionTags = async () => {
+    setEditTags(v => !v);
+    setTagsSel([...(txv.tags || [])]);
+    if (tagsDefs === null) {
+      try {
+        const r = await fetch(`${API}/tags`);
+        if (r.ok) setTagsDefs(await r.json());
+      } catch { setTagsDefs([]); }
+    }
+  };
+
+  const guardarTags = async () => {
+    setGuardando(true);
+    try {
+      const r = await fetch(`${API}/transactions/${txv.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags: tagsSel }),
+      });
+      if (!r.ok) throw new Error('No se pudieron guardar las etiquetas');
+      setParche(p => ({ ...p, tags: [...tagsSel] }));
+      setEditTags(false);
+      fetchAll?.(true);
+    } catch (e) {
+      alert('❌ ' + (e.message || 'Error guardando.'));
+    } finally {
+      setGuardando(false);
     }
   };
 
@@ -54,10 +95,14 @@ export default function EvidenceModal({
           identification_type: t.identification_type, identification_number: t.identification_number,
           tp_phone: t.phone, tp_email: t.email, tp_address: t.address }));
       } else if (txv.third_party_id) {
-        // Completar contacto del tercero actual (módulo de Terceros = fuente)
+        // Completar contacto E IDENTIFICACIÓN del tercero actual
+        // (módulo de Terceros = fuente de la verdad)
         const cuerpo = {};
-        for (const k of ['phone', 'email', 'address']) {
+        for (const k of ['phone', 'email', 'address', 'identification_number']) {
           if ((tpForm[k] || '').trim()) cuerpo[k] = tpForm[k].trim();
+        }
+        if (cuerpo.identification_number) {
+          cuerpo.identification_type = tpForm.identification_type || 'NIT';
         }
         if (Object.keys(cuerpo).length) {
           const r = await fetch(`${API}/third-parties/${txv.third_party_id}`, {
@@ -66,7 +111,9 @@ export default function EvidenceModal({
           });
           if (!r.ok) throw new Error('No se pudo actualizar el tercero');
           setParche(p => ({ ...p, tp_phone: cuerpo.phone ?? txv.tp_phone,
-            tp_email: cuerpo.email ?? txv.tp_email, tp_address: cuerpo.address ?? txv.tp_address }));
+            tp_email: cuerpo.email ?? txv.tp_email, tp_address: cuerpo.address ?? txv.tp_address,
+            identification_number: cuerpo.identification_number ?? txv.identification_number,
+            identification_type: cuerpo.identification_type ?? txv.identification_type }));
         }
       }
       setEditTp(false);
@@ -211,28 +258,49 @@ export default function EvidenceModal({
                     {txv.tp_address && <div>🏠 {txv.tp_address}</div>}
                   </div>
                 )}
-                {editTp && (
+                {editTp && (() => {
+                  const q = tpBusca.trim().toLowerCase();
+                  const filtrados = (terceros || []).filter(t => !q
+                    || (t.name || '').toLowerCase().includes(q)
+                    || String(t.identification_number || '').includes(q));
+                  const visibles = filtrados.slice(0, 30);
+                  return (
                   <div className="border-2 border-dashed border-black bg-yellow-50 p-2 space-y-1 normal-case">
                     <div className="text-[9px] font-bold uppercase">Vincular a un tercero YA registrado:</div>
-                    <select value={tpSel} onChange={e => setTpSel(e.target.value)}
+                    <input value={tpBusca} onChange={e => { setTpBusca(e.target.value); setTpSel(''); }}
+                           placeholder="🔍 Buscar por nombre o número… (filtra al instante, sin peticiones)"
+                           className="w-full border border-black px-1 py-0.5 text-[10px] bg-white" />
+                    <select value={tpSel} onChange={e => setTpSel(e.target.value)} size={Math.min(Math.max(visibles.length + 1, 2), 5)}
                             className="w-full border border-black px-1 py-0.5 text-[10px] bg-white">
                       <option value="">— mantener el actual —</option>
-                      {(terceros || []).map(t => (
+                      {visibles.map(t => (
                         <option key={t.id} value={t.id}>
                           {t.name} ({t.identification_type} {t.identification_number})
                         </option>
                       ))}
                     </select>
+                    {filtrados.length > 30 && (
+                      <div className="text-[8px] text-gray-500">Mostrando 30 de {filtrados.length} — afina la búsqueda</div>
+                    )}
                     {!tpSel && (
                       <>
-                        <div className="text-[9px] font-bold uppercase pt-1">…o completar el contacto del actual:</div>
-                        <div className="grid grid-cols-2 gap-1">
+                        <div className="text-[9px] font-bold uppercase pt-1">…o completar datos del actual:</div>
+                        <div className="grid grid-cols-3 gap-1">
+                          <select value={tpForm.identification_type}
+                                  onChange={e => setTpForm(f => ({ ...f, identification_type: e.target.value }))}
+                                  className="border border-black px-1 py-0.5 text-[10px] bg-white">
+                            <option value="NIT">NIT</option>
+                            <option value="CC">CC</option>
+                          </select>
+                          <input value={tpForm.identification_number}
+                                 onChange={e => setTpForm(f => ({ ...f, identification_number: e.target.value }))}
+                                 placeholder="Nº identificación" className="col-span-2 border border-black px-1 py-0.5 text-[10px]" />
                           <input value={tpForm.phone} onChange={e => setTpForm(f => ({ ...f, phone: e.target.value }))}
                                  placeholder="Teléfono" className="border border-black px-1 py-0.5 text-[10px]" />
                           <input value={tpForm.email} onChange={e => setTpForm(f => ({ ...f, email: e.target.value }))}
-                                 placeholder="Correo" className="border border-black px-1 py-0.5 text-[10px]" />
+                                 placeholder="Correo" className="col-span-2 border border-black px-1 py-0.5 text-[10px]" />
                           <input value={tpForm.address} onChange={e => setTpForm(f => ({ ...f, address: e.target.value }))}
-                                 placeholder="Dirección" className="col-span-2 border border-black px-1 py-0.5 text-[10px]" />
+                                 placeholder="Dirección" className="col-span-3 border border-black px-1 py-0.5 text-[10px]" />
                         </div>
                       </>
                     )}
@@ -245,7 +313,8 @@ export default function EvidenceModal({
                               className="px-2 border border-black bg-white text-[9px] font-bold uppercase hover:bg-black hover:text-white">✕</button>
                     </div>
                   </div>
-                )}
+                  );
+                })()}
               </div>
 
               <div className="space-y-1 border-b border-black pb-2">
@@ -324,17 +393,49 @@ export default function EvidenceModal({
                 </div>
               )}
 
-              {/* Etiquetas asignadas (2026-09-08) */}
-              {txv.tags && txv.tags.length > 0 && (
-                <div className="border-b border-black pb-2">
-                  <span className="font-bold text-gray-500 block text-[9px] mb-1">🏷️ ETIQUETAS:</span>
-                  <div className="flex flex-wrap gap-1">
-                    {txv.tags.map(tag => (
-                      <span key={tag} className="bg-black text-white px-1.5 py-0.5 text-[9px] font-bold uppercase border border-black">{tag}</span>
-                    ))}
-                  </div>
+              {/* Etiquetas asignadas — editables desde el comprobante (2026-09-09) */}
+              <div className="border-b border-black pb-2">
+                <span className="font-bold text-gray-500 block text-[9px] mb-1">
+                  🏷️ ETIQUETAS:
+                  <button onClick={abrirEdicionTags} title="Poner o quitar etiquetas de esta transacción"
+                          className="ml-1.5 px-1 border border-black bg-white text-black text-[9px] font-bold hover:bg-black hover:text-white">✎</button>
+                </span>
+                <div className="flex flex-wrap gap-1">
+                  {(txv.tags || []).map(tag => (
+                    <span key={tag} className="bg-black text-white px-1.5 py-0.5 text-[9px] font-bold uppercase border border-black">{tag}</span>
+                  ))}
+                  {!(txv.tags || []).length && <span className="text-[9px] text-gray-400">— sin etiquetas —</span>}
                 </div>
-              )}
+                {editTags && (
+                  <div className="border-2 border-dashed border-black bg-yellow-50 p-2 mt-1 space-y-1 normal-case">
+                    <div className="text-[9px] font-bold uppercase">Toca para poner/quitar (módulo 🏷️ = fuente):</div>
+                    <div className="flex flex-wrap gap-1">
+                      {(tagsDefs || []).map(t => {
+                        const nombre = String(t.name || '').trim();
+                        const puesta = tagsSel.includes(nombre);
+                        return (
+                          <button key={t.id}
+                                  onClick={() => setTagsSel(s => puesta ? s.filter(x => x !== nombre) : [...s, nombre])}
+                                  className={`px-1.5 py-0.5 text-[9px] font-bold uppercase border border-black ${puesta ? 'bg-black text-white' : 'bg-white text-black hover:bg-brutalNeutral'}`}>
+                            {puesta ? '✓ ' : ''}{nombre}
+                          </button>
+                        );
+                      })}
+                      {tagsDefs !== null && !tagsDefs.length && (
+                        <span className="text-[9px] text-gray-500">No hay etiquetas creadas — créalas en el módulo 🏷️ TAGS.</span>
+                      )}
+                    </div>
+                    <div className="flex gap-1 pt-1">
+                      <button onClick={guardarTags} disabled={guardando}
+                              className="flex-1 bg-black text-white border border-black py-0.5 text-[9px] font-bold uppercase hover:bg-brutalGreen hover:text-black disabled:opacity-40">
+                        {guardando ? 'Guardando…' : '💾 Guardar etiquetas'}
+                      </button>
+                      <button onClick={() => setEditTags(false)}
+                              className="px-2 border border-black bg-white text-[9px] font-bold uppercase hover:bg-black hover:text-white">✕</button>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {/* Auditor / Issuer Information */}
               <div className="border-b border-black pb-2 flex justify-between text-[10px] font-bold uppercase">

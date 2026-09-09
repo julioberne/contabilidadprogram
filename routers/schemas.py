@@ -132,9 +132,11 @@ class TransactionUpdateInput(BaseModel):
     third_party_name: Optional[str] = None
     identification_number: Optional[str] = None
     # Edición desde el comprobante (2026-09-09): revincular la TX a un
-    # tercero YA registrado, y completar la geolocalización faltante.
+    # tercero YA registrado, completar la geolocalización faltante y
+    # modificar las etiquetas.
     third_party_id: Optional[int] = None
     geo_maps_link: Optional[str] = None
+    tags: Optional[List[str]] = None
     
     # Módulo de Cuentas
     account_id: Optional[int] = None

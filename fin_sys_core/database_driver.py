@@ -814,7 +814,7 @@ def actualizar_transaccion(tx_id: int, update_data: Dict[str, Any]) -> bool:
         # 2. Actualizar datos en transactions
         tx_fields = []
         tx_params = []
-        for col in ["type", "amount", "concept", "transaction_date", "payment_method", "category", "net_value", "account_id", "dest_account_id", "trm", "transaction_currency", "is_recurring", "recurrence_interval", "recurrence_days", "recurrence_max_reps", "recurrence_start_date", "recurrence_end_date", "third_party_id", "geo_maps_link"]:
+        for col in ["type", "amount", "concept", "transaction_date", "payment_method", "category", "net_value", "account_id", "dest_account_id", "trm", "transaction_currency", "is_recurring", "recurrence_interval", "recurrence_days", "recurrence_max_reps", "recurrence_start_date", "recurrence_end_date", "third_party_id", "geo_maps_link", "tags"]:
             if col in update_data and update_data[col] is not None:
                 tx_fields.append(f"{col} = %s")
                 tx_params.append(update_data[col])
