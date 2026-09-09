@@ -20,7 +20,7 @@ export default function EvidenceModal({
   const [terceros, setTerceros] = React.useState(null);
   const [tpSel, setTpSel] = React.useState('');
   const [tpBusca, setTpBusca] = React.useState('');
-  const [tpForm, setTpForm] = React.useState({ phone: '', email: '', address: '',
+  const [tpForm, setTpForm] = React.useState({ name: '', phone: '', email: '', address: '',
     identification_type: 'NIT', identification_number: '' });
   const [geoInput, setGeoInput] = React.useState('');
   const [guardando, setGuardando] = React.useState(false);
@@ -35,9 +35,17 @@ export default function EvidenceModal({
 
   const txv = { ...(selectedEvidenceTx || {}), ...parche };
 
+  // El tercero genérico ("Sin especificar" / 999999999) lo COMPARTEN muchas
+  // transacciones: jamás se renombra — al ponerle nombre se crea uno NUEVO
+  // vinculado solo a esta TX.
+  const esGenerico = String(txv.identification_number) === '999999999'
+    || /sin especificar/i.test(txv.third_party_name || '');
+
   const abrirEdicionTp = async () => {
     setEditTp(v => !v);
-    setTpForm({ phone: txv.tp_phone || '', email: txv.tp_email || '', address: txv.tp_address || '',
+    setTpForm({
+      name: esGenerico ? '' : (txv.third_party_name || ''),
+      phone: txv.tp_phone || '', email: txv.tp_email || '', address: txv.tp_address || '',
       identification_type: txv.identification_type || 'NIT',
       identification_number: (txv.identification_number && txv.identification_number !== '999999999')
         ? txv.identification_number : '' });
@@ -94,13 +102,47 @@ export default function EvidenceModal({
         setParche(p => ({ ...p, third_party_id: t.id, third_party_name: t.name,
           identification_type: t.identification_type, identification_number: t.identification_number,
           tp_phone: t.phone, tp_email: t.email, tp_address: t.address }));
+      } else if (esGenerico && (tpForm.name || '').trim()) {
+        // El actual es el genérico compartido: se CREA un tercero nuevo con
+        // lo escrito y se vincula SOLO esta transacción (renombrar al
+        // genérico cambiaría todas las TXs "Sin especificar").
+        const rc = await fetch(`${API}/third-parties`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: tpForm.name.trim(),
+            identification_type: tpForm.identification_type || 'NIT',
+            identification_number: (tpForm.identification_number || '').trim() || '999999999',
+          }),
+        });
+        if (!rc.ok) throw new Error('No se pudo crear el tercero');
+        const nuevo = await rc.json();
+        const contacto = {};
+        for (const k of ['phone', 'email', 'address']) {
+          if ((tpForm[k] || '').trim()) contacto[k] = tpForm[k].trim();
+        }
+        if (Object.keys(contacto).length) {
+          await fetch(`${API}/third-parties/${nuevo.id}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(contacto),
+          });
+        }
+        const rv = await fetch(`${API}/transactions/${txv.id}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ third_party_id: nuevo.id }),
+        });
+        if (!rv.ok) throw new Error('Tercero creado pero no se pudo vincular');
+        setParche(p => ({ ...p, third_party_id: nuevo.id, third_party_name: tpForm.name.trim(),
+          identification_type: tpForm.identification_type || 'NIT',
+          identification_number: (tpForm.identification_number || '').trim() || '999999999',
+          tp_phone: contacto.phone, tp_email: contacto.email, tp_address: contacto.address }));
       } else if (txv.third_party_id) {
-        // Completar contacto E IDENTIFICACIÓN del tercero actual
+        // Completar NOMBRE, contacto e identificación del tercero actual
         // (módulo de Terceros = fuente de la verdad)
         const cuerpo = {};
-        for (const k of ['phone', 'email', 'address', 'identification_number']) {
+        for (const k of ['name', 'phone', 'email', 'address', 'identification_number']) {
           if ((tpForm[k] || '').trim()) cuerpo[k] = tpForm[k].trim();
         }
+        if (cuerpo.name && cuerpo.name === (txv.third_party_name || '').trim()) delete cuerpo.name;
         if (cuerpo.identification_number) {
           cuerpo.identification_type = tpForm.identification_type || 'NIT';
         }
@@ -110,7 +152,8 @@ export default function EvidenceModal({
             body: JSON.stringify(cuerpo),
           });
           if (!r.ok) throw new Error('No se pudo actualizar el tercero');
-          setParche(p => ({ ...p, tp_phone: cuerpo.phone ?? txv.tp_phone,
+          setParche(p => ({ ...p, third_party_name: cuerpo.name ?? txv.third_party_name,
+            tp_phone: cuerpo.phone ?? txv.tp_phone,
             tp_email: cuerpo.email ?? txv.tp_email, tp_address: cuerpo.address ?? txv.tp_address,
             identification_number: cuerpo.identification_number ?? txv.identification_number,
             identification_type: cuerpo.identification_type ?? txv.identification_type }));
@@ -285,7 +328,15 @@ export default function EvidenceModal({
                     {!tpSel && (
                       <>
                         <div className="text-[9px] font-bold uppercase pt-1">…o completar datos del actual:</div>
+                        {esGenerico && (
+                          <div className="text-[8px] text-amber-700 leading-snug">
+                            El actual es "Sin especificar" (genérico compartido): al guardar con
+                            nombre se creará un tercero NUEVO solo para esta transacción.
+                          </div>
+                        )}
                         <div className="grid grid-cols-3 gap-1">
+                          <input value={tpForm.name} onChange={e => setTpForm(f => ({ ...f, name: e.target.value }))}
+                                 placeholder="Nombre / Razón Social" className="col-span-3 border border-black px-1 py-0.5 text-[10px]" />
                           <select value={tpForm.identification_type}
                                   onChange={e => setTpForm(f => ({ ...f, identification_type: e.target.value }))}
                                   className="border border-black px-1 py-0.5 text-[10px] bg-white">
