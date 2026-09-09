@@ -423,7 +423,7 @@ def update_third_party(tp_id: int, body: dict):
             identification_type=body.get("identification_type"),
             identification_number=body.get("identification_number"),
             email=body.get("email"), phone=body.get("phone"),
-            website=body.get("website")
+            website=body.get("website"), address=body.get("address")
         )
         return {"status": "OK", "updated": result}
     except Exception as e:

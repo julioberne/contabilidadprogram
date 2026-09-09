@@ -699,6 +699,7 @@ def obtener_transacciones(portfolio_name: Optional[str] = None, limit: Optional[
               WHERE ev.transaction_id = t.id) AS evidences,
             p.name as portfolio_name, p.industry_type as portfolio_industry, p.sub_industry_type as portfolio_sub_industry,
             tp.identification_type, tp.identification_number, tp.name as third_party_name,
+            tp.id as third_party_id, tp.email as tp_email, tp.phone as tp_phone, tp.address as tp_address,
             a.name as account_name,
             da.name as dest_account_name,
             cxc.type as cxc_type, cxc.due_date as cxc_due_date, cxc.term as cxc_term, cxc.status as cxc_status,
@@ -813,7 +814,7 @@ def actualizar_transaccion(tx_id: int, update_data: Dict[str, Any]) -> bool:
         # 2. Actualizar datos en transactions
         tx_fields = []
         tx_params = []
-        for col in ["type", "amount", "concept", "transaction_date", "payment_method", "category", "net_value", "account_id", "dest_account_id", "trm", "transaction_currency", "is_recurring", "recurrence_interval", "recurrence_days", "recurrence_max_reps", "recurrence_start_date", "recurrence_end_date"]:
+        for col in ["type", "amount", "concept", "transaction_date", "payment_method", "category", "net_value", "account_id", "dest_account_id", "trm", "transaction_currency", "is_recurring", "recurrence_interval", "recurrence_days", "recurrence_max_reps", "recurrence_start_date", "recurrence_end_date", "third_party_id", "geo_maps_link"]:
             if col in update_data and update_data[col] is not None:
                 tx_fields.append(f"{col} = %s")
                 tx_params.append(update_data[col])
@@ -1709,9 +1710,13 @@ def eliminar_custom_tax(tax_id: int) -> bool:
 
 def actualizar_tercero(tp_id: int, name: str = None, identification_type: str = None,
                        identification_number: str = None, email: str = None,
-                       phone: str = None, website: str = None) -> bool:
+                       phone: str = None, website: str = None,
+                       address: str = None) -> bool:
     """Actualiza un tercero existente."""
     sets, params = [], []
+    if address is not None:
+        sets.append("address = %s")
+        params.append(address)
     if name is not None:
         sets.append("name = %s")
         params.append(name.strip())

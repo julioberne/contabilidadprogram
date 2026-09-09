@@ -1,5 +1,10 @@
 // EvidenceModal.jsx — Extracted from App.jsx (Lines 1696-1976)
+// 2026-09-09 (pedido de Andrés): el comprobante es un AUDITOR ACTIVO — los
+// datos pendientes que él mismo señala se completan aquí mismo (revincular
+// tercero registrado, completar su contacto, pegar la geolocalización).
 import React from 'react';
+import { API } from '../../config';
+import { useEmpresa } from '../engine/EmpresaProvider.jsx';
 
 export default function EvidenceModal({
   evidenceUrl,
@@ -7,6 +12,91 @@ export default function EvidenceModal({
   onClose,
   profile,
 }) {
+  const { fetchAll } = useEmpresa();
+  // Parche local: lo corregido se refleja al instante sin cerrar el modal
+  // (el refresco global corre en segundo plano).
+  const [parche, setParche] = React.useState({});
+  const [editTp, setEditTp] = React.useState(false);
+  const [terceros, setTerceros] = React.useState(null);
+  const [tpSel, setTpSel] = React.useState('');
+  const [tpForm, setTpForm] = React.useState({ phone: '', email: '', address: '' });
+  const [geoInput, setGeoInput] = React.useState('');
+  const [guardando, setGuardando] = React.useState(false);
+  React.useEffect(() => {
+    setParche({}); setEditTp(false); setTpSel(''); setGeoInput('');
+  }, [selectedEvidenceTx?.id]);
+
+  const txv = { ...(selectedEvidenceTx || {}), ...parche };
+
+  const abrirEdicionTp = async () => {
+    setEditTp(v => !v);
+    setTpForm({ phone: txv.tp_phone || '', email: txv.tp_email || '', address: txv.tp_address || '' });
+    if (terceros === null) {
+      try {
+        const r = await fetch(`${API}/third-parties`);
+        if (r.ok) setTerceros(await r.json());
+      } catch { setTerceros([]); }
+    }
+  };
+
+  const guardarTercero = async () => {
+    setGuardando(true);
+    try {
+      if (tpSel && Number(tpSel) !== txv.third_party_id) {
+        // Revincular la transacción a un tercero YA registrado
+        const r = await fetch(`${API}/transactions/${txv.id}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ third_party_id: Number(tpSel) }),
+        });
+        if (!r.ok) throw new Error('No se pudo revincular el tercero');
+        const t = (terceros || []).find(x => x.id === Number(tpSel)) || {};
+        setParche(p => ({ ...p, third_party_id: t.id, third_party_name: t.name,
+          identification_type: t.identification_type, identification_number: t.identification_number,
+          tp_phone: t.phone, tp_email: t.email, tp_address: t.address }));
+      } else if (txv.third_party_id) {
+        // Completar contacto del tercero actual (módulo de Terceros = fuente)
+        const cuerpo = {};
+        for (const k of ['phone', 'email', 'address']) {
+          if ((tpForm[k] || '').trim()) cuerpo[k] = tpForm[k].trim();
+        }
+        if (Object.keys(cuerpo).length) {
+          const r = await fetch(`${API}/third-parties/${txv.third_party_id}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(cuerpo),
+          });
+          if (!r.ok) throw new Error('No se pudo actualizar el tercero');
+          setParche(p => ({ ...p, tp_phone: cuerpo.phone ?? txv.tp_phone,
+            tp_email: cuerpo.email ?? txv.tp_email, tp_address: cuerpo.address ?? txv.tp_address }));
+        }
+      }
+      setEditTp(false);
+      fetchAll?.(true);
+    } catch (e) {
+      alert('❌ ' + (e.message || 'Error guardando.'));
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  const guardarGeo = async () => {
+    const link = (geoInput || '').trim();
+    if (!link) return;
+    setGuardando(true);
+    try {
+      const r = await fetch(`${API}/transactions/${txv.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ geo_maps_link: link }),
+      });
+      if (!r.ok) throw new Error('No se pudo guardar la ubicación');
+      setParche(p => ({ ...p, geo_maps_link: link }));
+      setGeoInput('');
+      fetchAll?.(true);
+    } catch (e) {
+      alert('❌ ' + (e.message || 'Error guardando.'));
+    } finally {
+      setGuardando(false);
+    }
+  };
   // El archivo puede NO existir en este entorno: la BD es compartida
   // local↔prod pero /uploads es disco local de cada uno (2026-09-08).
   // Antes un placeholder negro "EVIDENCIA FÍSICA" tapaba el error.
@@ -48,14 +138,14 @@ export default function EvidenceModal({
                 *** CERTIFICADO / RECIBO DE CAJA ***
                 <br />
                 <span className="text-[11px] font-black uppercase text-blue-600 block mt-1">
-                  🏢 EMPRESA: {selectedEvidenceTx.portfolio_name || "ESTÁNDAR"}
+                  🏢 EMPRESA: {txv.portfolio_name || "ESTÁNDAR"}
                 </span>
                 <span className="text-[9px] font-bold text-gray-500 block mb-1">
-                  💼 SECTOR: {selectedEvidenceTx.portfolio_industry || "ESTÁNDAR"}
-                  {selectedEvidenceTx.portfolio_sub_industry ? ` (${selectedEvidenceTx.portfolio_sub_industry})` : ""}
+                  💼 SECTOR: {txv.portfolio_industry || "ESTÁNDAR"}
+                  {txv.portfolio_sub_industry ? ` (${txv.portfolio_sub_industry})` : ""}
                 </span>
                 <span className="text-[9px] text-gray-400 font-normal block">AUDITORÍA ACTIVA SUPABASE POSTGRES</span>
-                <span className="text-[10px] bg-black text-white px-2 py-0.5 mt-1.5 inline-block">ID TX: #{selectedEvidenceTx.id}</span>
+                <span className="text-[10px] bg-black text-white px-2 py-0.5 mt-1.5 inline-block">ID TX: #{txv.id}</span>
               </div>
               
               <div className="grid grid-cols-2 gap-2 border-b border-black pb-2">
@@ -63,37 +153,37 @@ export default function EvidenceModal({
                   <span className="font-bold text-gray-500 block text-[9px]">TIPO OPERACIÓN:</span>
                   <div className="mt-1">
                     <span className={`px-2 py-0.5 border border-black font-extrabold text-[10px] ${
-                      selectedEvidenceTx.type === "INGRESO" 
+                      txv.type === "INGRESO" 
                         ? "bg-brutalGreen text-black" 
-                        : selectedEvidenceTx.type === "GASTO" 
+                        : txv.type === "GASTO" 
                           ? "bg-brutalCrimson text-white" 
                           : "bg-black text-white"
                     }`}>
-                      {selectedEvidenceTx.type}
+                      {txv.type}
                     </span>
                   </div>
                 </div>
                 <div>
                   <span className="font-bold text-gray-500 block text-[9px]">FECHA REGISTRO:</span>
-                  <div className="mt-1 font-bold">{selectedEvidenceTx.transaction_date}</div>
+                  <div className="mt-1 font-bold">{txv.transaction_date}</div>
                 </div>
               </div>
 
               <div className="space-y-1.5 border-b border-black pb-2">
                 <div className="flex justify-between">
                   <span className="font-bold text-gray-500">CONCEPTO:</span>
-                  <span className="font-bold text-right break-all max-w-[200px]">{selectedEvidenceTx.concept}</span>
+                  <span className="font-bold text-right break-all max-w-[200px]">{txv.concept}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="font-bold text-gray-500">CUENTA COA:</span>
-                  <span className="font-bold text-blue-600">{selectedEvidenceTx.category || "SIN ASIGNAR"}</span>
+                  <span className="font-bold text-blue-600">{txv.category || "SIN ASIGNAR"}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="font-bold text-gray-500">MEDIO DE PAGO:</span>
                   <span className="font-bold">
-                    {selectedEvidenceTx.type === "TRANSFERENCIA" 
-                      ? `${selectedEvidenceTx.account_name || selectedEvidenceTx.payment_method || "EFECTIVO"} ➜ ${selectedEvidenceTx.dest_account_name || "?"}`
-                      : (selectedEvidenceTx.account_name || selectedEvidenceTx.payment_method || "EFECTIVO")
+                    {txv.type === "TRANSFERENCIA" 
+                      ? `${txv.account_name || txv.payment_method || "EFECTIVO"} ➜ ${txv.dest_account_name || "?"}`
+                      : (txv.account_name || txv.payment_method || "EFECTIVO")
                     }
                   </span>
                 </div>
@@ -102,86 +192,132 @@ export default function EvidenceModal({
               <div className="space-y-1.5 border-b border-black pb-2">
                 <div className="flex justify-between text-[11px]">
                   <span className="font-bold text-gray-500">PERSONA (TERCERO):</span>
-                  <span className="font-bold text-right">{selectedEvidenceTx.third_party_name || "N/A"}</span>
+                  <span className="font-bold text-right">
+                    {txv.third_party_name || "N/A"}
+                    <button onClick={abrirEdicionTp} title="Completar datos o vincular otro tercero registrado"
+                            className="ml-1.5 px-1 border border-black bg-white text-black text-[9px] font-bold hover:bg-black hover:text-white">✎</button>
+                  </span>
                 </div>
                 <div className="flex justify-between text-[11px]">
                   <span className="font-bold text-gray-500">IDENTIFICACIÓN:</span>
                   <span className="font-bold">
-                    {selectedEvidenceTx.identification_type || "CC"}: {selectedEvidenceTx.identification_number || "N/A"}
+                    {txv.identification_type || "CC"}: {txv.identification_number || "N/A"}
                   </span>
                 </div>
+                {(txv.tp_phone || txv.tp_email || txv.tp_address) && (
+                  <div className="text-[10px] font-normal normal-case text-gray-600 text-right leading-snug">
+                    {txv.tp_phone && <span>📞 {txv.tp_phone} </span>}
+                    {txv.tp_email && <span>· ✉ {txv.tp_email} </span>}
+                    {txv.tp_address && <div>🏠 {txv.tp_address}</div>}
+                  </div>
+                )}
+                {editTp && (
+                  <div className="border-2 border-dashed border-black bg-yellow-50 p-2 space-y-1 normal-case">
+                    <div className="text-[9px] font-bold uppercase">Vincular a un tercero YA registrado:</div>
+                    <select value={tpSel} onChange={e => setTpSel(e.target.value)}
+                            className="w-full border border-black px-1 py-0.5 text-[10px] bg-white">
+                      <option value="">— mantener el actual —</option>
+                      {(terceros || []).map(t => (
+                        <option key={t.id} value={t.id}>
+                          {t.name} ({t.identification_type} {t.identification_number})
+                        </option>
+                      ))}
+                    </select>
+                    {!tpSel && (
+                      <>
+                        <div className="text-[9px] font-bold uppercase pt-1">…o completar el contacto del actual:</div>
+                        <div className="grid grid-cols-2 gap-1">
+                          <input value={tpForm.phone} onChange={e => setTpForm(f => ({ ...f, phone: e.target.value }))}
+                                 placeholder="Teléfono" className="border border-black px-1 py-0.5 text-[10px]" />
+                          <input value={tpForm.email} onChange={e => setTpForm(f => ({ ...f, email: e.target.value }))}
+                                 placeholder="Correo" className="border border-black px-1 py-0.5 text-[10px]" />
+                          <input value={tpForm.address} onChange={e => setTpForm(f => ({ ...f, address: e.target.value }))}
+                                 placeholder="Dirección" className="col-span-2 border border-black px-1 py-0.5 text-[10px]" />
+                        </div>
+                      </>
+                    )}
+                    <div className="flex gap-1 pt-1">
+                      <button onClick={guardarTercero} disabled={guardando}
+                              className="flex-1 bg-black text-white border border-black py-0.5 text-[9px] font-bold uppercase hover:bg-brutalGreen hover:text-black disabled:opacity-40">
+                        {guardando ? 'Guardando…' : '💾 Guardar'}
+                      </button>
+                      <button onClick={() => setEditTp(false)}
+                              className="px-2 border border-black bg-white text-[9px] font-bold uppercase hover:bg-black hover:text-white">✕</button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1 border-b border-black pb-2">
                 <div className="flex justify-between">
                   <span className="font-bold text-gray-500">VALOR BASE:</span>
                   <span className="font-bold">
-                    ${Number(selectedEvidenceTx.amount || 0).toLocaleString('es-CO', { minimumFractionDigits: 2 })} {selectedEvidenceTx.transaction_currency || "COP"}
+                    ${Number(txv.amount || 0).toLocaleString('es-CO', { minimumFractionDigits: 2 })} {txv.transaction_currency || "COP"}
                   </span>
                 </div>
                 
-                {selectedEvidenceTx.trm && Number(selectedEvidenceTx.trm) !== 1 && (
+                {txv.trm && Number(txv.trm) !== 1 && (
                   <div className="flex justify-between text-gray-500 text-[10px]">
                     <span>TASA DE CAMBIO (TRM):</span>
-                    <span>1 USD = ${Number(selectedEvidenceTx.trm).toLocaleString('es-CO', { minimumFractionDigits: 2 })} COP</span>
+                    <span>1 USD = ${Number(txv.trm).toLocaleString('es-CO', { minimumFractionDigits: 2 })} COP</span>
                   </div>
                 )}
 
-                {selectedEvidenceTx.tax_iva_amount > 0 && (
+                {txv.tax_iva_amount > 0 && (
                   <div className="flex justify-between text-gray-500">
                     <span>+ IVA (19%):</span>
-                    <span>${Number(selectedEvidenceTx.tax_iva_amount).toLocaleString('es-CO', { minimumFractionDigits: 2 })}</span>
+                    <span>${Number(txv.tax_iva_amount).toLocaleString('es-CO', { minimumFractionDigits: 2 })}</span>
                   </div>
                 )}
 
-                {selectedEvidenceTx.tax_gmf_amount > 0 && (
+                {txv.tax_gmf_amount > 0 && (
                   <div className="flex justify-between text-gray-500">
                     <span>+ GMF (4X1000):</span>
-                    <span>${Number(selectedEvidenceTx.tax_gmf_amount).toLocaleString('es-CO', { minimumFractionDigits: 2 })}</span>
+                    <span>${Number(txv.tax_gmf_amount).toLocaleString('es-CO', { minimumFractionDigits: 2 })}</span>
                   </div>
                 )}
 
-                {selectedEvidenceTx.custom_tax_amount > 0 && (
+                {txv.custom_tax_amount > 0 && (
                   <div className="flex justify-between text-gray-500">
                     <span>+ IMPUESTOS ADICIONALES:</span>
-                    <span>${Number(selectedEvidenceTx.custom_tax_amount).toLocaleString('es-CO', { minimumFractionDigits: 2 })}</span>
+                    <span>${Number(txv.custom_tax_amount).toLocaleString('es-CO', { minimumFractionDigits: 2 })}</span>
                   </div>
                 )}
 
                 <div className="flex justify-between border-t border-black pt-1 text-[13px] font-black bg-yellow-100 p-1 mt-1">
                   <span>VALOR NETO:</span>
                   <span>
-                    ${Number(selectedEvidenceTx.net_value || 0).toLocaleString('es-CO', { minimumFractionDigits: 2 })} {selectedEvidenceTx.transaction_currency || "COP"}
+                    ${Number(txv.net_value || 0).toLocaleString('es-CO', { minimumFractionDigits: 2 })} {txv.transaction_currency || "COP"}
                   </span>
                 </div>
               </div>
 
               {/* CXC / CXP Link Details */}
-              {selectedEvidenceTx.cxc_type && (
+              {txv.cxc_type && (
                 <div className="border-b border-black pb-2 space-y-1">
-                  <span className="font-bold text-gray-500 block text-[9px]">GESTIONADO EN CARTERA ({selectedEvidenceTx.cxc_type}):</span>
+                  <span className="font-bold text-gray-500 block text-[9px]">GESTIONADO EN CARTERA ({txv.cxc_type}):</span>
                   <div className="bg-black text-white p-1.5 font-mono text-[9px] flex justify-between items-center uppercase">
-                    <span>VENCE: {selectedEvidenceTx.cxc_due_date}</span>
-                    <span>PLAZO: {selectedEvidenceTx.cxc_term}</span>
-                    <span className="bg-brutalAmber text-black px-1 font-extrabold">{selectedEvidenceTx.cxc_status || "PENDIENTE"}</span>
+                    <span>VENCE: {txv.cxc_due_date}</span>
+                    <span>PLAZO: {txv.cxc_term}</span>
+                    <span className="bg-brutalAmber text-black px-1 font-extrabold">{txv.cxc_status || "PENDIENTE"}</span>
                   </div>
                 </div>
               )}
 
               {/* Capitalized Asset Link Details */}
-              {selectedEvidenceTx.asset_name && (
+              {txv.asset_name && (
                 <div className="border-b border-black pb-2 space-y-1">
                   <span className="font-bold text-gray-500 block text-[9px]">ACTIVO CAPITALIZADO EN GESTIÓN:</span>
                   <div className="bg-blue-50 border border-blue-500 text-blue-900 p-2 font-mono text-[9px] uppercase space-y-1">
                     <div className="flex justify-between font-extrabold">
-                      <span>ACTIVO: {selectedEvidenceTx.asset_name}</span>
-                      <span>TAG: {selectedEvidenceTx.asset_tag || "GENERAL"}</span>
+                      <span>ACTIVO: {txv.asset_name}</span>
+                      <span>TAG: {txv.asset_tag || "GENERAL"}</span>
                     </div>
-                    {selectedEvidenceTx.asset_is_passive && (
+                    {txv.asset_is_passive && (
                       <div className="text-[8px] text-blue-700 font-extrabold leading-tight">
                         🔁 ACTIVO GENERADOR DE RENTAS RECURRENTES:
                         <br />
-                        ${Number(selectedEvidenceTx.amount).toLocaleString('es-CO', { minimumFractionDigits: 2 })} COP / CADA {selectedEvidenceTx.recurrence_days || 30} DÍAS
+                        ${Number(txv.amount).toLocaleString('es-CO', { minimumFractionDigits: 2 })} COP / CADA {txv.recurrence_days || 30} DÍAS
                       </div>
                     )}
                   </div>
@@ -189,11 +325,11 @@ export default function EvidenceModal({
               )}
 
               {/* Etiquetas asignadas (2026-09-08) */}
-              {selectedEvidenceTx.tags && selectedEvidenceTx.tags.length > 0 && (
+              {txv.tags && txv.tags.length > 0 && (
                 <div className="border-b border-black pb-2">
                   <span className="font-bold text-gray-500 block text-[9px] mb-1">🏷️ ETIQUETAS:</span>
                   <div className="flex flex-wrap gap-1">
-                    {selectedEvidenceTx.tags.map(tag => (
+                    {txv.tags.map(tag => (
                       <span key={tag} className="bg-black text-white px-1.5 py-0.5 text-[9px] font-bold uppercase border border-black">{tag}</span>
                     ))}
                   </div>
@@ -206,19 +342,30 @@ export default function EvidenceModal({
                 <span>{profile?.name || "ANDRÉS"} ({profile?.role || "ADMINISTRADOR CONTABLE"})</span>
               </div>
 
-              <div className="flex justify-between text-[10px] items-center">
-                <span className="font-bold text-gray-500">GEOLOCALIZACIÓN:</span>
-                {selectedEvidenceTx.geo_maps_link ? (
-                  <a 
-                    href={selectedEvidenceTx.geo_maps_link} 
-                    target="_blank" 
-                    rel="noreferrer"
-                    className="bg-black text-white px-2 py-0.5 border border-black hover:bg-brutalGreen hover:text-black font-bold uppercase transition-all"
-                  >
-                    [VER EN MAPAS]
-                  </a>
-                ) : (
-                  <span className="text-gray-400 font-bold">SIN COORDENADAS</span>
+              <div className="text-[10px] space-y-1">
+                <div className="flex justify-between items-center">
+                  <span className="font-bold text-gray-500">GEOLOCALIZACIÓN:</span>
+                  {txv.geo_maps_link ? (
+                    <a
+                      href={txv.geo_maps_link}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="bg-black text-white px-2 py-0.5 border border-black hover:bg-brutalGreen hover:text-black font-bold uppercase transition-all"
+                    >
+                      [VER EN MAPAS]
+                    </a>
+                  ) : (
+                    <span className="text-gray-400 font-bold">SIN COORDENADAS</span>
+                  )}
+                </div>
+                {!txv.geo_maps_link && (
+                  <div className="flex gap-1 normal-case">
+                    <input value={geoInput} onChange={e => setGeoInput(e.target.value)}
+                           placeholder="Pega aquí el link de Google Maps…"
+                           className="flex-1 border border-black px-1 py-0.5 text-[10px] bg-white" />
+                    <button onClick={guardarGeo} disabled={guardando || !geoInput.trim()}
+                            className="px-2 border border-black bg-black text-white text-[9px] font-bold uppercase hover:bg-brutalGreen hover:text-black disabled:opacity-40">💾</button>
+                  </div>
                 )}
               </div>
             </div>
@@ -230,22 +377,22 @@ export default function EvidenceModal({
               </div>
               
               {(() => {
-                const nameUpper = (selectedEvidenceTx.third_party_name || "").toUpperCase().trim();
+                const nameUpper = (txv.third_party_name || "").toUpperCase().trim();
                 const warnings = [];
-                if (!selectedEvidenceTx.third_party_name || ["VARIOS", "N/A", "SD", "S/D", "GENERICO", "GENÉRICO", "VARIOS EMPLEADOS"].includes(nameUpper) || selectedEvidenceTx.third_party_name.length < 3) {
+                if (!txv.third_party_name || ["VARIOS", "N/A", "SD", "S/D", "GENERICO", "GENÉRICO", "VARIOS EMPLEADOS"].includes(nameUpper) || txv.third_party_name.length < 3) {
                   warnings.push("Tercero / Persona es genérico o no está plenamente identificado.");
                 }
-                const idStr = (selectedEvidenceTx.identification_number || "").toString().trim();
+                const idStr = (txv.identification_number || "").toString().trim();
                 if (!idStr || idStr === "0" || idStr === "999999999" || idStr.toLowerCase() === "n/a") {
                   warnings.push("Número de identificación (NIT/CC) inválido o faltante.");
                 }
-                if (!selectedEvidenceTx.evidence_file_path) {
+                if (!txv.evidence_file_path) {
                   warnings.push("Falta archivo digital o soporte de factura adjunto.");
                 }
-                if (!selectedEvidenceTx.geo_maps_link) {
+                if (!txv.geo_maps_link) {
                   warnings.push("Falta registro de geolocalización de la operación.");
                 }
-                if (!selectedEvidenceTx.category || selectedEvidenceTx.category === "-") {
+                if (!txv.category || txv.category === "-") {
                   warnings.push("No se ha asignado una categoría o cuenta COA válida.");
                 }
 
@@ -274,9 +421,9 @@ export default function EvidenceModal({
 
             {/* Evidencias físicas (Etapa E.3: pueden ser VARIAS — fotos y PDF) */}
             {(() => {
-              const lista = (selectedEvidenceTx.evidences?.length
-                ? selectedEvidenceTx.evidences
-                : [selectedEvidenceTx.evidence_file_path])
+              const lista = (txv.evidences?.length
+                ? txv.evidences
+                : [txv.evidence_file_path])
                 .filter(f => f && f !== "recibo_demo.png");
               if (!lista.length) return null;
               const urlDe = (f) => (f.startsWith("http") ? f : `/${f}`);
