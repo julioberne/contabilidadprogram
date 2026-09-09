@@ -683,3 +683,77 @@ formulario y bot guardan todo. NO se borró; se explicó con evidencia.
 vitest 45/45 · build OK · UI verificada en navegador (fila SIN EMPresa,
 filtro por empresa en CUENTAS con 5/6 → 3/6 al cambiar, disponible filtrado)
 · consolidado por API: Finanzas y Holding con -$2.354.000,50, sin_asignar=[].
+
+---
+
+## Checkpoint 2026-09-08/09 — Bot Etapa E completa, Storage, incidente Supabase + failover, comprobante-auditor
+
+Jornada de 2 días con ~20 commits (de `844ad4b` a `aa73e39`), todo desplegado.
+
+### Bot de Telegram — Etapa E/E.2/E.3 COMPLETA (en uso real por Andrés)
+- 📸 Fotos: con texto = borrador nuevo con evidencia; reply al resumen = a
+  ESE borrador; suelta = al último pendiente. Directo al bucket (memoria →
+  Storage, nunca el disco del contenedor).
+- 🔘 Botones inline [✅/❌/🏢 Cambiar empresa/🏷️ Etiquetas/💤 Dejar en
+  borrador] con idempotencia por estado en BD; "Confirmar #N" sigue de
+  fallback. /empresa determinista (fuzzy contra entidades + ensure-portfolio).
+- 📍 Ubicación de Telegram → geo_maps_link del borrador/TX.
+- 👤 Tercero COMPLETO dictado (LLM extrae phone/email/address solo si se
+  dicen; upsert con COALESCE que rellena sin destruir).
+- 📎 MÚLTIPLES evidencias por TX (drafts.media_paths JSONB + tabla
+  transaction_evidences; evidence_file_path sigue = principal).
+- FIX crítico: la confirmación no pasaba tags/geo (se perdían).
+- Chats no privados ignorados. Healthcheck del bot deshabilitado (heredaba
+  curl :8000 siendo un poller — unhealthy crónico falso).
+
+### Evidencias → Supabase Storage (un solo mundo local↔prod)
+Form web y bot suben directo a hr-docs/evidence/ (URL pública en BD);
+PAGO MURDO rescatado (webp→PNG); lista blanca del bucket ampliada
+(webp/gif/ogg/webm/mp3); migrate_evidence_to_storage.py (best-effort,
+queda correr en el contenedor prod para 7 .ogg viejos — DT-29a).
+
+### Incidente Supabase (pooler :6543, ~19h + 2 recaídas) → FAILOVER
+Diagnóstico: :6543 aceptaba conexiones sin servir queries; :5432 vivo.
+Puente manual 2 veces (env Dokploy + .env local, revertidos). Legado:
+- **Failover automático en db_pool** (18928dd): sonda con timeout duro por
+  hilo, nace/pasa al respaldo :5432 con pool mínimo, vigía regresa tras 2
+  aciertos (anti-aleteo). 4 tests del incidente en CI.
+- **Semáforo de salud ●/⚠/✖ en el header** con veredicto del culpable
+  (cruza status.supabase.com) + /api/health con timeout de 4s (responde
+  SIEMPRE rápido).
+- compose ahora pasa DB_POOL_*/FINSYS_ALLOW_5432 (nunca llegaban).
+- **Respaldo completo de la BD** en backups/ (gitignored) + entregado.
+- Regla operativa: durante un puente manual NO usar deploy_prod.py (su
+  guard-rail revierte DB_PORT); deploys por compose.deploy directo.
+
+### Comprobante de evidencia = AUDITOR ACTIVO
+Donde marca inconsistencias, ahí se corrigen: revincular tercero registrado
+(buscador EN MEMORIA, 1 sola petición, máx 30 visibles), completar
+nombre/NIT-CC/teléfono/correo/dirección (genérico 999999999 protegido: se
+crea tercero nuevo solo para esa TX; número existente se reutiliza),
+etiquetas con chips (tag_definitions), geolocalización pegando link, NOTA
+breve (≤280, pydantic+UI), galería de N evidencias (PDF/audio incl.),
+🖨 Imprimir/PDF (@media print solo-recibo), modal max-h 94vh con CERRAR
+fijo + Escape + clic fuera.
+
+### Misceláneos
+- Inventario: las tablas inventory_* JAMÁS existieron (el mock lo tapaba;
+  DT-28 lo destapó) → migradas y verificadas e2e en prod.
+- Tipografía global: 3 iteraciones → **Roboto Mono** (cifras nítidas,
+  negrilla real) vía 1 regla !important en index.css; micro-tamaños +1px;
+  antialiased fuera (Windows).
+- Libro Diario: totalizador ING/GAS/∑ del portafolio activo.
+- Etiquetas E2E (transactions.tags TEXT[]) + TransactionUpdateInput amplió:
+  third_party_id, geo_maps_link, tags, note.
+- Migraciones aplicadas: transaction_tags, bot_etapa_e (summary_message_id),
+  multi_evidencias, inventory_tables, tx_note.
+- Datos: TXs de prueba #13/#14 imborrables (no existe eliminar TX —
+  decisión pendiente); tercero "TERCERO PRUEBA MODAL" (id 34) por borrar
+  por Andrés; balance del negocio ya POSITIVO (~$1.9M).
+
+### Verificación
+Tests: 45 vitest + 40 bot + 34 pool/cartera/mock/etapa-e (CI ampliado con
+test_bot_etapa_e). E2E reales contra BD: drafts 48/58/70, TX 14 (tags,
+tercero, geo, nota), inventario en PROD, failover nacido en respaldo
+durante recaída real. Bot verificado EN VIVO por Andrés (evidencia #51,
+borrador #72 con 💤).

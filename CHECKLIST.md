@@ -2,7 +2,7 @@
 
 > **Único archivo de estado vivo.** Aquí: qué hay, qué falta, cómo arrancar.
 > Lo que ya pasó (con verificación) va a `docs/checkpoints.md` — un checkpoint por sesión.
-> Última actualización: **07 Sep 2026**.
+> Última actualización: **09 Sep 2026**.
 
 ---
 
@@ -10,8 +10,8 @@
 
 | Dónde | Estado |
 |---|---|
-| `master` local | al día (07 sep: deep-linking `/contabilidad/<id>-<slug>`, consolidado con dinero huérfano visible, tab CUENTAS filtrado por empresa activa, recursos por empresa) — **7 commits sin push** |
-| `origin/master` = producción :8080 | desplegado y verificado 04 sep. Deploy: `scratch/deploy_prod.py` (agente); push: Andrés. **CI en Actions**: frontend verde; backend verde tras el próximo push |
+| `master` local | al día con remoto salvo el commit de docs del cierre 09-sep. Últimos hitos (08/09-sep): Bot Etapa E completa (fotos/botones/empresa/ubicación/multi-evidencia/tercero dictado), evidencias en Supabase Storage, failover automático de BD + semáforo de salud, comprobante-auditor editable + imprimir/PDF, Roboto Mono global, inventario reparado |
+| `origin/master` = producción :8080 | desplegado y verificado 09 sep (`aa73e39`): los 3 contenedores sanos, bot sin healthcheck falso. Deploy: `scratch/deploy_prod.py` (agente); push: Andrés. CI en Actions verde (tests puros ampliados: pool+failover, mock policy, cartera, bot etapa E) |
 | BD Supabase | compartida local↔prod · **reiniciada con `feat(reset)`: 0 TXs** · 6 entidades CT (2 vinculadas) · 5 cuentas · 4 portafolios · patrimonio $1.000.000 (verificado 26 ago) |
 
 ### Módulos
@@ -66,7 +66,8 @@
 - [ ] **Bot IA**: ✅ funcionando en producción (gpt-oss-120b) · Etapa C COMPLETA (bandeja web) · **Etapa E COMPLETA 08-sep** (fotos→Storage, botones inline, `/empresa`, rechazo de grupos; verificada EN VIVO por Andrés — evidencia adjunta al #51) · **Etapa E.2 08-sep**: 🏷️ botón Etiquetas (toggle contra `tag_definitions`, fuente de verdad del módulo web), 💤 Dejar en borrador, 📍 ubicación de Telegram → geo_maps_link del borrador/TX, botonera regresa tras adjuntar evidencia, y FIX: la confirmación del bot ahora SÍ pasa tags+geo a la transacción (antes se perdían). E2E driver draft 58 · **Etapa E.3 08-sep**: MÚLTIPLES evidencias por transacción (bot: replies acumulan en `transaction_drafts.media_paths`; web: input multiple; tabla `transaction_evidences` al confirmar, `evidence_file_path` sigue = principal; visor con galería N archivos incl. PDF/audio), tercero COMPLETO dictado por voz (LLM extrae phone/email/address, upsert con COALESCE que rellena sin destruir), labels 📍/📎N en la bandeja. E2E driver draft 70 (2 fotos + PDF + tel/dirección). Quedan B.5 (RAG) y D/F
 - [ ] **Cartera Fase 2**: recordatorios personalizables por Telegram (tick en el poller, `cartera_reminders`, resumen periódico) — el diseño está en el checkpoint 03-sep
 - [x] **Pipeline de etiquetas** ✅ CERRADO 08-sep: `transactions.tags TEXT[]` (migrate_transaction_tags.py, aplicada), TransactionInput.tags, INSERT/SELECT, transaction_service; chips en fila expandida del Libro Diario (ya existían) + sección 🏷️ en el comprobante. Verificado e2e (TX 14). El bot las guarda cuando se editan en la bandeja
-- [ ] **Eliminar transacciones**: NO existe (ni endpoint ni botón) — las TXs de prueba de Andrés (#13 $100.000, #14 $1.000 del 08-sep) quedan en el libro para siempre; decidir si se agrega borrado con reversa contable (como el de abonos de cartera)
+- [ ] **Eliminar transacciones**: NO existe (ni endpoint ni botón) — las TXs de prueba (#13, #14) quedan en el libro; decidir si se agrega borrado con reversa contable (como el de abonos de cartera)
+- [ ] **Limpieza de datos por Andrés**: borrar tercero "TERCERO PRUEBA MODAL" (id 34, 🗑 del panel Terceros) · SQL del zombie "MI EMPRESA" (id 3) en Supabase · bot de DESARROLLO en @BotFather (token compartido sigue siendo mina)
 - [ ] **Portafolios**: la columna de vínculos se retiró del consolidado (02 sep) — reubicar con mejor funcionamiento. 07-sep: "Finanzas Personales Julian" YA reclama el portafolio 1 "Negocio A" (sus gastos reales viven ahí). Fase pendiente: portafolio propio por empresa + renombrar "Negocio A" (hardcodeado como default en ~10 sitios — no renombrar sin migrarlos)
 - [ ] **Borrar portafolio zombie "MI EMPRESA" (id 3)**: cero referencias auditadas en todas las FKs; el clasificador bloquea el DELETE al agente. SQL para Andrés (editor SQL de Supabase): `DELETE FROM portfolios WHERE id = 3 AND name = 'MI EMPRESA';`
 - [ ] **NumInput en Control Tower** (`CTSidePanel`, `CTApprovalsCenter`): esperando aprobación Zero-Impact de Andrés
