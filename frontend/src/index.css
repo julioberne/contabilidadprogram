@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700;800&family=Courier+Prime:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700;800&family=Roboto+Mono:wght@400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -26,12 +26,13 @@
       clases arbitrarias de Tailwind se re-mapean en un solo lugar).
    Para revertir: borrar este bloque y devolver `antialiased` al body.
    ══════════════════════════════════════════════════════════════════ */
-/* Courier Prime (2ª iteración, pedido: "un poco más de serif y más clara
-   para simple lectura"): monospace CON serifas — máquina de escribir
-   modernizada, diseñada para lectura corrida. Cambiar de fuente = editar
-   solo el primer nombre de esta lista. */
+/* Roboto Mono (3ª iteración, 2026-09-09): Courier Prime tenía cifras
+   livianas y negrilla sin contraste — malo para un panel FINANCIERO.
+   Roboto Mono: números rectos y nítidos, símbolos claros y pesos
+   400/500/700 bien diferenciados (la negrilla SÍ resalta).
+   Cambiar de fuente = editar solo el primer nombre de esta lista. */
 *, *::before, *::after {
-  font-family: 'Courier Prime', 'JetBrains Mono', 'IBM Plex Mono', 'Courier New', monospace !important;
+  font-family: 'Roboto Mono', 'JetBrains Mono', 'IBM Plex Mono', 'Courier New', monospace !important;
   text-rendering: optimizeLegibility;
 }
 
