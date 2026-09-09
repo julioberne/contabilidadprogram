@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700;800&family=Courier+Prime:wght@400;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -26,8 +26,13 @@
       clases arbitrarias de Tailwind se re-mapean en un solo lugar).
    Para revertir: borrar este bloque y devolver `antialiased` al body.
    ══════════════════════════════════════════════════════════════════ */
+/* Courier Prime (2ª iteración, pedido: "un poco más de serif y más clara
+   para simple lectura"): monospace CON serifas — máquina de escribir
+   modernizada, diseñada para lectura corrida. Cambiar de fuente = editar
+   solo el primer nombre de esta lista. */
 *, *::before, *::after {
-  font-family: 'JetBrains Mono', 'IBM Plex Mono', 'Courier New', monospace !important;
+  font-family: 'Courier Prime', 'JetBrains Mono', 'IBM Plex Mono', 'Courier New', monospace !important;
+  text-rendering: optimizeLegibility;
 }
 
 .text-\[7px\]  { font-size: 8px   !important; }

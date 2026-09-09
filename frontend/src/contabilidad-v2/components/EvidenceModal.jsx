@@ -12,23 +12,36 @@ export default function EvidenceModal({
   // Antes un placeholder negro "EVIDENCIA FÍSICA" tapaba el error.
   const [imgRota, setImgRota] = React.useState({});
   React.useEffect(() => { setImgRota({}); }, [selectedEvidenceTx?.id]);
+  // Cerrar con Escape (2026-09-09: el comprobante largo obligaba a hacer
+  // zoom-out para alcanzar el botón — ahora hay 3 salidas: botón fijo,
+  // Escape y clic fuera del recibo)
+  React.useEffect(() => {
+    if (!evidenceUrl) return;
+    const esc = (e) => { if (e.key === 'Escape') onClose?.(); };
+    document.addEventListener('keydown', esc);
+    return () => document.removeEventListener('keydown', esc);
+  }, [evidenceUrl, onClose]);
   if (!evidenceUrl) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-2 z-50 overflow-y-auto">
-      <div className="bg-white border-2 border-black p-2 max-w-lg w-full shadow-brutal my-8 font-mono">
-        <div className="flex justify-between items-center border-b-2 border-black pb-1 mb-2">
+    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-2 z-50"
+         onClick={onClose}>
+      {/* El recibo NUNCA supera la pantalla: alto máximo 94vh con scroll
+          INTERNO — el encabezado con CERRAR queda siempre visible. */}
+      <div className="bg-white border-2 border-black p-2 max-w-lg w-full shadow-brutal font-mono flex flex-col max-h-[94vh]"
+           onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-between items-center border-b-2 border-black pb-1 mb-2 shrink-0">
           <span className="text-sm font-bold uppercase">📂 Visualizador de Evidencia</span>
-          <button 
+          <button
             onClick={onClose}
             className="bg-brutalCrimson text-white border border-black px-2 py-0.5 font-bold uppercase hover:bg-black"
           >
             Cerrar [X]
           </button>
         </div>
-        
+
         {selectedEvidenceTx ? (
-          <div className="space-y-2">
+          <div className="space-y-2 overflow-y-auto flex-1 pr-1">
             {/* Brutalist Simulated Receipt Visualizer */}
             <div className="border-2 border-black p-2 bg-brutalBg text-xs space-y-2 uppercase">
               <div className="text-center font-bold border-b border-black pb-2 text-sm">
