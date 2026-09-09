@@ -329,19 +329,21 @@ const S = {
     padding: '3px 8px', borderBottom: '1px solid #ddd', background: '#fafafa',
   },
   headerLabel: {
-    fontSize: 9, fontWeight: 700, letterSpacing: 2, color: '#888', textTransform: 'uppercase',
+    fontSize: 10.5, fontWeight: 700, letterSpacing: 2, color: '#777', textTransform: 'uppercase',
   },
   collapseBtn: {
     fontFamily: '"IBM Plex Mono", monospace', fontSize: 9,
     padding: '1px 6px', border: '1px solid #ccc', background: '#f0f0f0',
     color: '#888', cursor: 'pointer', marginLeft: 4,
   },
+  // Tamaños +1.5px (2026-09-09, legibilidad): el consolidado es la tabla
+  // más leída de toda la app.
   th: {
-    padding: '3px 8px', fontSize: 8, fontWeight: 700, letterSpacing: 1.5,
-    textTransform: 'uppercase', textAlign: 'left', color: '#888',
+    padding: '3px 8px', fontSize: 9.5, fontWeight: 700, letterSpacing: 1.5,
+    textTransform: 'uppercase', textAlign: 'left', color: '#777',
     fontFamily: '"IBM Plex Mono", monospace',
   },
   td: {
-    padding: '3px 8px', fontSize: 10, fontFamily: '"IBM Plex Mono", monospace',
+    padding: '4px 8px', fontSize: 11.5, fontFamily: '"IBM Plex Mono", monospace',
   },
 };

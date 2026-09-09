@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,10 +6,36 @@
 
 @layer base {
   body {
-    @apply bg-brutalBg text-black font-mono antialiased min-h-screen;
+    /* `antialiased` retirado (2026-09-09): en Windows el suavizado grayscale
+       adelgaza y emborrona la fuente; el subpixel por defecto es más nítido. */
+    @apply bg-brutalBg text-black font-mono min-h-screen;
     background-color: #FCF9F2;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   LEGIBILIDAD GLOBAL (2026-09-09, pedido de Andrés: "tipografía más
+   nítida para leer más fácil").
+
+   1) JetBrains Mono como fuente primaria: misma estética de terminal
+      que IBM Plex Mono pero con letras más ALTAS y ABIERTAS al mismo
+      tamaño — diseñada específicamente para legibilidad en pantalla.
+      El !important alcanza también los cientos de estilos inline
+      "'IBM Plex Mono', monospace" sin tocarlos uno a uno.
+   2) Los micro-tamaños de toda la app suben ~1px desde aquí (las
+      clases arbitrarias de Tailwind se re-mapean en un solo lugar).
+   Para revertir: borrar este bloque y devolver `antialiased` al body.
+   ══════════════════════════════════════════════════════════════════ */
+*, *::before, *::after {
+  font-family: 'JetBrains Mono', 'IBM Plex Mono', 'Courier New', monospace !important;
+}
+
+.text-\[7px\]  { font-size: 8px   !important; }
+.text-\[8px\]  { font-size: 9.5px !important; }
+.text-\[9px\]  { font-size: 10.5px !important; }
+.text-\[10px\] { font-size: 11.5px !important; }
+.text-\[11px\] { font-size: 12px  !important; }
+.text-xs       { font-size: 13px  !important; line-height: 1.35 !important; }
 
 /* Scrollbar Brutalista Personalizada */
 ::-webkit-scrollbar {
