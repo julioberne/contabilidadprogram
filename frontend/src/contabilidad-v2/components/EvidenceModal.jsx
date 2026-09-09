@@ -35,11 +35,11 @@ export default function EvidenceModal({
 
   const txv = { ...(selectedEvidenceTx || {}), ...parche };
 
-  // El tercero genérico ("Sin especificar" / 999999999) lo COMPARTEN muchas
-  // transacciones: jamás se renombra — al ponerle nombre se crea uno NUEVO
-  // vinculado solo a esta TX.
-  const esGenerico = String(txv.identification_number) === '999999999'
-    || /sin especificar/i.test(txv.third_party_name || '');
+  // SOLO el 999999999 es el genérico compartido (jamás se renombra). Un
+  // "Sin especificar" con NIT real es un tercero PROPIO mal nombrado: a ese
+  // sí se le pone nombre normal (caso ferretería, 2026-09-09 — la 1ª versión
+  // intentaba CREAR uno nuevo y chocaba con el número único).
+  const esGenerico = String(txv.identification_number) === '999999999';
 
   const abrirEdicionTp = async () => {
     setEditTp(v => !v);
@@ -106,16 +106,35 @@ export default function EvidenceModal({
         // El actual es el genérico compartido: se CREA un tercero nuevo con
         // lo escrito y se vincula SOLO esta transacción (renombrar al
         // genérico cambiaría todas las TXs "Sin especificar").
-        const rc = await fetch(`${API}/third-parties`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: tpForm.name.trim(),
-            identification_type: tpForm.identification_type || 'NIT',
-            identification_number: (tpForm.identification_number || '').trim() || '999999999',
-          }),
-        });
-        if (!rc.ok) throw new Error('No se pudo crear el tercero');
-        const nuevo = await rc.json();
+        // Si el número escrito YA pertenece a un tercero registrado, se
+        // REUTILIZA ese en vez de chocar con el número único.
+        const numero = (tpForm.identification_number || '').trim();
+        let nuevo = numero
+          ? (terceros || []).find(t => String(t.identification_number) === numero)
+          : null;
+        if (!nuevo) {
+          const rc = await fetch(`${API}/third-parties`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: tpForm.name.trim(),
+              identification_type: tpForm.identification_type || 'NIT',
+              identification_number: numero || `SN-${Date.now().toString(36)}`,
+            }),
+          });
+          if (!rc.ok) {
+            const det = await rc.json().catch(() => ({}));
+            throw new Error(/unique|duplicate|llave duplicada/i.test(String(det.detail))
+              ? 'Ese número ya pertenece a otro tercero — búscalo en la lista de arriba.'
+              : 'No se pudo crear el tercero');
+          }
+          nuevo = await rc.json();
+        } else {
+          // Reutilizado: actualizar su nombre al escrito
+          await fetch(`${API}/third-parties/${nuevo.id}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: tpForm.name.trim() }),
+          });
+        }
         const contacto = {};
         for (const k of ['phone', 'email', 'address']) {
           if ((tpForm[k] || '').trim()) contacto[k] = tpForm[k].trim();
