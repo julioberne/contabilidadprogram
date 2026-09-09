@@ -167,27 +167,48 @@ def _startup():
 
 @app.get("/api/health", tags=["system"])
 def health_check():
-    """Endpoint ligero para verificar que el backend está vivo."""
+    """Endpoint ligero para verificar que el backend está vivo.
+
+    2026-09-08: la sonda de BD corre en un hilo con TIMEOUT de 4s. Con la
+    red a Supabase caída, la sonda colgaba 10-60s (timeouts TCP) y el health
+    no respondía — el semáforo del dashboard no podía distinguir "servidor
+    caído" de "BD caída" (que es todo su propósito). Ahora el servidor
+    contesta rápido SIEMPRE: si la sonda no vuelve en 4s, db = timeout.
+    """
     # ⚠️ SIEMPRE devolver la conexión al pool, jamás conn.close(): psycopg2 no
     # saca de _used una conexión cerrada a mano, así que cada close() quemaba
     # un slot PERMANENTE. Con el healthcheck de Docker cada 30s, el pool moría
     # completo a los ~10 min de cada deploy (auditoría 2026-09-04).
-    conn = None
+    def _sonda():
+        conn = None
+        try:
+            from fin_sys_core.database_driver import get_db_connection, release_db_connection
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT 1")
+            cur.close()
+            return "connected"
+        except Exception as e:
+            return f"error: {e}"
+        finally:
+            if conn is not None:
+                try:
+                    release_db_connection(conn)
+                except Exception:
+                    pass
+
+    import concurrent.futures
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
-        from fin_sys_core.database_driver import get_db_connection, release_db_connection
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT 1")
-        cur.close()
-        db_status = "connected"
+        db_status = ex.submit(_sonda).result(timeout=4)
+    except concurrent.futures.TimeoutError:
+        # El hilo colgado terminará solo y devolverá su conexión; aquí lo
+        # importante es responder YA con la verdad.
+        db_status = "error: la base de datos no respondió en 4s (timeout)"
     except Exception as e:
         db_status = f"error: {e}"
     finally:
-        if conn is not None:
-            try:
-                release_db_connection(conn)
-            except Exception:
-                pass
+        ex.shutdown(wait=False)   # jamás bloquear el health esperando al hilo
     return {
         "status": "ok",
         "db": db_status,

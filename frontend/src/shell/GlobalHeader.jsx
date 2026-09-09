@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useUser } from './providers/UserProvider.jsx';
 import { useNotify } from './providers/NotificationProvider.jsx';
+import HealthBeacon from './HealthBeacon.jsx';
 
 const TYPE_COLORS = { SUCCESS: '#00e676', INFO: '#4fc3f7', WARNING: '#FFB000', ERROR: '#c00' };
 
@@ -279,6 +280,8 @@ export function GlobalHeader({ activeView, moduleLabels, onLogout, onNavigate, i
 
       {/* ── RIGHT ── */}
       <div style={S.right}>
+        {/* Semáforo de salud: ¿internet, servidor o Supabase? */}
+        <HealthBeacon />
         {/* Bell */}
         <div ref={notifRef} style={{ position: 'relative' }}>
           <button style={S.bellBtn} onClick={toggleNotif} title="Notificaciones">
