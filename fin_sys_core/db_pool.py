@@ -25,6 +25,7 @@ USO:
 
 import os
 import threading
+import time
 import weakref
 import psycopg2
 from psycopg2.pool import ThreadedConnectionPool
@@ -45,6 +46,22 @@ DB_POOL_MAX = int(os.getenv("DB_POOL_MAX", "10"))
 # y multiplicaba la carga contra el pooler (auditoría 2026-09-04).
 DB_FALLBACK_MAX = int(os.getenv("DB_FALLBACK_MAX", "5"))
 
+# ── Failover automático de canal (incidente Supabase 08/09-sep-2026) ─────────
+# El pooler transaction-mode (:6543) estuvo ~19h aceptando conexiones SIN
+# servir queries, y recayó al día siguiente. El session-mode (:5432) siguió
+# vivo. Este failover hace solo lo que ese día se hizo a mano ("el puente"):
+#   · si el canal primario no FLUYE (sonda con timeout duro), el pool se pasa
+#     al respaldo con POOLS MÍNIMOS (límite ~15 conexiones del session mode);
+#   · un vigía interno regresa al primario cuando fluye 2 veces seguidas
+#     (anti-aleteo).
+# Se desactiva con DB_FAILOVER=0, o solo por config si primario == respaldo.
+DB_FAILOVER = os.getenv("DB_FAILOVER", "1") == "1"
+DB_FAILOVER_PORT = os.getenv("DB_FAILOVER_PORT", "5432")
+_RESPALDO_POOL_MIN = 1
+_RESPALDO_POOL_MAX = 2
+_VIGIA_INTERVALO_S = 45
+_SONDAS_PARA_VOLVER = 2
+
 # Parámetros comunes de conexión: keepalives para que una red caída no deje
 # conexiones zombis retenidas, y nombre visible en pg_stat_activity.
 _CONN_KWARGS = dict(
@@ -58,6 +75,10 @@ _CONN_KWARGS = dict(
 _pool: ThreadedConnectionPool | None = None
 _init_lock = threading.Lock()
 _init_failed = False   # si la creación del pool falló, no reintentar en cada get
+# Canal activo del failover (el puerto REAL en uso puede diferir de DB_PORT)
+_canal = {"puerto": DB_PORT, "respaldo": False}
+_vigia_activo = False
+_ultima_sonda_caida = 0.0   # throttle del failover en caliente
 _fallback_sem = threading.BoundedSemaphore(DB_FALLBACK_MAX)
 # Registro de conexiones de fallback. Las conexiones de psycopg2 son objetos C
 # SIN __dict__: asignarles un atributo lanza AttributeError (incidente
@@ -82,6 +103,95 @@ def _cupo_perdido_por_gc(conn_id):
           "hay un caller sin release (ver DT-23).")
 
 
+def _canal_fluye(puerto, timeout: float = 5.0) -> bool:
+    """¿connect + SELECT 1 responden por ese puerto dentro del timeout?
+
+    La sonda corre en un HILO con tope duro: en el incidente 08/09-sep las
+    queries colgaban IGNORANDO statement_timeout — el pooler aceptaba la
+    conexión pero jamás entregaba la consulta al servidor."""
+    import concurrent.futures
+
+    def _probar():
+        kw = dict(_CONN_KWARGS)
+        kw["port"] = puerto
+        kw["connect_timeout"] = min(int(timeout), 5) or 3
+        c = psycopg2.connect(**kw)
+        try:
+            cur = c.cursor()
+            cur.execute("SELECT 1")
+            cur.fetchone()
+        finally:
+            c.close()
+        return True
+
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        return bool(ex.submit(_probar).result(timeout=timeout))
+    except Exception:
+        return False
+    finally:
+        ex.shutdown(wait=False)   # el hilo colgado muere solo; no esperarlo
+
+
+def _failover_posible() -> bool:
+    return DB_FAILOVER and str(DB_PORT) != str(DB_FAILOVER_PORT)
+
+
+def _swap_pool(puerto, minconn, maxconn, motivo) -> bool:
+    """Recrea el pool global en `puerto` bajo lock. → True si quedó activo."""
+    global _pool
+    with _init_lock:
+        if _pool is not None and str(_canal["puerto"]) == str(puerto):
+            return True
+        try:
+            nuevo = ThreadedConnectionPool(minconn, maxconn,
+                                           **{**_CONN_KWARGS, "port": puerto})
+        except Exception as e:
+            print(f"⚠️ [failover] no se pudo abrir pool en :{puerto}: {e}")
+            return False
+        viejo, _pool = _pool, nuevo
+        _canal["puerto"] = puerto
+        _canal["respaldo"] = _failover_posible() and str(puerto) == str(DB_FAILOVER_PORT)
+        print(f"🔀 [failover] {motivo} → canal :{puerto} (pool {minconn}-{maxconn})")
+        if viejo is not None:
+            try:
+                viejo.closeall()
+            except Exception:
+                pass
+        if _canal["respaldo"]:
+            _arrancar_vigia_retorno()
+        return True
+
+
+def _arrancar_vigia_retorno():
+    """Hilo daemon: mientras estemos en el respaldo, sondea el primario cada
+    _VIGIA_INTERVALO_S y regresa cuando fluya _SONDAS_PARA_VOLVER veces
+    seguidas (anti-aleteo). Muere solo al volver."""
+    global _vigia_activo
+    if _vigia_activo:
+        return
+    _vigia_activo = True
+
+    def _loop():
+        global _vigia_activo
+        aciertos = 0
+        try:
+            while _canal["respaldo"]:
+                time.sleep(_VIGIA_INTERVALO_S)
+                if not _canal["respaldo"]:
+                    break
+                aciertos = aciertos + 1 if _canal_fluye(DB_PORT) else 0
+                if aciertos >= _SONDAS_PARA_VOLVER:
+                    if _swap_pool(DB_PORT, DB_POOL_MIN, DB_POOL_MAX,
+                                  "canal primario recuperado"):
+                        break
+                    aciertos = 0
+        finally:
+            _vigia_activo = False
+
+    threading.Thread(target=_loop, daemon=True, name="db-failover-vigia").start()
+
+
 def init_pool(minconn: int = DB_POOL_MIN, maxconn: int = DB_POOL_MAX):
     """
     Inicializa el pool de conexiones. Llamar UNA VEZ al iniciar el servidor.
@@ -93,14 +203,30 @@ def init_pool(minconn: int = DB_POOL_MIN, maxconn: int = DB_POOL_MAX):
     if _pool is not None:
         return  # Ya inicializado
 
+    # Failover al ARRANCAR: si el primario no fluye pero el respaldo sí,
+    # nacer directamente en el respaldo (el fail-fast del server pasa y la
+    # app queda operativa sin intervención humana).
+    puerto = DB_PORT
+    if _failover_posible() and not _canal_fluye(DB_PORT):
+        if _canal_fluye(DB_FAILOVER_PORT):
+            puerto = DB_FAILOVER_PORT
+            minconn, maxconn = _RESPALDO_POOL_MIN, _RESPALDO_POOL_MAX
+            print(f"🔀 [failover] :{DB_PORT} sin flujo al arrancar — "
+                  f"nazco en el respaldo :{puerto} con pool mínimo")
+        # si ninguno fluye: se intenta el primario y el error será honesto
+
     try:
         _pool = ThreadedConnectionPool(
             minconn,
             maxconn,
-            **_CONN_KWARGS,
+            **{**_CONN_KWARGS, "port": puerto},
             # sslmode se hereda del servidor (Supabase requiere SSL)
         )
-        print(f"✅ Pool de conexiones inicializado: {minconn}-{maxconn} conexiones a {DB_HOST}:{DB_PORT}/{DB_NAME}")
+        _canal["puerto"] = puerto
+        _canal["respaldo"] = _failover_posible() and str(puerto) == str(DB_FAILOVER_PORT)
+        if _canal["respaldo"]:
+            _arrancar_vigia_retorno()
+        print(f"✅ Pool de conexiones inicializado: {minconn}-{maxconn} conexiones a {DB_HOST}:{puerto}/{DB_NAME}")
     except Exception as e:
         print(f"⚠️ [AVISO] No se pudo inicializar el pool de conexiones: {e}")
         _pool = None
@@ -155,6 +281,22 @@ def get_conn():
             print("⚠️ Pool: todas las conexiones prestadas estaban muertas — "
                   "descartadas; fallback directo.")
 
+    # ── Failover EN CALIENTE (2ª recaída, 09-sep): si el primario dejó de
+    # fluir con el server corriendo, pasarse al respaldo sin reiniciar nada.
+    # Throttle de 20s: no pagar sondas (≈4-8s) en cada request durante la caída.
+    global _ultima_sonda_caida
+    if (_failover_posible() and not _canal["respaldo"] and _pool is not None
+            and time.time() - _ultima_sonda_caida > 20):
+        _ultima_sonda_caida = time.time()
+        if not _canal_fluye(_canal["puerto"], timeout=4) \
+                and _canal_fluye(DB_FAILOVER_PORT, timeout=4):
+            if _swap_pool(DB_FAILOVER_PORT, _RESPALDO_POOL_MIN,
+                          _RESPALDO_POOL_MAX, "canal primario sin flujo"):
+                try:
+                    return _pool.getconn()
+                except Exception:
+                    pass
+
     # Fallback CON TOPE (DB_FALLBACK_MAX simultáneas): si el pool se agota, el
     # sistema debe fallar rápido y visible, no inundar el pooler de Supabase
     # con una conexión por hilo. El semáforo se libera en put_conn().
@@ -165,7 +307,8 @@ def get_conn():
         )
     conn = None
     try:
-        conn = psycopg2.connect(**_CONN_KWARGS)
+        # El fallback directo respeta el CANAL ACTIVO del failover
+        conn = psycopg2.connect(**{**_CONN_KWARGS, "port": _canal["puerto"]})
         _fallback_conns.add(conn)   # put_conn libera el semáforo con esto
         _fallback_finalizers[id(conn)] = weakref.finalize(
             conn, _cupo_perdido_por_gc, id(conn))
@@ -278,4 +421,6 @@ def pool_status() -> dict:
         "active": True,
         "minconn": _pool.minconn,
         "maxconn": _pool.maxconn,
+        "puerto": _canal["puerto"],
+        "en_respaldo": _canal["respaldo"],
     }

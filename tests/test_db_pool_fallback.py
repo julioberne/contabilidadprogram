@@ -185,5 +185,90 @@ class TestPoolSeCuraSolo(unittest.TestCase):
         self.assertEqual(db_pool._pool.devueltas, [])
 
 
+class FakePoolCtor:
+    """Sustituto de ThreadedConnectionPool que registra cómo lo crearon."""
+    creados = []
+
+    def __init__(self, minconn, maxconn, **kw):
+        self.minconn, self.maxconn, self.kw = minconn, maxconn, kw
+        self.cerrado = False
+        FakePoolCtor.creados.append(self)
+
+    def getconn(self):
+        c = FakePoolConn()
+        return c
+
+    def putconn(self, conn, close=False):
+        if close:
+            conn.close()
+
+    def closeall(self):
+        self.cerrado = True
+
+
+class TestFailoverAutomatico(unittest.TestCase):
+    """Incidente Supabase 08/09-sep: el pooler :6543 aceptaba conexiones sin
+    servir queries (~19h + recaída). El pool debe nacer/pasarse solo al
+    respaldo :5432 con pool mínimo, y volver al sanar el primario."""
+
+    def setUp(self):
+        self._st = (db_pool._pool, db_pool._init_failed, dict(db_pool._canal),
+                    db_pool.DB_PORT, db_pool.DB_FAILOVER, db_pool._vigia_activo)
+        db_pool._pool = None
+        db_pool._init_failed = False
+        db_pool.DB_PORT = "6543"
+        db_pool.DB_FAILOVER = True
+        db_pool._canal.update({"puerto": "6543", "respaldo": False})
+        db_pool._vigia_activo = True   # evitar hilos reales en tests
+        FakePoolCtor.creados = []
+
+    def tearDown(self):
+        (db_pool._pool, db_pool._init_failed, canal,
+         db_pool.DB_PORT, db_pool.DB_FAILOVER, db_pool._vigia_activo) = self._st
+        db_pool._canal.update(canal)
+
+    def test_arranque_normal_usa_primario(self):
+        with mock.patch.object(db_pool, "_canal_fluye", return_value=True), \
+             mock.patch.object(db_pool, "ThreadedConnectionPool", FakePoolCtor):
+            db_pool.init_pool()
+        self.assertEqual(str(db_pool._canal["puerto"]), "6543")
+        self.assertFalse(db_pool._canal["respaldo"])
+        self.assertEqual(FakePoolCtor.creados[-1].kw["port"], "6543")
+
+    def test_arranque_cae_al_respaldo_con_pool_minimo(self):
+        fluye = lambda puerto, timeout=5.0: str(puerto) == "5432"
+        with mock.patch.object(db_pool, "_canal_fluye", side_effect=fluye), \
+             mock.patch.object(db_pool, "ThreadedConnectionPool", FakePoolCtor):
+            db_pool.init_pool()
+        self.assertTrue(db_pool._canal["respaldo"])
+        p = FakePoolCtor.creados[-1]
+        self.assertEqual(p.kw["port"], "5432")
+        self.assertEqual((p.minconn, p.maxconn),
+                         (db_pool._RESPALDO_POOL_MIN, db_pool._RESPALDO_POOL_MAX))
+
+    def test_ambos_rotos_no_engaña(self):
+        with mock.patch.object(db_pool, "_canal_fluye", return_value=False), \
+             mock.patch.object(db_pool, "ThreadedConnectionPool", FakePoolCtor):
+            db_pool.init_pool()
+        # queda en el primario: los errores serán honestos, jamás mock
+        self.assertEqual(str(db_pool._canal["puerto"]), "6543")
+        self.assertFalse(db_pool._canal["respaldo"])
+
+    def test_swap_y_retorno(self):
+        with mock.patch.object(db_pool, "ThreadedConnectionPool", FakePoolCtor):
+            db_pool._pool = FakePoolCtor(2, 10, port="6543")
+            viejo = db_pool._pool
+            ok = db_pool._swap_pool("5432", 1, 2, "prueba caída")
+            self.assertTrue(ok)
+            self.assertTrue(db_pool._canal["respaldo"])
+            self.assertTrue(viejo.cerrado)          # el pool viejo se cierra
+            enmedio = db_pool._pool
+            ok2 = db_pool._swap_pool("6543", 2, 10, "prueba retorno")
+            self.assertTrue(ok2)
+            self.assertFalse(db_pool._canal["respaldo"])
+            self.assertTrue(enmedio.cerrado)
+            self.assertEqual(db_pool._pool.kw["port"], "6543")
+
+
 if __name__ == "__main__":
     unittest.main()
