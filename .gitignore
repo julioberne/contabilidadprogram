@@ -51,3 +51,4 @@ scratch/
 testsprite_tests/tmp/
 testsprite_tests/TC*.py
 testsprite_tests/standard_prd.json
+backups/
