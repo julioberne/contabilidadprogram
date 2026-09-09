@@ -57,6 +57,8 @@
 | DT-27 | `dashboard-data` carga TODAS las transacciones + COA completo por request (5.2s en local); con miles de TXs necesitará paginación/caché. El poller del cliente ya bajó a 60s con pausa por pestaña oculta | Media |
 | ~~DT-28~~ | ✅ CERRADA 07-sep (autorizada por Andrés): 18 fallbacks mock gateados con `mock_policy.mock_permitido()` (org ×5, database ×6, inventory ×7) — fallo de BD ⇒ error visible; mock SOLO con `FINSYS_ALLOW_MOCK=1`. El modo simulación explícito (`IS_POSTGRES_ACTIVE=False`) se conserva. UI: chip rojo "⚠ SIN CONEXIÓN BD" en el consolidado + reintento 30s. Tests en CI (`test_mock_policy`). **Resto**: `control_tower_driver` aún tiene MOCK_ENTITIES en su except (16 fn, Zero-Impact CT) — misma receta cuando se toque | — |
 
+- [ ] **Failover automático de canal de BD** (propuesto 09-sep, espera OK de Andrés): si :6543 no fluye, db_pool cae solo a :5432 con pools mínimos y regresa al sanar. Contexto: incidente Supabase 08/09-sep (~19h) — el pooler transaction-mode aceptaba conexiones pero no servía queries; se sobrevivió con puente manual (env Dokploy + .env local, ya revertido) y quedó el pass-through de DB_POOL_*/FINSYS_ALLOW_5432 en el compose (a6af560). Regla operativa del puente: NO usar scratch/deploy_prod.py mientras esté activo (su guard-rail revierte DB_PORT); deploys por compose.deploy directo. Respaldo completo de la BD sacado ese día (backups/, gitignored)
+
 ### Funcional / calidad
 
 - [ ] **TC022** — Libro Diario sin buscador (brecha de spec TestSprite; decidir si se agrega)
