@@ -79,6 +79,12 @@ services:
     container_name: finsys-bot
     restart: unless-stopped
     command: ["python", "fin_sys_core/bot_telegram.py"]
+    # El bot es un POLLER sin puerto HTTP: heredaba el HEALTHCHECK de la
+    # imagen (curl :8000) y figuraba "unhealthy" eternamente aunque estuviera
+    # trabajando perfecto (falso negativo crónico, detectado 09-sep). Se
+    # deshabilita: mejor sin señal que con una señal mentirosa.
+    healthcheck:
+      disable: true
     environment:
       - DB_HOST=${DB_HOST}
       - DB_PORT=${DB_PORT}
