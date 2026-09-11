@@ -6,9 +6,11 @@ Entidades, usuarios workspace, resource IDs, aprobaciones, miembros, quick-TX.
 Endpoints: /api/ct/*
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
+
+from routers.auth_guard import require_admin
 
 router = APIRouter(tags=["Control Tower"])
 
@@ -86,7 +88,7 @@ def ct_get_entities():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/ct/entities", status_code=201)
-def ct_create_entity(data: EntityInput):
+def ct_create_entity(data: EntityInput, _admin: dict = Depends(require_admin)):
     try:
         from control_tower_driver import crear_entidad
         new_id = crear_entidad(data.dict())
@@ -95,7 +97,7 @@ def ct_create_entity(data: EntityInput):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.patch("/api/ct/entities/{entity_id}/status")
-def ct_update_entity_status(entity_id: int, status: str):
+def ct_update_entity_status(entity_id: int, status: str, _admin: dict = Depends(require_admin)):
     try:
         from control_tower_driver import actualizar_estado_entidad
         actualizar_estado_entidad(entity_id, status)
@@ -104,7 +106,7 @@ def ct_update_entity_status(entity_id: int, status: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/api/ct/entities/{entity_id}")
-def ct_delete_entity(entity_id: int):
+def ct_delete_entity(entity_id: int, _admin: dict = Depends(require_admin)):
     try:
         from control_tower_driver import eliminar_entidad
         eliminar_entidad(entity_id)
@@ -132,7 +134,7 @@ def ct_get_users():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/ct/users/register", status_code=201)
-def ct_register_user(data: CTUserRegisterInput):
+def ct_register_user(data: CTUserRegisterInput, _admin: dict = Depends(require_admin)):
     try:
         from control_tower_driver import registrar_workspace_user
         user = registrar_workspace_user(data.dict())
@@ -167,7 +169,7 @@ def ct_get_resources(entity_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/ct/resources", status_code=201)
-def ct_create_resource(data: ResourceIdInput):
+def ct_create_resource(data: ResourceIdInput, _admin: dict = Depends(require_admin)):
     try:
         from control_tower_driver import crear_resource_id
         new_id = crear_resource_id(data.dict())
@@ -176,7 +178,7 @@ def ct_create_resource(data: ResourceIdInput):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/api/ct/resources/{rid}")
-def ct_delete_resource(rid: int):
+def ct_delete_resource(rid: int, _admin: dict = Depends(require_admin)):
     try:
         from control_tower_driver import eliminar_resource_id
         eliminar_resource_id(rid)
@@ -196,7 +198,7 @@ def ct_get_approvals(entity_id: Optional[int] = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/ct/approvals", status_code=201)
-def ct_create_approval(data: ApprovalInput):
+def ct_create_approval(data: ApprovalInput, _admin: dict = Depends(require_admin)):
     try:
         from control_tower_driver import crear_aprobacion
         new_id = crear_aprobacion(data.dict())
@@ -205,7 +207,7 @@ def ct_create_approval(data: ApprovalInput):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.patch("/api/ct/approvals/{approval_id}/resolve")
-def ct_resolve_approval(approval_id: int, data: ResolveApprovalInput):
+def ct_resolve_approval(approval_id: int, data: ResolveApprovalInput, _admin: dict = Depends(require_admin)):
     try:
         from control_tower_driver import resolver_aprobacion
         resolver_aprobacion(approval_id, data.status, data.reviewer_id, data.notes)
@@ -225,7 +227,7 @@ def ct_get_members(entity_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/ct/entities/{entity_id}/members", status_code=201)
-def ct_invite_member(entity_id: int, data: MemberInviteInput):
+def ct_invite_member(entity_id: int, data: MemberInviteInput, _admin: dict = Depends(require_admin)):
     try:
         from control_tower_driver import invitar_miembro
         perms = data.permissions or {"ledger": True, "reports": True}
@@ -240,7 +242,7 @@ def ct_invite_member(entity_id: int, data: MemberInviteInput):
 # ── Transacción Rápida desde Control Tower ──
 
 @router.post("/api/ct/quick-transaction", status_code=201)
-def ct_quick_transaction(data: CTQuickTransactionInput):
+def ct_quick_transaction(data: CTQuickTransactionInput, _admin: dict = Depends(require_admin)):
     """Registra una transacción rápida desde el panel lateral del Control Tower."""
     try:
         from tax_motor import process_transaction_taxes

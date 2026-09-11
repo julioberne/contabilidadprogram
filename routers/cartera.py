@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """FIN-SYS OS v2.0 — Router: Cartera (CXC / CXP)"""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional
+
+from routers.auth_guard import require_admin
 
 router = APIRouter(tags=["Cartera"])
 
@@ -16,7 +18,7 @@ def list_cartera(portfolio: Optional[str] = None):
     return listar_cartera(portfolio)
 
 @router.put("/api/cartera/{ledger_id}/status")
-def update_cartera_status(ledger_id: int, body: dict):
+def update_cartera_status(ledger_id: int, body: dict, _admin: dict = Depends(require_admin)):
     from fin_sys_core.database_driver import actualizar_cartera_status
     try:
         updated = actualizar_cartera_status(
@@ -28,7 +30,7 @@ def update_cartera_status(ledger_id: int, body: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/api/cartera/{ledger_id}")
-def update_cartera_entry(ledger_id: int, body: dict):
+def update_cartera_entry(ledger_id: int, body: dict, _admin: dict = Depends(require_admin)):
     """Edita una cuenta CXC/CXP existente: monto original, fechas, frecuencia,
     plazo. Si cambia el monto, el saldo se recalcula contra lo ya abonado."""
     from fin_sys_core.database_driver import get_db_connection, release_db_connection
@@ -86,7 +88,7 @@ def update_cartera_entry(ledger_id: int, body: dict):
 
 
 @router.delete("/api/cartera/payments/{payment_id}")
-def delete_cartera_payment(payment_id: int):
+def delete_cartera_payment(payment_id: int, _admin: dict = Depends(require_admin)):
     """Elimina un abono para corregirlo: borra la partida, sus líneas de asiento
     en el kernel (referencia PAY-{id}) y recalcula saldo y estado de la cuenta."""
     from fin_sys_core.database_driver import get_db_connection, release_db_connection
@@ -135,7 +137,7 @@ def delete_cartera_payment(payment_id: int):
 
 
 @router.put("/api/cartera/{ledger_id}/plan")
-def update_cartera_plan(ledger_id: int, body: dict):
+def update_cartera_plan(ledger_id: int, body: dict, _admin: dict = Depends(require_admin)):
     """Define o edita el plan de pagos de una cuenta existente (Fase 1).
     body: {min_payment, interest_rate, interest_period}. null/0 = quitar."""
     from fin_sys_core.database_driver import get_db_connection, release_db_connection
@@ -249,7 +251,7 @@ def get_cartera_payments(ledger_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/cartera/{ledger_id}/payment")
-def register_cartera_payment(ledger_id: int, body: dict):
+def register_cartera_payment(ledger_id: int, body: dict, _admin: dict = Depends(require_admin)):
     from fin_sys_core.database_driver import get_db_connection, release_db_connection
     amount = float(body.get("amount", 0))
     if amount <= 0:
@@ -314,7 +316,7 @@ def register_cartera_payment(ledger_id: int, body: dict):
                 pass
 
 @router.post("/api/cartera")
-def create_cartera_entry(body: dict):
+def create_cartera_entry(body: dict, _admin: dict = Depends(require_admin)):
     """Crea una cuenta CXC/CXP standalone."""
     from fin_sys_core.database_driver import get_db_connection, release_db_connection
     for f in ["third_party_id", "type", "original_amount", "due_date", "term"]:
@@ -383,7 +385,7 @@ def create_cartera_entry(body: dict):
 
 # ── POST /api/third-parties — Crear tercero standalone ──
 @router.post("/api/third-parties")
-def create_third_party(body: dict):
+def create_third_party(body: dict, _admin: dict = Depends(require_admin)):
     from fin_sys_core.database_driver import get_db_connection, release_db_connection
     name = (body.get("name") or "").strip()
     if not name:
@@ -415,7 +417,7 @@ def create_third_party(body: dict):
 
 # ── PUT /api/third-parties/{tp_id} ──
 @router.put("/api/third-parties/{tp_id}")
-def update_third_party(tp_id: int, body: dict):
+def update_third_party(tp_id: int, body: dict, _admin: dict = Depends(require_admin)):
     from fin_sys_core.database_driver import actualizar_tercero
     try:
         result = actualizar_tercero(
@@ -475,7 +477,7 @@ def get_cartera_alerts():
 
 # ── DELETE /api/cartera/{id} ──
 @router.delete("/api/cartera/{ledger_id}")
-def delete_cartera_entry(ledger_id: int):
+def delete_cartera_entry(ledger_id: int, _admin: dict = Depends(require_admin)):
     from fin_sys_core.database_driver import get_db_connection, release_db_connection
     conn = None
     try:

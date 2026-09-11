@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """FIN-SYS OS v2.0 — Router: Portafolios (3 endpoints)
 Extracted from contabilidad.py — PURE refactor, zero logic changes."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional
 
+from routers.auth_guard import require_admin
 from routers.schemas import PortfolioInput
 
 router = APIRouter(tags=["Portafolios"])
@@ -30,7 +31,7 @@ def get_portfolios():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/portfolios", status_code=201)
-def create_portfolio_endpoint(port_input: PortfolioInput):
+def create_portfolio_endpoint(port_input: PortfolioInput, _admin: dict = Depends(require_admin)):
     try:
         from database_driver import crear_portafolio
         new_id = crear_portafolio(port_input.name, port_input.industry_type, port_input.sub_industry_type)

@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """FIN-SYS OS v2.0 — Router: Tags & Impuestos Personalizados (4 endpoints)
 Extracted from contabilidad.py — PURE refactor, zero logic changes."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from routers.auth_guard import require_admin
 
 router = APIRouter(tags=["Tags & Impuestos"])
 
@@ -19,7 +21,7 @@ def list_tags():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/tags", status_code=201)
-def create_tag(body: dict):
+def create_tag(body: dict, _admin: dict = Depends(require_admin)):
     try:
         from fin_sys_core.database_driver import crear_tag
         return crear_tag(body.get("name", ""), body.get("color", "#000000"))
@@ -36,7 +38,7 @@ def list_custom_taxes():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/custom-taxes", status_code=201)
-def create_custom_tax(body: dict):
+def create_custom_tax(body: dict, _admin: dict = Depends(require_admin)):
     try:
         from fin_sys_core.database_driver import crear_custom_tax
         return crear_custom_tax(body.get("name", ""), float(body.get("rate", 0)), body.get("tax_type", "ADDITIVE"))

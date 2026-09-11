@@ -151,7 +151,7 @@ class HubMemberAdd(BaseModel):
 # ── WORKSPACES ────────────────────────────────────────────────────────────────
 
 @router.post("/api/hub/workspaces")
-def hub_create_workspace(data: HubWorkspaceCreate):
+def hub_create_workspace(data: HubWorkspaceCreate, _admin: dict = Depends(require_admin)):
     try:
         from fin_sys_core.hub_driver import create_workspace
         ws = create_workspace(name=data.name, nit=data.nit,
@@ -161,7 +161,7 @@ def hub_create_workspace(data: HubWorkspaceCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/api/hub/workspaces/{workspace_id}")
-def hub_delete_workspace(workspace_id: str):
+def hub_delete_workspace(workspace_id: str, _admin: dict = Depends(require_admin)):
     """Elimina un workspace y todo su contenido (cascade). Irreversible."""
     try:
         from fin_sys_core.hub_driver import delete_workspace
@@ -190,7 +190,7 @@ def hub_get_workspaces(user_id: str = None, all: bool = False):
 # ── USERS ─────────────────────────────────────────────────────────────────────
 
 @router.post("/api/hub/users/register")
-def hub_register(data: HubUserRegister):
+def hub_register(data: HubUserRegister, _admin: dict = Depends(require_admin)):
     try:
         from fin_sys_core.hub_driver import register_user
         user = register_user(
@@ -273,7 +273,7 @@ def hub_set_user_role(user_id: str, data: HubRoleChange, _admin: dict = Depends(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/hub/users/add-member")
-def hub_add_member(data: HubMemberAdd):
+def hub_add_member(data: HubMemberAdd, _admin: dict = Depends(require_admin)):
     try:
         from fin_sys_core.hub_driver import add_member_to_workspace
         result = add_member_to_workspace(data.workspace_id, data.user_id, data.role)
@@ -282,7 +282,7 @@ def hub_add_member(data: HubMemberAdd):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/hub/users", status_code=201)
-def hub_create_member(data: HubMemberCreate):
+def hub_create_member(data: HubMemberCreate, _admin: dict = Depends(require_admin)):
     """Crea una persona (ficha de roster) y la vincula al workspace."""
     try:
         from fin_sys_core.hub_driver import create_member
@@ -298,7 +298,7 @@ def hub_create_member(data: HubMemberCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/api/hub/users/{user_id}")
-def hub_update_member(user_id: str, data: HubUserUpdate):
+def hub_update_member(user_id: str, data: HubUserUpdate, _admin: dict = Depends(require_admin)):
     """Edita nombre, email, cédula, descripción y rol de una persona."""
     try:
         from fin_sys_core.hub_driver import update_member
@@ -318,7 +318,7 @@ def hub_update_member(user_id: str, data: HubUserUpdate):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/api/hub/users/{user_id}")
-def hub_remove_member(user_id: str, workspace_id: str):
+def hub_remove_member(user_id: str, workspace_id: str, _admin: dict = Depends(require_admin)):
     """Desvincula a la persona del workspace (conserva su ficha de usuario)."""
     try:
         from fin_sys_core.hub_driver import remove_member_from_workspace
@@ -352,7 +352,7 @@ def hub_get_entities(workspace_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/hub/entities")
-def hub_create_entity(data: HubEntityCreate):
+def hub_create_entity(data: HubEntityCreate, _admin: dict = Depends(require_admin)):
     try:
         from fin_sys_core.hub_driver import create_entity
         entity = create_entity(
@@ -365,7 +365,7 @@ def hub_create_entity(data: HubEntityCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/api/hub/entities/{entity_id}")
-def hub_delete_entity(entity_id: str):
+def hub_delete_entity(entity_id: str, _admin: dict = Depends(require_admin)):
     try:
         from fin_sys_core.hub_driver import delete_entity
         ok = delete_entity(entity_id)
@@ -385,7 +385,7 @@ def hub_get_projects(workspace_id: str, entity_id: str = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/hub/projects")
-def hub_create_project(data: HubProjectCreate):
+def hub_create_project(data: HubProjectCreate, _user: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hub_driver import create_project
         project = create_project(
@@ -418,7 +418,7 @@ def hub_get_tasks(project_id: str, status: str = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/hub/tasks")
-def hub_create_task(data: HubTaskCreate):
+def hub_create_task(data: HubTaskCreate, _user: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hub_driver import create_task
         task = create_task(
@@ -432,7 +432,7 @@ def hub_create_task(data: HubTaskCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/api/hub/tasks/{task_id}")
-def hub_update_task(task_id: str, data: HubTaskUpdate):
+def hub_update_task(task_id: str, data: HubTaskUpdate, _user: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hub_driver import update_task
         task = update_task(
@@ -444,7 +444,7 @@ def hub_update_task(task_id: str, data: HubTaskUpdate):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/api/hub/tasks/{task_id}")
-def hub_delete_task(task_id: str):
+def hub_delete_task(task_id: str, _user: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hub_driver import delete_task
         ok = delete_task(task_id)
@@ -464,7 +464,7 @@ def hub_get_notes(workspace_id: str, user_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/hub/notes")
-def hub_create_note(data: HubNoteCreate):
+def hub_create_note(data: HubNoteCreate, _user: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hub_driver import create_note
         note = create_note(
@@ -476,7 +476,7 @@ def hub_create_note(data: HubNoteCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/api/hub/notes/{note_id}")
-def hub_update_note(note_id: str, data: HubNoteUpdate):
+def hub_update_note(note_id: str, data: HubNoteUpdate, _user: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hub_driver import update_note
         note = update_note(
@@ -499,7 +499,7 @@ def hub_get_events(workspace_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/hub/events")
-def hub_create_event(data: HubEventCreate):
+def hub_create_event(data: HubEventCreate, _user: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hub_driver import create_event
         event = create_event(
@@ -514,7 +514,7 @@ def hub_create_event(data: HubEventCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/api/hub/events/{event_id}")
-def hub_update_event(event_id: str, data: HubEventUpdate):
+def hub_update_event(event_id: str, data: HubEventUpdate, _user: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hub_driver import update_event
         event = update_event(

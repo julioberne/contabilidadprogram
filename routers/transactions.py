@@ -61,7 +61,7 @@ def list_transactions(portfolio: Optional[str] = None):
 
 
 @router.post("/api/transactions", status_code=201)
-def create_manual_transaction(tx_input: TransactionInput):
+def create_manual_transaction(tx_input: TransactionInput, _admin: dict = Depends(require_admin)):
     """
     Registra manualmente una transacción aplicando impuestos y validación de pockets.
     La lógica vive en fin_sys_core/transaction_service.py (compartida con el Bot IA);
@@ -80,7 +80,7 @@ def create_manual_transaction(tx_input: TransactionInput):
 
 
 @router.post("/api/upload-evidence")
-def upload_evidence_endpoint(file: UploadFile = File(...)):
+def upload_evidence_endpoint(file: UploadFile = File(...), _admin: dict = Depends(require_admin)):
     """
     Sube un archivo de evidencia (comprobante) a la carpeta de uploads local.
     """
@@ -101,7 +101,7 @@ def upload_evidence_endpoint(file: UploadFile = File(...)):
 
 
 @router.put("/api/transactions/{tx_id}")
-def update_transaction_endpoint(tx_id: int, tx_update: TransactionUpdateInput):
+def update_transaction_endpoint(tx_id: int, tx_update: TransactionUpdateInput, _admin: dict = Depends(require_admin)):
     """
     Permite actualizar campos individuales de una transacción existente (Edición tipo Excel).
     """
@@ -133,11 +133,11 @@ def update_transaction_endpoint(tx_id: int, tx_update: TransactionUpdateInput):
 
 
 @router.delete("/api/transactions/{tx_id}")
-def delete_transaction_endpoint(tx_id: int, body: TransactionDeleteInput):
+def delete_transaction_endpoint(tx_id: int, body: TransactionDeleteInput, _admin: dict = Depends(require_admin)):
     """
     Eliminación DEFINITIVA con reversa contable (revierte saldos, borra
-    cartera y evidencias asociadas). Exige la clave del administrador en
-    cada intento — la sesión sola no basta (pedido de Andrés, 2026-09-11).
+    cartera y evidencias asociadas). Doble candado: sesión admin (Bearer)
+    Y la clave re-verificada en cada intento (pedido de Andrés, 2026-09-11).
     """
     from fin_sys_core.hub_driver import verificar_clave_admin
     if not verificar_clave_admin(body.password):
@@ -153,7 +153,7 @@ def delete_transaction_endpoint(tx_id: int, body: TransactionDeleteInput):
 
 
 @router.post("/api/transactions/{tx_id}/evidences")
-def attach_evidences_endpoint(tx_id: int, body: EvidenceAttachInput):
+def attach_evidences_endpoint(tx_id: int, body: EvidenceAttachInput, _admin: dict = Depends(require_admin)):
     """Adjunta evidencias (URLs del bucket) a una TX ya registrada — el
     caso "se me olvidó el soporte al registrar" (2026-09-11)."""
     try:
@@ -236,7 +236,8 @@ def _build_voice_draft(parsed_tx, texto, portfolio_name, raw_transcript=""):
 @router.post("/api/transactions/voice")
 def upload_voice_transaction(
     audio_file: UploadFile = File(...),
-    portfolio_name: str = Form("Negocio A")
+    portfolio_name: str = Form("Negocio A"),
+    _admin: dict = Depends(require_admin),
 ):
     """
     Recibe el audio del micrófono, lo transcribe y estructura con IA, y devuelve
@@ -269,7 +270,8 @@ def upload_voice_transaction(
 
 @router.post("/api/transactions/transcribe")
 def upload_voice_transcribe_only(
-    audio_file: UploadFile = File(...)
+    audio_file: UploadFile = File(...),
+    _admin: dict = Depends(require_admin),
 ):
     """
     Recibe el archivo binario de audio del micrófono en localhost,
@@ -302,7 +304,8 @@ def upload_voice_transcribe_only(
 
 @router.post("/api/transactions/structure")
 def structure_voice_transcript(
-    req: StructureRequest
+    req: StructureRequest,
+    _admin: dict = Depends(require_admin),
 ):
     """
     Toma un texto transcrito (posiblemente editado por el usuario), lo estructura

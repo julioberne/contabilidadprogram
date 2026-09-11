@@ -6,9 +6,11 @@ CRUD de artículos + movimientos de inventario.
 Endpoints: /api/inventory/*
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
+
+from routers.auth_guard import require_admin
 
 router = APIRouter(tags=["Inventario"])
 
@@ -67,7 +69,7 @@ def inventory_list_items(portfolio: str = "Principal", company_id: Optional[int]
 
 
 @router.post("/api/inventory/items", status_code=201)
-def inventory_create_item(body: InventoryItemCreateInput):
+def inventory_create_item(body: InventoryItemCreateInput, _admin: dict = Depends(require_admin)):
     """Crea un nuevo artículo en el catálogo de inventario."""
     try:
         from fin_sys_core.inventory_driver import create_item
@@ -77,7 +79,7 @@ def inventory_create_item(body: InventoryItemCreateInput):
 
 
 @router.put("/api/inventory/items/{item_id}")
-def inventory_update_item(item_id: int, body: InventoryItemUpdateInput):
+def inventory_update_item(item_id: int, body: InventoryItemUpdateInput, _admin: dict = Depends(require_admin)):
     """Actualiza campos de un artículo existente."""
     try:
         from fin_sys_core.inventory_driver import update_item
@@ -89,7 +91,7 @@ def inventory_update_item(item_id: int, body: InventoryItemUpdateInput):
 
 
 @router.delete("/api/inventory/items/{item_id}")
-def inventory_delete_item(item_id: int):
+def inventory_delete_item(item_id: int, _admin: dict = Depends(require_admin)):
     """Marca un artículo como ELIMINADO (soft delete)."""
     try:
         from fin_sys_core.inventory_driver import delete_item
@@ -99,7 +101,7 @@ def inventory_delete_item(item_id: int):
 
 
 @router.post("/api/inventory/movements", status_code=201)
-def inventory_register_movement(body: InventoryMovementInput):
+def inventory_register_movement(body: InventoryMovementInput, _admin: dict = Depends(require_admin)):
     """Registra un movimiento de inventario (entrada/salida/ajuste)
     y actualiza el stock automáticamente."""
     try:

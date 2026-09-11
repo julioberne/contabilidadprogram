@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """FIN-SYS OS v2.0 — Router: COA & Terceros & Health (5 endpoints)
 Extracted from contabilidad.py — PURE refactor, zero logic changes."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from routers.auth_guard import require_admin
 from routers.schemas import CoaTemplateInput, CoaAccountInput
 
 router = APIRouter(tags=["COA & Terceros"])
@@ -24,7 +25,7 @@ def get_coa_tree(portfolio: str):
 
 
 @router.post("/api/coa/template")
-def load_coa_template(payload: CoaTemplateInput):
+def load_coa_template(payload: CoaTemplateInput, _admin: dict = Depends(require_admin)):
     """Carga una plantilla COA para un portafolio"""
     try:
         from database_driver import cargar_plantilla_coa
@@ -37,7 +38,7 @@ def load_coa_template(payload: CoaTemplateInput):
 
 
 @router.post("/api/coa/account")
-def add_coa_account(payload: CoaAccountInput):
+def add_coa_account(payload: CoaAccountInput, _admin: dict = Depends(require_admin)):
     """Agrega una cuenta personalizada al COA"""
     from database_driver import agregar_cuenta_coa
     try:

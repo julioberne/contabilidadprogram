@@ -2,9 +2,10 @@
 """FIN-SYS OS v2.0 — Router: Dashboard Data (3 endpoints)
 Dashboard aggregator, reconcile-balances, cache invalidate.
 Extracted from contabilidad.py — PURE refactor, zero logic changes."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional
 
+from routers.auth_guard import require_admin
 from routers.schemas import _build_coa_tree
 
 router = APIRouter(tags=["Dashboard"])
@@ -60,7 +61,7 @@ def _agregar_tx_delta(accounts, txs):
         a["expected_balance"] = round(float(a.get("initial_balance") or 0.0) + deltas[aid], 2)
 
 @router.post("/api/reconcile-balances")
-def reconcile_balances():
+def reconcile_balances(_admin: dict = Depends(require_admin)):
     conn = None
     try:
         from fin_sys_core.database_driver import get_db_connection, release_db_connection, recalcular_saldos_cuentas
@@ -188,5 +189,5 @@ def get_dashboard_data(portfolio: Optional[str] = None, limit: int = 50, offset:
 
 
 @router.post("/api/cache/invalidate")
-def invalidate_cache():
+def invalidate_cache(_admin: dict = Depends(require_admin)):
     return {"status": "OK", "message": "Cache invalidado"}

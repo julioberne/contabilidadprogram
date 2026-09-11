@@ -3,8 +3,9 @@
 Extracted from contabilidad.py — PURE refactor, zero logic changes."""
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from routers.auth_guard import require_admin
 from routers.schemas import ProfileInput, AccountInput, AccountUpdateInput
 
 router = APIRouter(tags=["Perfil & Cuentas"])
@@ -127,7 +128,7 @@ def get_profile():
 
 
 @router.put("/api/profile")
-def update_profile(profile: ProfileInput):
+def update_profile(profile: ProfileInput, _admin: dict = Depends(require_admin)):
     try:
         from database_driver import actualizar_perfil_usuario
         success = actualizar_perfil_usuario(profile.dict())
@@ -154,7 +155,7 @@ def list_accounts(portfolio: Optional[str] = None):
 
 
 @router.post("/api/accounts", status_code=201)
-def add_account(acc: AccountInput):
+def add_account(acc: AccountInput, _admin: dict = Depends(require_admin)):
     try:
         from database_driver import crear_cuenta
         new_id = crear_cuenta(acc.dict())
@@ -192,7 +193,7 @@ def add_account(acc: AccountInput):
 
 
 @router.put("/api/accounts/{account_id}")
-def update_account(account_id: int, acc: AccountUpdateInput):
+def update_account(account_id: int, acc: AccountUpdateInput, _admin: dict = Depends(require_admin)):
     try:
         from database_driver import actualizar_cuenta
         if not actualizar_cuenta(account_id, acc.dict()):
@@ -219,7 +220,7 @@ def update_account(account_id: int, acc: AccountUpdateInput):
 
 
 @router.post("/api/accounts/{account_id}/links")
-def link_account(account_id: int, body: dict):
+def link_account(account_id: int, body: dict, _admin: dict = Depends(require_admin)):
     """Vincula la cuenta a una EMPRESA del árbol (N:M). body: {entity_id}."""
     entity_id = (body or {}).get("entity_id")
     if not entity_id:
@@ -232,7 +233,7 @@ def link_account(account_id: int, body: dict):
 
 
 @router.delete("/api/accounts/{account_id}/links")
-def unlink_account(account_id: int, entity_id: int):
+def unlink_account(account_id: int, entity_id: int, _admin: dict = Depends(require_admin)):
     """Quita un vínculo. Sin vínculos restantes la cuenta vuelve a ser compartida."""
     try:
         _unlink_cuenta(account_id, entity_id)
@@ -242,7 +243,7 @@ def unlink_account(account_id: int, entity_id: int):
 
 
 @router.delete("/api/accounts/{account_id}")
-def delete_account(account_id: int):
+def delete_account(account_id: int, _admin: dict = Depends(require_admin)):
     try:
         from database_driver import eliminar_cuenta
         if not eliminar_cuenta(account_id):

@@ -2,6 +2,7 @@
    main.jsx — FIN-SYS OS v2.0 · Shell Unificado
    Módulos definidos en registry/moduleRegistry.js (SSOT).
    ============================================================ */
+import './shell/installAuthFetch.js'; // PRIMERO: todo fetch a la API lleva el token
 import { useState, useEffect, Suspense, useCallback } from 'react';
 import ErrorBoundary from './shell/ErrorBoundary.jsx';
 import { createRoot } from 'react-dom/client';

@@ -13,7 +13,9 @@ portfolio_id y entity_id NULL: se muestran como legado del portafolio.
 """
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from routers.auth_guard import require_admin
 
 router = APIRouter(tags=["Recursos"])
 
@@ -68,7 +70,7 @@ def list_assets(entity_id: Optional[int] = None, portfolio: Optional[str] = None
 
 
 @router.post("/api/assets", status_code=201)
-def create_asset(body: dict):
+def create_asset(body: dict, _admin: dict = Depends(require_admin)):
     """Crea un recurso directo, vinculado a la empresa activa (entity_id)."""
     name = (body.get("name") or "").strip()
     if not name:
@@ -106,7 +108,7 @@ def create_asset(body: dict):
 
 
 @router.put("/api/assets/{asset_id}")
-def update_asset(asset_id: int, body: dict):
+def update_asset(asset_id: int, body: dict, _admin: dict = Depends(require_admin)):
     CAMPOS = {"name": str, "purchase_value": float, "custom_tag": str,
               "entity_id": int, "is_passive_income_generator": bool}
     sets, params = [], []
@@ -139,7 +141,7 @@ def update_asset(asset_id: int, body: dict):
 
 
 @router.delete("/api/assets/{asset_id}")
-def delete_asset(asset_id: int):
+def delete_asset(asset_id: int, _admin: dict = Depends(require_admin)):
     get_db, release_db = _conn()
     conn = None
     try:

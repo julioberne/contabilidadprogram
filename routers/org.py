@@ -6,9 +6,11 @@ CRUD de entidades organizacionales para el selector de empresa.
 Endpoints: /api/org/*
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
+
+from routers.auth_guard import require_admin
 
 router = APIRouter(tags=["Organización"])
 
@@ -78,7 +80,7 @@ def org_get_entity_tree():
 
 
 @router.post("/api/org/entities", status_code=201)
-def org_create_entity(body: OrgEntityCreateInput):
+def org_create_entity(body: OrgEntityCreateInput, _admin: dict = Depends(require_admin)):
     """Crea una nueva entidad organizacional."""
     try:
         from fin_sys_core.org_driver import create_entity_basic
@@ -94,7 +96,7 @@ def org_create_entity(body: OrgEntityCreateInput):
 
 
 @router.post("/api/org/entities/{entity_id}/ensure-portfolio")
-def org_ensure_portfolio(entity_id: int):
+def org_ensure_portfolio(entity_id: int, _admin: dict = Depends(require_admin)):
     """Garantiza presupuesto propio para la entidad (lo crea si no tiene).
     Lo llama el frontend al seleccionar empresa: el registro contable se
     atribuye al portafolio activo, así que cada empresa necesita el suyo."""
@@ -112,7 +114,7 @@ def org_ensure_portfolio(entity_id: int):
 
 
 @router.put("/api/org/entities/{entity_id}")
-def org_update_entity(entity_id: int, body: OrgEntityUpdateInput):
+def org_update_entity(entity_id: int, body: OrgEntityUpdateInput, _admin: dict = Depends(require_admin)):
     """Actualiza campos de una entidad existente."""
     try:
         from fin_sys_core.org_driver import update_entity_basic
@@ -131,7 +133,7 @@ def org_update_entity(entity_id: int, body: OrgEntityUpdateInput):
 
 
 @router.put("/api/org/entities/{entity_id}/industry")
-def org_update_entity_industry(entity_id: int, body: OrgEntityIndustryInput):
+def org_update_entity_industry(entity_id: int, body: OrgEntityIndustryInput, _admin: dict = Depends(require_admin)):
     """Actualiza únicamente la industria de una entidad."""
     try:
         from fin_sys_core.org_driver import update_entity_industry

@@ -1,14 +1,37 @@
 """Test: Registrar TX via API → verificar que journal entry se genera automáticamente"""
-import urllib.request
 import json
+import os
+import sys
+import urllib.request
 
 BASE = "http://127.0.0.1:8000"
+
+# Los endpoints mutadores exigen sesión admin (remediación 2026-09-11).
+# El test corre en la misma máquina que el server y comparte su .env, así
+# que puede firmar un token válido con el mismo secreto (SESSION_SECRET o
+# derivado de DB_PASSWORD) — sin credenciales reales en el repo.
+_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _REPO)
+if os.path.exists(os.path.join(_REPO, ".env")):
+    with open(os.path.join(_REPO, ".env"), "r", encoding="utf-8") as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith("#") and "=" in _line:
+                _k, _v = _line.split("=", 1)
+                os.environ.setdefault(_k.strip(), _v.strip())
+
+from routers.auth_guard import create_session_token
+
+TOKEN = create_session_token({"id": "e2e", "name": "Test E2E", "role": "admin"})
 
 def post(path, data):
     req = urllib.request.Request(
         f"{BASE}{path}",
         data=json.dumps(data).encode(),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {TOKEN}",
+        },
     )
     r = urllib.request.urlopen(req)
     return json.loads(r.read())
