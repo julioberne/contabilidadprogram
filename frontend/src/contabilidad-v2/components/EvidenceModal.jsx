@@ -31,6 +31,52 @@ export default function EvidenceModal({
   // 📝 Nota breve del comprobante (opcional, máx. 280)
   const [editNota, setEditNota] = React.useState(false);
   const [notaTxt, setNotaTxt] = React.useState('');
+  // 📎 Adjuntar evidencias olvidadas (2026-09-11, pedido de Andrés: "si se
+  // me olvida agregar el archivo adjunto ya no se puede"). Mismo camino del
+  // formulario: navegador → bucket de Supabase → POST de las URLs.
+  const [subiendoEv, setSubiendoEv] = React.useState(false);
+  const inputEvRef = React.useRef(null);
+  const EVIDENCIA_MAX_MB = 5;
+  const adjuntarEvidencias = async (e) => {
+    const lista = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!lista.length || !txv.id) return;
+    setSubiendoEv(true);
+    try {
+      const { supabase, SUPABASE_URL } = await import('../../project-hub/lib/supabaseClient.js');
+      const urls = [];
+      for (const file of lista) {
+        if (file.size > EVIDENCIA_MAX_MB * 1024 * 1024) {
+          alert(`❌ "${file.name}" pesa más de ${EVIDENCIA_MAX_MB}MB — se omite. Comprímelo e inténtalo de nuevo.`);
+          continue;
+        }
+        const seguro = file.name.normalize('NFD').replace(/[̀-ͯ]/g, '')
+          .replace(/[^a-zA-Z0-9._-]+/g, '_').slice(-60);
+        const ruta = `evidence/${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}_${seguro}`;
+        const { error } = await supabase.storage.from('hr-docs')
+          .upload(ruta, file, { contentType: file.type || 'application/octet-stream', upsert: false });
+        if (error) throw error;
+        urls.push(`${SUPABASE_URL}/storage/v1/object/public/hr-docs/${ruta}`);
+      }
+      if (!urls.length) return;
+      const r = await fetch(`${API}/transactions/${txv.id}/evidences`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: urls }),
+      });
+      if (!r.ok) throw new Error('No se pudo registrar la evidencia en la transacción');
+      const data = await r.json();
+      setParche(p => ({
+        ...p,
+        evidences: data.evidences,
+        evidence_file_path: txv.evidence_file_path || data.evidences[0],
+      }));
+      fetchAll?.(true);
+    } catch (err) {
+      alert('❌ ' + (err.message || 'Error adjuntando la evidencia.'));
+    } finally {
+      setSubiendoEv(false);
+    }
+  };
   React.useEffect(() => {
     setParche({}); setEditTp(false); setTpSel(''); setTpBusca('');
     setGeoInput(''); setEditTags(false); setEditNota(false);
@@ -652,21 +698,36 @@ export default function EvidenceModal({
               })()}
             </div>
 
-            {/* Evidencias físicas (Etapa E.3: pueden ser VARIAS — fotos y PDF) */}
+            {/* Evidencias físicas (Etapa E.3: pueden ser VARIAS — fotos y PDF).
+                2026-09-11: la sección se muestra SIEMPRE — con 📎 para
+                adjuntar lo que se olvidó al registrar. */}
             {(() => {
               const lista = (txv.evidences?.length
                 ? txv.evidences
                 : [txv.evidence_file_path])
                 .filter(f => f && f !== "recibo_demo.png");
-              if (!lista.length) return null;
               const urlDe = (f) => (f.startsWith("http") ? f : `/${f}`);
               const esPdf = (f) => f.toLowerCase().split("?")[0].endsWith(".pdf");
               const esAudio = (f) => /\.(ogg|webm|mp3|opus)(\?|$)/i.test(f);
               return (
               <div className="border-2 border-black p-2 bg-white space-y-1 uppercase text-[10px]">
-                <div className="font-bold border-b border-black pb-1">
-                  📂 {lista.length > 1 ? `${lista.length} ARCHIVOS DE SOPORTE ADJUNTOS` : "ARCHIVO DE SOPORTE ADJUNTO"}
+                <div className="font-bold border-b border-black pb-1 flex justify-between items-center">
+                  <span>📂 {lista.length > 1 ? `${lista.length} ARCHIVOS DE SOPORTE ADJUNTOS` : "ARCHIVO DE SOPORTE ADJUNTO"}</span>
+                  <span>
+                    <input ref={inputEvRef} type="file" multiple accept="image/*,application/pdf"
+                           className="hidden" onChange={adjuntarEvidencias} />
+                    <button onClick={() => inputEvRef.current?.click()} disabled={subiendoEv}
+                            title="Adjuntar fotos o PDF a este comprobante (se puede más de uno)"
+                            className="px-1.5 py-0.5 border border-black bg-white text-black text-[9px] font-bold hover:bg-black hover:text-white disabled:opacity-40">
+                      {subiendoEv ? 'SUBIENDO…' : '📎 ADJUNTAR'}
+                    </button>
+                  </span>
                 </div>
+                {lista.length === 0 && (
+                  <p className="text-[9px] text-gray-400 normal-case py-1">
+                    — Sin soporte adjunto — usa 📎 para agregar fotos o PDF ahora.
+                  </p>
+                )}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {lista.map((f, i) => (
                     <div key={i} className="flex flex-col items-center justify-center p-2 bg-gray-50 border border-black">

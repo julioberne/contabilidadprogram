@@ -2,6 +2,7 @@
 import React from 'react';
 import NumInput from '../../../shared/NumInput';
 import { useEmpresa } from '../../engine/EmpresaProvider.jsx';
+import { API } from '../../../config';
 
 const fmtCOP = (v) => `$${Number(v || 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -27,10 +28,40 @@ export default function LibroDiario({
   // Totalizador (2026-09-08, pedido de Andrés): cifras de la caja viva del
   // portafolio ACTIVO completo — no de la página cargada, que con paginación
   // (50 en 50) sumaría solo lo visible y mentiría.
-  const { cajaViva = {} } = useEmpresa();
+  const { cajaViva = {}, fetchAll } = useEmpresa();
   const totIngresos = Number(cajaViva.total_ingresos_cop || 0);
   const totGastos = Number(cajaViva.total_gastos_cop || 0);
   const totBalance = Number(cajaViva.balance_neto_cop ?? (totIngresos - totGastos));
+
+  // 🗑 Eliminar registro (2026-09-11, pedido de Andrés): SIEMPRE con la
+  // clave del administrador — el backend la re-verifica en cada intento y
+  // hace la reversa contable (saldos, cartera y evidencias asociadas).
+  const [delTxId, setDelTxId] = React.useState(null);
+  const [delClave, setDelClave] = React.useState('');
+  const [delBusy, setDelBusy] = React.useState(false);
+  const [delError, setDelError] = React.useState('');
+  const eliminarTx = async (tx) => {
+    setDelBusy(true); setDelError('');
+    try {
+      const r = await fetch(`${API}/transactions/${tx.id}`, {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: delClave }),
+      });
+      if (r.status === 403) { setDelError('Clave de administrador incorrecta.'); return; }
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error(d.detail || 'No se pudo eliminar el registro');
+      }
+      setDelTxId(null); setDelClave('');
+      setExpandedTxId(null);
+      fetchAll?.(true);
+      alert(`✅ Registro #${tx.id} eliminado — saldos revertidos.`);
+    } catch (e) {
+      setDelError(e.message || 'Error eliminando.');
+    } finally {
+      setDelBusy(false);
+    }
+  };
 
   return (
         <div className="w-full">
@@ -417,6 +448,37 @@ export default function LibroDiario({
                               {!tx.third_party_name && !tx.cxc_type && !tx.tax_iva_amount && !tx.tax_gmf_amount && !tx.is_recurring && !tx.asset_name && !(tx.transaction_currency && tx.transaction_currency !== 'COP') && (
                                 <p className="text-[10px] text-gray-300 font-mono uppercase text-center py-2">Sin datos adicionales registrados</p>
                               )}
+
+                              {/* 🗑 Eliminación con clave de admin */}
+                              <div className="flex justify-end items-center gap-2 pt-2 mt-2 border-t border-dashed border-black"
+                                   onClick={(e) => e.stopPropagation()}>
+                                {delTxId !== tx.id ? (
+                                  <button
+                                    onClick={() => { setDelTxId(tx.id); setDelClave(''); setDelError(''); }}
+                                    title="Eliminación definitiva: revierte saldos y borra la cartera y evidencias del registro. Pide la clave del administrador."
+                                    className="px-2 py-1 border-2 border-black bg-white text-brutalCrimson text-[9px] font-bold uppercase hover:bg-brutalCrimson hover:text-white transition-all">
+                                    🗑 Eliminar registro
+                                  </button>
+                                ) : (
+                                  <div className="border-2 border-dashed border-brutalCrimson bg-red-50 p-2 flex flex-wrap items-center gap-1.5 normal-case">
+                                    <span className="text-[9px] font-bold uppercase text-red-700 w-full">
+                                      ⚠ Definitivo: revierte el saldo y borra la cartera y evidencias de este registro.
+                                    </span>
+                                    <input type="password" value={delClave} autoFocus
+                                           onChange={(e) => setDelClave(e.target.value)}
+                                           onKeyDown={(e) => { if (e.key === 'Enter' && delClave && !delBusy) eliminarTx(tx); }}
+                                           placeholder="Clave de administrador"
+                                           className="border-2 border-black px-1.5 py-0.5 text-[10px] font-mono bg-white flex-1 min-w-[160px]" />
+                                    <button onClick={() => eliminarTx(tx)} disabled={delBusy || !delClave}
+                                            className="px-2 py-1 border-2 border-black bg-brutalCrimson text-white text-[9px] font-bold uppercase hover:bg-black disabled:opacity-40">
+                                      {delBusy ? 'Eliminando…' : 'Confirmar'}
+                                    </button>
+                                    <button onClick={() => { setDelTxId(null); setDelError(''); }}
+                                            className="px-2 py-1 border-2 border-black bg-white text-[9px] font-bold uppercase hover:bg-black hover:text-white">✕</button>
+                                    {delError && <span className="text-[9px] font-bold text-red-700 w-full">{delError}</span>}
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </td>
                         </tr>

@@ -942,6 +942,109 @@ def actualizar_transaccion(tx_id: int, update_data: Dict[str, Any]) -> bool:
             release_db_connection(conn)
 
 
+def eliminar_transaccion(tx_id: int) -> Dict[str, Any]:
+    """
+    Elimina una transacción con REVERSA contable completa (pedido de
+    Andrés, 2026-09-11 — siempre tras verificar la clave de admin en el
+    router): revierte su delta de saldos, borra su cartera asociada
+    (cxp_cxc_ledger; los abonos caen por CASCADE) y sus evidencias
+    (transaction_evidences, CASCADE). Los activos y movimientos de
+    inventario vinculados NO se borran: su FK queda en NULL por diseño
+    (el recurso físico sigue existiendo aunque el registro se anule).
+    Sin mock: eliminar exige la BD real (error honesto si no hay red).
+    Devuelve {concept, net_value} para el mensaje de confirmación.
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT type, amount, net_value, account_id, dest_account_id,
+                   trm, transaction_currency, concept
+            FROM transactions WHERE id = %s;
+        """, (tx_id,))
+        row = cur.fetchone()
+        if not row:
+            raise ValueError(f"Transacción con ID {tx_id} no encontrada.")
+        snapshot = {
+            "type": row[0], "amount": row[1], "net_value": row[2],
+            "account_id": row[3], "dest_account_id": row[4],
+            "trm": row[5], "transaction_currency": row[6],
+        }
+        revertir_delta_incremental(conn, snapshot)
+        cur.execute("DELETE FROM cxp_cxc_ledger WHERE transaction_id = %s;", (tx_id,))
+        cur.execute("DELETE FROM transactions WHERE id = %s;", (tx_id,))
+        conn.commit()
+        cur.close()
+        release_db_connection(conn)
+        conn = None
+        return {"concept": row[7], "net_value": float(row[2] or 0)}
+    except Exception:
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        raise
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
+
+
+def agregar_evidencias(tx_id: int, files: List[str]) -> List[str]:
+    """
+    Adjunta evidencias (URLs del bucket) a una transacción EXISTENTE — el
+    caso "se me olvidó el soporte al registrar" (Andrés, 2026-09-11).
+    Si la TX tenía una evidencia principal antigua sin fila en
+    transaction_evidences, se migra primero para que la galería no la
+    pierda; la primera nueva pasa a evidence_file_path solo si no había.
+    Devuelve la lista completa de evidencias tras insertar.
+    """
+    files = [f for f in (files or []) if f]
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT evidence_file_path FROM transactions WHERE id = %s;", (tx_id,))
+        row = cur.fetchone()
+        if not row:
+            raise ValueError(f"Transacción con ID {tx_id} no encontrada.")
+        principal = row[0]
+        cur.execute("SELECT COUNT(*) FROM transaction_evidences WHERE transaction_id = %s;", (tx_id,))
+        if cur.fetchone()[0] == 0 and principal and principal != "recibo_demo.png":
+            cur.execute(
+                "INSERT INTO transaction_evidences (transaction_id, file_path) VALUES (%s, %s);",
+                (tx_id, principal),
+            )
+        for f in files:
+            cur.execute(
+                "INSERT INTO transaction_evidences (transaction_id, file_path) VALUES (%s, %s);",
+                (tx_id, f),
+            )
+        if not principal and files:
+            cur.execute("UPDATE transactions SET evidence_file_path = %s WHERE id = %s;", (files[0], tx_id))
+        cur.execute(
+            "SELECT file_path FROM transaction_evidences WHERE transaction_id = %s ORDER BY id;",
+            (tx_id,),
+        )
+        todas = [r[0] for r in cur.fetchall()]
+        conn.commit()
+        cur.close()
+        release_db_connection(conn)
+        conn = None
+        return todas
+    except Exception:
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        raise
+    finally:
+        if conn is not None:
+            release_db_connection(conn)
+
+
 def recalcular_saldos_cuentas(conn=None):
     """
     Recalcula el saldo actual (current_balance) de todas las cuentas a partir
@@ -1456,7 +1559,7 @@ def obtener_terceros():
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("SELECT id, identification_type, identification_number, name, email, phone, website FROM third_parties ORDER BY name ASC;")
+        cur.execute("SELECT id, identification_type, identification_number, name, email, phone, website, address FROM third_parties ORDER BY name ASC;")
         rows = cur.fetchall()
         cur.close()
         return [dict(r) for r in rows]

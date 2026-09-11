@@ -7,7 +7,10 @@ from typing import Optional
 import os, re, shutil, uuid
 
 from routers.auth_guard import require_admin
-from routers.schemas import TransactionInput, TransactionUpdateInput, StructureRequest
+from routers.schemas import (
+    TransactionInput, TransactionUpdateInput, StructureRequest,
+    TransactionDeleteInput, EvidenceAttachInput,
+)
 
 router = APIRouter(tags=["Transacciones"])
 
@@ -123,6 +126,40 @@ def update_transaction_endpoint(tx_id: int, tx_update: TransactionUpdateInput):
         if not success:
             raise HTTPException(status_code=404, detail="Transacción no encontrada.")
         return {"status": "ACTUALIZADO", "transaction_id": tx_id}
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/api/transactions/{tx_id}")
+def delete_transaction_endpoint(tx_id: int, body: TransactionDeleteInput):
+    """
+    Eliminación DEFINITIVA con reversa contable (revierte saldos, borra
+    cartera y evidencias asociadas). Exige la clave del administrador en
+    cada intento — la sesión sola no basta (pedido de Andrés, 2026-09-11).
+    """
+    from fin_sys_core.hub_driver import verificar_clave_admin
+    if not verificar_clave_admin(body.password):
+        raise HTTPException(status_code=403, detail="Clave de administrador incorrecta.")
+    try:
+        from database_driver import eliminar_transaccion
+        info = eliminar_transaccion(tx_id)
+        return {"status": "ELIMINADO", "transaction_id": tx_id, **info}
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/transactions/{tx_id}/evidences")
+def attach_evidences_endpoint(tx_id: int, body: EvidenceAttachInput):
+    """Adjunta evidencias (URLs del bucket) a una TX ya registrada — el
+    caso "se me olvidó el soporte al registrar" (2026-09-11)."""
+    try:
+        from database_driver import agregar_evidencias
+        todas = agregar_evidencias(tx_id, body.files)
+        return {"status": "OK", "transaction_id": tx_id, "evidences": todas}
     except ValueError as ve:
         raise HTTPException(status_code=404, detail=str(ve))
     except Exception as e:

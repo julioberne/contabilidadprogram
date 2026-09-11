@@ -55,7 +55,10 @@ export function buildTransactionPayload(s) {
       name: finalThirdPartyName,
       email: s.thirdPartyEmail || null,
       phone: s.thirdPartyPhone || null,
-      website: s.thirdPartyWebsite || null
+      website: s.thirdPartyWebsite || null,
+      // Dirección opcional (2026-09-11): clave ausente cuando no hay valor —
+      // los fixtures v1 no la conocen.
+      ...(s.thirdPartyAddress ? { address: s.thirdPartyAddress } : {})
     },
     transaction_date: s.date,
     apply_iva: s.applyIva,

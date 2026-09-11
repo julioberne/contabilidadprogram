@@ -50,6 +50,7 @@ export function TransactionDraftProvider({ children }) {
   const [thirdPartyEmail, setThirdPartyEmail] = useState("");
   const [thirdPartyPhone, setThirdPartyPhone] = useState("");
   const [thirdPartyWebsite, setThirdPartyWebsite] = useState("");
+  const [thirdPartyAddress, setThirdPartyAddress] = useState(""); // 2026-09-11: direccion opcional en el formulario
   const [thirdPartyId, setThirdPartyId] = useState(null); // vínculo 🔗 desde TercerosPanel
   const [isThirdPartyModalOpen, setIsThirdPartyModalOpen] = useState(false);
 
@@ -184,6 +185,7 @@ export function TransactionDraftProvider({ children }) {
     setThirdPartyEmail("");
     setThirdPartyPhone("");
     setThirdPartyWebsite("");
+    setThirdPartyAddress("");
     setThirdPartyId(null);
     setApplyIva(false);
     setApplyGmf(false);
@@ -227,7 +229,7 @@ export function TransactionDraftProvider({ children }) {
       formType, amount, concept, date, geoMapsLink, paymentMethod, category,
       selectedAccountId, selectedDestAccountId, trmValue, txCurrency,
       thirdPartyType, thirdPartyNumber, thirdPartyName,
-      thirdPartyEmail, thirdPartyPhone, thirdPartyWebsite,
+      thirdPartyEmail, thirdPartyPhone, thirdPartyWebsite, thirdPartyAddress,
       applyIva, applyGmf, applyPropina,
       isRecurring, recurrenceInterval, recurrenceDays, recurrenceMaxReps,
       recurrenceStartDate, recurrenceEndDate,
@@ -334,6 +336,7 @@ export function TransactionDraftProvider({ children }) {
     email: thirdPartyEmail,
     phone: thirdPartyPhone,
     website: thirdPartyWebsite,
+    address: thirdPartyAddress,
   };
 
   const setThirdParty = (tp) => {
@@ -344,6 +347,7 @@ export function TransactionDraftProvider({ children }) {
     setThirdPartyEmail(tp?.email || "");
     setThirdPartyPhone(tp?.phone || "");
     setThirdPartyWebsite(tp?.website || "");
+    setThirdPartyAddress(tp?.address || "");
   };
 
   const updateThirdParty = (field, value) => {
@@ -354,6 +358,7 @@ export function TransactionDraftProvider({ children }) {
       email: setThirdPartyEmail,
       phone: setThirdPartyPhone,
       website: setThirdPartyWebsite,
+      address: setThirdPartyAddress,
     };
     setters[field]?.(value);
   };
@@ -381,6 +386,7 @@ export function TransactionDraftProvider({ children }) {
     thirdPartyEmail, setThirdPartyEmail,
     thirdPartyPhone, setThirdPartyPhone,
     thirdPartyWebsite, setThirdPartyWebsite,
+    thirdPartyAddress, setThirdPartyAddress,
     isThirdPartyModalOpen, setIsThirdPartyModalOpen,
     // Terceros (compat v2: objeto + helpers)
     thirdParty, setThirdParty, updateThirdParty,

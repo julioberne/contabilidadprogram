@@ -12,7 +12,8 @@ vi.mock('../../../engine/TransactionDraftProvider.jsx', () => ({
 
 const TERCEROS = [
   { id: 5, name: 'KEVIN MATEO GONZÁLEZ AGUDELO', identification_type: 'CC',
-    identification_number: '1031645976', phone: '301563048', email: 'mateo@mail.com' },
+    identification_number: '1031645976', phone: '301563048', email: 'mateo@mail.com',
+    address: 'Cra 109 # 151C-25' },
   { id: 9, name: 'Ferretería El Tornillo', identification_type: 'NIT',
     identification_number: '100736548' },
   { id: 1, name: 'Sin especificar', identification_type: 'NIT',
@@ -26,6 +27,7 @@ function draftFake(extra = {}) {
     thirdPartyNumber: '', setThirdPartyNumber: vi.fn(),
     thirdPartyEmail: '', setThirdPartyEmail: vi.fn(),
     thirdPartyPhone: '', setThirdPartyPhone: vi.fn(),
+    thirdPartyAddress: '', setThirdPartyAddress: vi.fn(),
     allThirdParties: TERCEROS,
     applyIva: false, setApplyIva: vi.fn(),
     applyPropina: false, setApplyPropina: vi.fn(),
@@ -75,6 +77,14 @@ describe('AdvancedSections — buscador de terceros registrados', () => {
     expect(d.setThirdPartyNumber).toHaveBeenCalledWith('1031645976');
     expect(d.setThirdPartyPhone).toHaveBeenCalledWith('301563048');
     expect(d.setThirdPartyEmail).toHaveBeenCalledWith('mateo@mail.com');
+    expect(d.setThirdPartyAddress).toHaveBeenCalledWith('Cra 109 # 151C-25');
+  });
+
+  it('el formulario tiene el campo Dirección (opcional)', () => {
+    useTransactionDraft.mockReturnValue(draftFake());
+    render(<AdvancedSections />);
+    abrirSeccionTercero();
+    expect(screen.getByText('Dirección')).toBeInTheDocument();
   });
 
   it('semáforo: número ya registrado ⇒ "se reutilizará"', () => {

@@ -68,6 +68,7 @@ export default function AdvancedSections() {
     d.setThirdPartyNumber(String(t.identification_number || ''));
     if (t.email) d.setThirdPartyEmail(t.email);
     if (t.phone) d.setThirdPartyPhone(t.phone);
+    if (t.address) d.setThirdPartyAddress?.(t.address);
     setTpBusca('');
   };
   // Semáforo de reutilización: que se VEA si este registro reusa o crea
@@ -176,6 +177,11 @@ export default function AdvancedSections() {
             <input type="text" value={d.thirdPartyPhone} onChange={e => d.setThirdPartyPhone(e.target.value)}
                    placeholder="opcional" className={inputCls} />
           </div>
+        </div>
+        <div>
+          <label className={labelCls}>Dirección</label>
+          <input type="text" value={d.thirdPartyAddress || ''} onChange={e => d.setThirdPartyAddress?.(e.target.value)}
+                 placeholder="opcional — ej. Cra 109 # 151C-25" className={inputCls} />
         </div>
         {regPorNumero && (
           <p className="text-[9px] text-green-700 font-bold uppercase">

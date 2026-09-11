@@ -170,6 +170,29 @@ def login_user(email: str, password: str) -> dict | None:
         _put_conn(conn)
 
 
+def verificar_clave_admin(password: str):
+    """¿La clave pertenece a un ADMIN con login? Para acciones destructivas
+    (eliminar transacción) la clave se re-verifica en CADA intento — la
+    sesión sola no basta (pedido de Andrés, 2026-09-11). Devuelve los datos
+    mínimos del admin o None."""
+    if not password:
+        return None
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, email, name FROM hub_users
+                WHERE (lower(coalesce(role, '')) = 'admin' OR is_superuser)
+                  AND password_hash IS NOT NULL
+                  AND password_hash = crypt(%s, password_hash)
+                LIMIT 1
+            """, (password,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+    finally:
+        _put_conn(conn)
+
+
 def change_password(user_id: str, old_password: str, new_password: str) -> str:
     """Cambia la contraseña del propio usuario verificando la actual con bcrypt.
 

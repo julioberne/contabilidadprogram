@@ -153,6 +153,16 @@ class TransactionUpdateInput(BaseModel):
     recurrence_end_date: Optional[str] = None
 
 
+class TransactionDeleteInput(BaseModel):
+    """Eliminar exige la clave del administrador en CADA intento (2026-09-11)."""
+    password: str = Field(min_length=1)
+
+
+class EvidenceAttachInput(BaseModel):
+    """Adjuntar evidencias (URLs del bucket) a una TX ya registrada."""
+    files: List[str] = Field(min_length=1)
+
+
 class CoaTemplateInput(BaseModel):
     portfolio_name: str
     template_name: str
