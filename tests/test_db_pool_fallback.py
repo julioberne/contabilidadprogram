@@ -92,13 +92,16 @@ class TestFallbackConTope(unittest.TestCase):
 
 class FakePoolConn:
     """Conexión 'del pool': igual que psycopg2 (sin __dict__), con socket
-    simulable. `muerta=True` reproduce el corte SSL de Supabase."""
-    __slots__ = ("__weakref__", "closed", "viva", "cerrada")
+    simulable. `muerta=True` reproduce el corte SSL de Supabase.
+    `cursor_factory` SÍ está en los slots: en psycopg2 real es un atributo
+    asignable de la conexión (así lo contaminaba hub_driver, bug 2026-09-11)."""
+    __slots__ = ("__weakref__", "closed", "viva", "cerrada", "cursor_factory")
 
     def __init__(self, muerta=False):
         self.closed = 0
         self.viva = not muerta
         self.cerrada = False
+        self.cursor_factory = None
 
     def poll(self):
         if not self.viva:
@@ -183,6 +186,27 @@ class TestPoolSeCuraSolo(unittest.TestCase):
         db_pool.put_conn(cerrada)
         self.assertIn(cerrada, db_pool._pool.descartadas)
         self.assertEqual(db_pool._pool.devueltas, [])
+
+    def test_personalidad_neutra_al_prestar_y_devolver(self):
+        """Bug 2026-09-11: hub_driver dejaba cursor_factory=RealDictCursor
+        pegado a la conexión que devolvía al pool; el siguiente caller recibía
+        filas dict donde esperaba tuplas (row[0] → KeyError: '0' — el eliminar
+        con clave de Andrés moría en 500 sin tocar nada). El pool debe
+        neutralizar cursor_factory al DEVOLVER y también al PRESTAR."""
+        db_pool._pool = FakePool([])
+        db_pool._init_failed = False
+
+        contaminada = FakePoolConn()
+        contaminada.cursor_factory = "RealDictCursor"
+        db_pool.put_conn(contaminada)
+        self.assertIn(contaminada, db_pool._pool.devueltas)
+        self.assertIsNone(contaminada.cursor_factory)   # neutra al devolver
+
+        contaminada.cursor_factory = "RealDictCursor"   # re-contaminada dentro del pool
+        db_pool._pool = FakePool([contaminada])
+        conn = db_pool.get_conn()
+        self.assertIs(conn, contaminada)
+        self.assertIsNone(conn.cursor_factory)          # neutra al prestar
 
 
 class FakePoolCtor:

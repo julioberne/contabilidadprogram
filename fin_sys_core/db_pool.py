@@ -267,6 +267,12 @@ def get_conn():
             try:
                 if not conn.closed:
                     conn.poll()   # socket muerto → OperationalError inmediato
+                    # Personalidad neutra al PRESTAR (bug 2026-09-11): un
+                    # caller previo pudo dejar cursor_factory=RealDictCursor
+                    # pegado a la conexión (hub_driver, pooled_connection) y
+                    # el siguiente recibía filas dict donde esperaba tuplas
+                    # (row[0] → KeyError: '0' — el eliminar de Andrés).
+                    conn.cursor_factory = None
                     return conn
             except Exception:
                 pass
@@ -364,6 +370,13 @@ def put_conn(conn):
                     except Exception:
                         pass
                 return
+            # Al DEVOLVER, la conexión queda con personalidad neutra: sin esto,
+            # el cursor_factory que un caller le pegó viajaba al siguiente
+            # (bug 2026-09-11 — ver el saneo espejo en get_conn).
+            try:
+                conn.cursor_factory = None
+            except Exception:
+                pass
             _pool.putconn(conn)
         else:
             conn.close()
