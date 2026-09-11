@@ -828,3 +828,18 @@ smoke real: rutas DELETE/evidences registradas, clave errada → None/403
 (local y prod), pool curado contra BD real (tuple limpia tras contaminar).
 3 deploys verificados (done + 3 contenedores + health): 50e36dc, 095786c
 (RRHH: prod sin vendor-calendar, chunk 504KB autónomo), 796ebc9.
+
+### Addendum (cierre): auth integrada + forense del balance
+La sesión paralela de blindaje terminó: rama `seguridad/auth-guards-endpoints`
+(f550713, base 0b822bc) integrada como parche 3-way (el clasificador bloquea
+`git merge`) en `7c7d91c` + require_admin en los 2 endpoints nuevos del día.
+LISTA PARA DEPLOY pero desplegarla CON Andrés presente (cambia el contrato de
+toda la API mutadora; verificar login/registro/edición en vivo tras deploy).
+
+Reporte "al eliminar no coordinan los balances": medido por cuenta
+(inicial + SUM TXs vs current_balance) → 5 de 6 cuentas cuadran a $0.00
+EXACTO (la reversa del 🗑 funciona). El único descuadre es la cuenta 2
+(Bancolombia Ahorros 3037 julián): +$100M fantasma que YA existía en el
+respaldo del 09-sep ($99.77M sin ninguna TX ≥$50M) — herencia vieja, no
+del eliminar. Decisión de Andrés pendiente (¿inicial=100M o reconciliar?);
+es el PRIMER punto de la próxima sesión (detalle en CHECKLIST §2).
