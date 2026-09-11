@@ -449,6 +449,78 @@ def init_db():
         print(f"⚠️ [AVISO] PostgreSQL no detectado en localhost. FIN-SYS correrá en MODO SIMULACIÓN en memoria. Detalle: {e}")
 
 
+TERCERO_GENERICO_NUM = "999999999"   # el genérico compartido: JAMÁS se renombra ni recibe contacto
+
+
+def _asegurar_tercero(cur, third_party: Dict[str, Any]) -> int:
+    """
+    Devuelve el id del tercero de una transacción nueva sin duplicar y sin
+    tocar al genérico compartido (999999999):
+      1) Con número real → upsert por número. Los datos de contacto
+         RELLENAN sin destruir: un valor nuevo actualiza, un null no borra
+         lo que ya había (2026-09-08).
+      2) Sin número pero con NOMBRE real → reutiliza el registrado con ese
+         mismo nombre (ignorando mayúsculas/espacios); si no existe, crea
+         uno propio con número provisional SN-<epoch>, completable después
+         en el comprobante. Antes caía al genérico: cada registro con solo
+         el nombre "volvía a agregar" el tercero y el ON CONFLICT
+         renombraba al genérico (pedido de Andrés, 2026-09-11).
+      3) Sin nombre y sin número → el genérico, siempre con su nombre
+         canónico "Sin especificar" y sin datos de contacto.
+    """
+    import time as _time
+    numero = str(third_party.get("identification_number") or "").strip() or TERCERO_GENERICO_NUM
+    nombre = str(third_party.get("name") or "").strip()
+    anonimo = not nombre or nombre.lower() == "sin especificar"
+    email, phone = third_party.get("email"), third_party.get("phone")
+    website, address = third_party.get("website"), third_party.get("address")
+
+    if numero == TERCERO_GENERICO_NUM and not anonimo:
+        cur.execute("""
+            SELECT id FROM third_parties
+            WHERE lower(btrim(name)) = lower(btrim(%s))
+              AND identification_number <> %s
+            ORDER BY id LIMIT 1;
+        """, (nombre, TERCERO_GENERICO_NUM))
+        fila = cur.fetchone()
+        if fila:
+            cur.execute("""
+                UPDATE third_parties
+                   SET email   = COALESCE(%s, email),
+                       phone   = COALESCE(%s, phone),
+                       website = COALESCE(%s, website),
+                       address = COALESCE(%s, address)
+                 WHERE id = %s;
+            """, (email, phone, website, address, fila[0]))
+            return fila[0]
+        numero = f"SN-{int(_time.time() * 1000):x}"
+
+    if numero == TERCERO_GENERICO_NUM:
+        nombre = "Sin especificar"
+        email = phone = website = address = None
+
+    cur.execute("""
+    INSERT INTO third_parties (identification_type, identification_number, name, email, phone, website, address)
+    VALUES (%s, %s, %s, %s, %s, %s, %s)
+    ON CONFLICT (identification_number)
+    DO UPDATE SET name = EXCLUDED.name,
+                  email   = COALESCE(EXCLUDED.email,   third_parties.email),
+                  phone   = COALESCE(EXCLUDED.phone,   third_parties.phone),
+                  website = COALESCE(EXCLUDED.website, third_parties.website),
+                  address = COALESCE(EXCLUDED.address, third_parties.address)
+    RETURNING id;
+    """, (
+        third_party.get("identification_type") or "NIT",
+        numero,
+        nombre,
+        email,
+        phone,
+        website,
+        address
+    ))
+    return cur.fetchone()[0]
+
+
 def registrar_transaccion(tx_data: Dict[str, Any]) -> int:
     """
     Registra una transacción contable.
@@ -458,32 +530,9 @@ def registrar_transaccion(tx_data: Dict[str, Any]) -> int:
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        
-        # 1. Asegurar la existencia del tercero (NIT/CC). Los datos de
-        # contacto RELLENAN sin destruir: un valor nuevo actualiza, un null
-        # no borra lo que ya había (2026-09-08 — antes el ON CONFLICT solo
-        # tocaba name y el teléfono/correo/dirección dictados se perdían).
-        third_party = tx_data["third_party"]
-        cur.execute("""
-        INSERT INTO third_parties (identification_type, identification_number, name, email, phone, website, address)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT (identification_number)
-        DO UPDATE SET name = EXCLUDED.name,
-                      email   = COALESCE(EXCLUDED.email,   third_parties.email),
-                      phone   = COALESCE(EXCLUDED.phone,   third_parties.phone),
-                      website = COALESCE(EXCLUDED.website, third_parties.website),
-                      address = COALESCE(EXCLUDED.address, third_parties.address)
-        RETURNING id;
-        """, (
-            third_party["identification_type"],
-            third_party["identification_number"],
-            third_party["name"],
-            third_party.get("email"),
-            third_party.get("phone"),
-            third_party.get("website"),
-            third_party.get("address")
-        ))
-        third_party_id = cur.fetchone()[0]
+
+        # 1. Asegurar la existencia del tercero (NIT/CC) sin duplicar
+        third_party_id = _asegurar_tercero(cur, tx_data["third_party"])
 
         # 2. Obtener el id del portafolio por nombre
         cur.execute("SELECT id FROM portfolios WHERE name = %s;", (tx_data["portfolio_name"],))

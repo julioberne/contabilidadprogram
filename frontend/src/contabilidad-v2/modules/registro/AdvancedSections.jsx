@@ -50,6 +50,32 @@ export default function AdvancedSections() {
   const [open, setOpen] = useState({ tercero: false, impuestos: false, etiquetas: false });
   const toggle = (k) => setOpen(o => ({ ...o, [k]: !o[k] }));
 
+  // 🔍 Buscador de terceros registrados (2026-09-11, pedido de Andrés:
+  // "por si el tercero que estamos guardando ya lo tenemos"). Mismo patrón
+  // del comprobante: filtro EN MEMORIA sobre allThirdParties (ya se
+  // refresca con cada fetchAll) — cero peticiones por tecla. El genérico
+  // 999999999 se excluye: elegirlo no identifica a nadie.
+  const [tpBusca, setTpBusca] = useState("");
+  const normTp = (x) => (x || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const tercerosReg = (d.allThirdParties || []).filter(t => String(t.identification_number) !== '999999999');
+  const qTp = tpBusca.trim().toLowerCase();
+  const tpFiltrados = qTp ? tercerosReg.filter(t =>
+    (t.name || '').toLowerCase().includes(qTp) || String(t.identification_number || '').includes(qTp)) : [];
+  const tpVisibles = tpFiltrados.slice(0, 30);
+  const elegirTercero = (t) => {
+    d.setThirdPartyName(t.name || '');
+    d.setThirdPartyType(t.identification_type || 'NIT');
+    d.setThirdPartyNumber(String(t.identification_number || ''));
+    if (t.email) d.setThirdPartyEmail(t.email);
+    if (t.phone) d.setThirdPartyPhone(t.phone);
+    setTpBusca('');
+  };
+  // Semáforo de reutilización: que se VEA si este registro reusa o crea
+  const numeroTp = (d.thirdPartyNumber || '').trim();
+  const regPorNumero = numeroTp ? tercerosReg.find(t => String(t.identification_number) === numeroTp) : null;
+  const regPorNombre = (!numeroTp && d.thirdPartyName.trim())
+    ? tercerosReg.find(t => normTp(t.name) === normTp(d.thirdPartyName)) : null;
+
   // Creador inline de tasas custom (port del monolito)
   const [taxName, setTaxName] = useState("");
   const [taxRate, setTaxRate] = useState("");
@@ -99,6 +125,28 @@ export default function AdvancedSections() {
       <Section icon="👤" title="Identificación de Tercero" open={open.tercero} onToggle={() => toggle('tercero')}
                badge={d.thirdPartyName ? d.thirdPartyName : null}>
         <div>
+          <label className={labelCls}>🔍 Buscar tercero registrado</label>
+          <input type="text" value={tpBusca} onChange={e => setTpBusca(e.target.value)}
+                 placeholder="Nombre o número… (elige y llena los campos)" className={inputCls} />
+          {qTp && (
+            <div className="border-2 border-black border-t-0 bg-white max-h-32 overflow-y-auto">
+              {tpVisibles.length === 0 && (
+                <p className="px-2 py-1 text-[10px] text-gray-500 uppercase">Sin coincidencias — se creará como nuevo</p>
+              )}
+              {tpVisibles.map(t => (
+                <button type="button" key={t.id} onClick={() => elegirTercero(t)}
+                        className="w-full text-left px-2 py-1 text-[10px] font-mono border-b border-gray-200 hover:bg-brutalGreen">
+                  <span className="font-bold">{t.name}</span>
+                  <span className="text-gray-500"> · {t.identification_type} {t.identification_number}</span>
+                </button>
+              ))}
+              {tpFiltrados.length > 30 && (
+                <p className="px-2 py-1 text-[9px] text-gray-500">Mostrando 30 de {tpFiltrados.length} — afina la búsqueda</p>
+              )}
+            </div>
+          )}
+        </div>
+        <div>
           <label className={labelCls}>Nombre / Razón Social</label>
           <input type="text" value={d.thirdPartyName} onChange={e => d.setThirdPartyName(e.target.value)}
                  placeholder="ej. Juan Pérez / ACME SAS" className={inputCls} />
@@ -129,9 +177,21 @@ export default function AdvancedSections() {
                    placeholder="opcional" className={inputCls} />
           </div>
         </div>
-        <p className="text-[9px] text-gray-500 uppercase">
-          También puedes buscar/vincular terceros existentes en el panel derecho → 👤 Terceros
-        </p>
+        {regPorNumero && (
+          <p className="text-[9px] text-green-700 font-bold uppercase">
+            ✓ Registrado: {regPorNumero.name} — se reutilizará, no se duplica
+          </p>
+        )}
+        {regPorNombre && (
+          <p className="text-[9px] text-green-700 font-bold uppercase">
+            ↻ Ya existe con este nombre ({regPorNombre.identification_type} {regPorNombre.identification_number}) — se reutilizará
+          </p>
+        )}
+        {!numeroTp && d.thirdPartyName.trim() && !regPorNombre && (
+          <p className="text-[9px] text-amber-700 uppercase">
+            ✳ Tercero nuevo — se creará con número provisional; complétalo luego en el comprobante
+          </p>
+        )}
       </Section>
 
       {/* ── [%] IMPUESTOS Y TASAS ───────────────────────────── */}
