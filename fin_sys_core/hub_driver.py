@@ -171,10 +171,12 @@ def login_user(email: str, password: str) -> dict | None:
 
 
 def verificar_clave_admin(password: str):
-    """¿La clave pertenece a un ADMIN con login? Para acciones destructivas
-    (eliminar transacción) la clave se re-verifica en CADA intento — la
-    sesión sola no basta (pedido de Andrés, 2026-09-11). Devuelve los datos
-    mínimos del admin o None."""
+    """¿La clave pertenece a un ADMIN/OWNER con login? Para acciones
+    destructivas (eliminar transacción) la clave se re-verifica en CADA
+    intento — la sesión sola no basta (pedido de Andrés, 2026-09-11).
+    'owner' cuenta: es el rol REAL de Andrés en hub_users (el badge ADMIN
+    de la UI viene del perfil, no de esta tabla — bug del 1er intento).
+    Devuelve los datos mínimos del admin o None."""
     if not password:
         return None
     conn = _get_conn()
@@ -182,7 +184,7 @@ def verificar_clave_admin(password: str):
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT id, email, name FROM hub_users
-                WHERE (lower(coalesce(role, '')) = 'admin' OR is_superuser)
+                WHERE (lower(coalesce(role, '')) IN ('admin', 'owner') OR is_superuser)
                   AND password_hash IS NOT NULL
                   AND password_hash = crypt(%s, password_hash)
                 LIMIT 1
