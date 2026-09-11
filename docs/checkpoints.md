@@ -757,3 +757,74 @@ test_bot_etapa_e). E2E reales contra BD: drafts 48/58/70, TX 14 (tags,
 tercero, geo, nota), inventario en PROD, failover nacido en respaldo
 durante recaída real. Bot verificado EN VIVO por Andrés (evidencia #51,
 borrador #72 con 💤).
+
+---
+
+## Checkpoint 2026-09-11 — Terceros sin duplicados, eliminar con clave, RRHH resucitado, pool desinfectado
+
+Sesión en worktree (`claude/project-status-review-5e1694`); push directo a
+master con `git push origin <rama>:master`. Prod final = `796ebc9`.
+
+### Nota del comprobante "no guardaba" (diagnóstico, sin código)
+Reproducción exacta contra prod: 5/5 PUT con tildes/%/280 chars → 200. El
+fallo del reporte coincidió con el semáforo en ⚠ BD (recaída del pooler,
+Supabase seguía "Partially Degraded") — error honesto, reintentar. De paso
+se halló que PUT /api/transactions acepta curl ANÓNIMO → DT-31 (sesión de
+blindaje aparte, chip lanzado).
+
+### Terceros sin duplicados (8c2fbad)
+Causa raíz: registrar con solo el nombre caía al genérico 999999999 y el
+ON CONFLICT lo RENOMBRABA con cada registro. Cura en dos capas:
+`_asegurar_tercero` (backend, cubre web Y bot): número real → upsert;
+solo nombre → reutiliza registrado (lower/btrim) o crea con número
+provisional `SN-<epoch>`; anónimo → genérico SIEMPRE "Sin especificar" y
+sin contacto. Frontend: 🔍 buscador de registrados EN MEMORIA en la
+sección tercero del formulario (llena todos los campos al elegir) +
+semáforo ✓ reutiliza / ↻ mismo nombre / ✳ nuevo. 5 tests FakeCursor + 5
+de componente (testing-library).
+
+### Comprobante y Libro Diario (50e36dc)
+📎 ADJUNTAR en el comprobante (la sección de soporte aparece SIEMPRE;
+sube fotos/PDF al bucket y POST /transactions/{id}/evidences las registra
+— `agregar_evidencias` migra la principal antigua para no perderla).
+Campo dirección (opcional) del tercero en el formulario (+address en
+obtener_terceros y payload condicional — fixtures v1 intactos). 🗑
+Eliminar registro con la clave del admin re-verificada en CADA intento
+(`verificar_clave_admin`, bcrypt pgcrypto) + `eliminar_transaccion` con
+reversa contable (saldos, cartera con abonos por CASCADE, evidencias).
+4 tests nuevos. CI ampliado con ambas suites.
+
+### RRHH muerto: dependencia circular de chunks (095786c)
+"TypeError: ue is not a function" en vendor-calendar: el grupo de chunking
+del 04-sep separaba react-big-calendar+moment pero la fábrica CJS de
+moment quedó en ProjectHubApp → import circular entre ambos chunks. Nadie
+lo vio antes porque RRHH no se abría desde entonces. Cura: grupo retirado,
+el calendario viaja dentro del chunk perezoso de RRHH (entry intacto).
+Verificado logueado en el pane: Project Hub renderiza completo.
+
+### Dos bugs cazados por el primer 🗑 de Andrés
+(1) Su rol real en hub_users es `owner`, no `admin` → hasta la clave
+correcta daba 403 (d6e544a: owner cuenta; verificado que el filtro alcanza
+exactamente a andres@finsys.os). (2) El error "0": hub_driver pegaba
+`cursor_factory=RealDictCursor` a la CONEXIÓN y la devolvía así al pool;
+el siguiente caller recibía dicts donde esperaba tuplas (`row[0]` →
+KeyError '0' → 500 ANTES de tocar nada — el registro quedó intacto, como
+debe ser). Reproducido 100% contra la BD real. Cura central (796ebc9):
+personalidad neutra al PRESTAR y al DEVOLVER en db_pool + FakePoolConn
+modela cursor_factory + test de regresión. Esto explicaba también los 500
+intermitentes ("cursor already closed"-style) tras usar módulos del hub.
+
+### Modelo local↔producción (pedido de Andrés al cierre)
+`localhost:8000` sirve un build CONGELADO (frontend/dist) — ese día "los
+cambios no se veían" y la pestaña vieja pedía chunks inexistentes. Nuevo:
+`scripts/sync_local.py` (pull --ff-only + npm run build, un botón) +
+sección "Local al día" en CHECKLIST §3; el agente sincroniza master local
+y el build tras cada deploy. Backend local reiniciado (pool con 46h y
+conexiones podridas → "cursor already closed"; 6/6 en verde tras reinicio).
+
+### Verificación
+73 unittest (9 nuevos) + 51 vitest (6 nuevos) + compileall + build;
+smoke real: rutas DELETE/evidences registradas, clave errada → None/403
+(local y prod), pool curado contra BD real (tuple limpia tras contaminar).
+3 deploys verificados (done + 3 contenedores + health): 50e36dc, 095786c
+(RRHH: prod sin vendor-calendar, chunk 504KB autónomo), 796ebc9.

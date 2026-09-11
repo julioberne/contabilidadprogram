@@ -2,7 +2,7 @@
 
 > **Único archivo de estado vivo.** Aquí: qué hay, qué falta, cómo arrancar.
 > Lo que ya pasó (con verificación) va a `docs/checkpoints.md` — un checkpoint por sesión.
-> Última actualización: **09 Sep 2026**.
+> Última actualización: **11 Sep 2026**.
 
 ---
 
@@ -10,8 +10,8 @@
 
 | Dónde | Estado |
 |---|---|
-| `master` local | al día con remoto salvo el commit de docs del cierre 09-sep. Últimos hitos (08/09-sep): Bot Etapa E completa (fotos/botones/empresa/ubicación/multi-evidencia/tercero dictado), evidencias en Supabase Storage, failover automático de BD + semáforo de salud, comprobante-auditor editable + imprimir/PDF, Roboto Mono global, inventario reparado |
-| `origin/master` = producción :8080 | desplegado y verificado 09 sep (`aa73e39`): los 3 contenedores sanos, bot sin healthcheck falso. Deploy: `scratch/deploy_prod.py` (agente); push: Andrés. CI en Actions verde (tests puros ampliados: pool+failover, mock policy, cartera, bot etapa E) |
+| `master` local | = `origin/master` (el agente lo sincroniza tras cada push). Últimos hitos (11-sep): terceros sin duplicados (buscador en el formulario + resolución backend por nombre/SN-), 📎 adjuntar evidencias olvidadas al comprobante, campo dirección, 🗑 eliminar TX con clave admin + reversa contable, fix chunk RRHH (circular vendor-calendar), fix pool contaminado por cursor_factory |
+| `origin/master` = producción :8080 | desplegado y verificado 11 sep (`796ebc9`): 3 contenedores sanos. Deploy: `scratch/deploy_prod.py` (agente, tras cada push); push: Andrés. CI verde (suites puras ampliadas: +terceros_resolucion, +tx_eliminar_evidencias) |
 | BD Supabase | compartida local↔prod · **reiniciada con `feat(reset)`: 0 TXs** · 6 entidades CT (2 vinculadas) · 5 cuentas · 4 portafolios · patrimonio $1.000.000 (verificado 26 ago) |
 
 ### Módulos
@@ -57,7 +57,9 @@
 | DT-27 | `dashboard-data` carga TODAS las transacciones + COA completo por request (5.2s en local); con miles de TXs necesitará paginación/caché. El poller del cliente ya bajó a 60s con pausa por pestaña oculta | Media |
 | ~~DT-28~~ | ✅ CERRADA 07-sep (autorizada por Andrés): 18 fallbacks mock gateados con `mock_policy.mock_permitido()` (org ×5, database ×6, inventory ×7) — fallo de BD ⇒ error visible; mock SOLO con `FINSYS_ALLOW_MOCK=1`. El modo simulación explícito (`IS_POSTGRES_ACTIVE=False`) se conserva. UI: chip rojo "⚠ SIN CONEXIÓN BD" en el consolidado + reintento 30s. Tests en CI (`test_mock_policy`). **Resto**: `control_tower_driver` aún tiene MOCK_ENTITIES en su except (16 fn, Zero-Impact CT) — misma receta cuando se toque | — |
 
-- [ ] **Failover automático de canal de BD** (propuesto 09-sep, espera OK de Andrés): si :6543 no fluye, db_pool cae solo a :5432 con pools mínimos y regresa al sanar. Contexto: incidente Supabase 08/09-sep (~19h) — el pooler transaction-mode aceptaba conexiones pero no servía queries; se sobrevivió con puente manual (env Dokploy + .env local, ya revertido) y quedó el pass-through de DB_POOL_*/FINSYS_ALLOW_5432 en el compose (a6af560). Regla operativa del puente: NO usar scratch/deploy_prod.py mientras esté activo (su guard-rail revierte DB_PORT); deploys por compose.deploy directo. Respaldo completo de la BD sacado ese día (backups/, gitignored)
+- [x] **Failover automático de canal de BD** ✅ IMPLEMENTADO Y DESPLEGADO 09-sep (probado bajo recaída real): si :6543 no fluye, db_pool cae solo a :5432 con pools mínimos y el vigía regresa al sanar (2 aciertos/45s). Regla del puente manual (si algún día vuelve): NO usar scratch/deploy_prod.py mientras esté activo (su guard-rail revierte DB_PORT). Respaldo completo de la BD en backups/ (gitignored)
+- **DT-30** ✅ CERRADA 11-sep (mismo día): el pool se CONTAMINABA — hub_driver/pooled_connection pegaban `cursor_factory=RealDictCursor` a la conexión y la devolvían así; el siguiente caller recibía dicts donde esperaba tuplas (`row[0]` → KeyError '0'; mató el primer eliminar-con-clave y explicaba 500s intermitentes tras usar RRHH). Cura central en db_pool: personalidad neutra al prestar Y devolver + test de regresión
+- [ ] **DT-31 — Endpoints de escritura SIN auth** (hallado 11-sep): un curl anónimo desde internet puede hacer PUT /api/transactions en prod (verificado empíricamente). Sesión de blindaje EN CURSO aparte (chip "Proteger PUT /api/transactions con auth"): añadir Depends(require_admin) a los PUT/POST/DELETE que falten sin romper bot ni frontend. Prioridad ALTA
 
 ### Funcional / calidad
 
@@ -66,7 +68,7 @@
 - [ ] **Bot IA**: ✅ funcionando en producción (gpt-oss-120b) · Etapa C COMPLETA (bandeja web) · **Etapa E COMPLETA 08-sep** (fotos→Storage, botones inline, `/empresa`, rechazo de grupos; verificada EN VIVO por Andrés — evidencia adjunta al #51) · **Etapa E.2 08-sep**: 🏷️ botón Etiquetas (toggle contra `tag_definitions`, fuente de verdad del módulo web), 💤 Dejar en borrador, 📍 ubicación de Telegram → geo_maps_link del borrador/TX, botonera regresa tras adjuntar evidencia, y FIX: la confirmación del bot ahora SÍ pasa tags+geo a la transacción (antes se perdían). E2E driver draft 58 · **Etapa E.3 08-sep**: MÚLTIPLES evidencias por transacción (bot: replies acumulan en `transaction_drafts.media_paths`; web: input multiple; tabla `transaction_evidences` al confirmar, `evidence_file_path` sigue = principal; visor con galería N archivos incl. PDF/audio), tercero COMPLETO dictado por voz (LLM extrae phone/email/address, upsert con COALESCE que rellena sin destruir), labels 📍/📎N en la bandeja. E2E driver draft 70 (2 fotos + PDF + tel/dirección). Quedan B.5 (RAG) y D/F
 - [ ] **Cartera Fase 2**: recordatorios personalizables por Telegram (tick en el poller, `cartera_reminders`, resumen periódico) — el diseño está en el checkpoint 03-sep
 - [x] **Pipeline de etiquetas** ✅ CERRADO 08-sep: `transactions.tags TEXT[]` (migrate_transaction_tags.py, aplicada), TransactionInput.tags, INSERT/SELECT, transaction_service; chips en fila expandida del Libro Diario (ya existían) + sección 🏷️ en el comprobante. Verificado e2e (TX 14). El bot las guarda cuando se editan en la bandeja
-- [ ] **Eliminar transacciones**: NO existe (ni endpoint ni botón) — las TXs de prueba (#13, #14) quedan en el libro; decidir si se agrega borrado con reversa contable (como el de abonos de cartera)
+- [x] **Eliminar transacciones** ✅ CERRADO 11-sep: 🗑 en la fila expandida del Libro Diario → DELETE /api/transactions/{id} con la clave del admin/owner re-verificada en CADA intento (bcrypt vía hub_users) + reversa contable completa (revierte saldos, borra cartera asociada y evidencias). Las TXs de prueba #13/#14 ya tienen salida. También 11-sep: terceros sin duplicados (buscador en formulario + `_asegurar_tercero`: reutiliza por nombre o crea con número provisional SN-; el genérico 999999999 jamás se renombra), 📎 adjuntar evidencias a TX existente, campo dirección del tercero
 - [ ] **Limpieza de datos por Andrés**: borrar tercero "TERCERO PRUEBA MODAL" (id 34, 🗑 del panel Terceros) · SQL del zombie "MI EMPRESA" (id 3) en Supabase · bot de DESARROLLO en @BotFather (token compartido sigue siendo mina)
 - [ ] **Portafolios**: la columna de vínculos se retiró del consolidado (02 sep) — reubicar con mejor funcionamiento. 07-sep: "Finanzas Personales Julian" YA reclama el portafolio 1 "Negocio A" (sus gastos reales viven ahí). Fase pendiente: portafolio propio por empresa + renombrar "Negocio A" (hardcodeado como default en ~10 sitios — no renombrar sin migrarlos)
 - [ ] **Borrar portafolio zombie "MI EMPRESA" (id 3)**: cero referencias auditadas en todas las FKs; el clasificador bloquea el DELETE al agente. SQL para Andrés (editor SQL de Supabase): `DELETE FROM portfolios WHERE id = 3 AND name = 'MI EMPRESA';`
@@ -92,6 +94,22 @@ python scripts/health_check.py
 - Si `:8000` está ocupado → hay uvicorn huérfano: `Get-NetTCPConnection -LocalPort 8000 | Select OwningProcess` y matar ese PID.
 - Con Claude Code: `preview_start` con la config `finsys-backend` (`.claude/launch.json`).
 
+### Local al día con producción (regla del 11-sep)
+
+`localhost:8000` sirve `frontend/dist`, un build CONGELADO: no cambia solo con el
+código (ese día "los cambios no se veían" y RRHH pedía chunks ya inexistentes).
+Producción sí se reconstruye en cada deploy. Para cerrar la brecha en un paso:
+
+```powershell
+.venv\Scripts\python.exe scripts\sync_local.py   # pull --ff-only + npm run build
+```
+
+y luego `Ctrl+Shift+R` en la pestaña (suelta la caché). Señal típica de build
+viejo: error "Failed to fetch dynamically imported module" al abrir un módulo.
+El agente corre esto (o su equivalente) tras cada deploy; este botón es para
+cuando Andrés lo necesite por su cuenta. `localhost:5173` (vite dev) no sufre
+esto — siempre sirve el código vivo.
+
 ### Verificación mínima antes de dar algo por bueno
 
 ```powershell
@@ -112,7 +130,7 @@ cd frontend; npx vitest run; npm run build                                     #
 - **Login shell y Control Tower**: `andres@finsys.os` / `admin123` (las cuentas `@finsys.io` no existen; doc que las mencione está obsoleto). Otras: `and123@gmail.com`, `testuser@finsys.os` (member).
 - **Supabase**: proyecto `sciorfjvdqxvcwgvnmbv` (us-east-2) · bucket `hr-docs` (público).
 - **Producción**: http://159.223.156.50:8080 · Panel Dokploy :3000 · compose único `finsys-app`.
-- **Deploy** = `git push origin master` (lo corre Andrés) → webhook Dokploy. Si no dispara (DT-10): `POST /api/compose.deploy` con la key de `scratch/dokploy.env`, o panel :3000 → Deploy.
+- **Deploy** = push de Andrés → el agente corre `scratch/deploy_prod.py` (el webhook está MUERTO, DT-10) → verifica contenedores/health → sincroniza `master` local y el build de `:8000`. Push clásico: `git push origin master` desde la carpeta principal; si la sesión de Claude trabaja en un worktree con rama propia, el botón es `git push origin <rama>:master` (mismo efecto: directo a master, un clic).
 - **Workspace Hub**: Inversiones FIN-SYS (`37888f92-8bef-4528-b187-2064c6f0049c`).
 
 ### Zero-Impact Policy (regla de oro)
