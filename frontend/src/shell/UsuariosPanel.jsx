@@ -7,13 +7,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { API } from '../config';
 import { authHeaders } from './authHeaders.js';
 
-const ROLES = ['owner', 'admin', 'member', 'viewer'];
-const ROLE_COLOR = { owner: '#EF4444', admin: '#F59E0B', member: '#0EA5E9', viewer: '#64748b' };
+const ROLES = ['owner', 'admin', 'contador', 'member', 'viewer'];
+const ROLE_COLOR = { owner: '#EF4444', admin: '#F59E0B', contador: '#10B981', member: '#0EA5E9', viewer: '#64748b' };
 const ROLE_DESC = {
-  owner:  'Control total del sistema',
-  admin:  'Gestiona RRHH, usuarios y módulos',
-  member: 'Ve su ficha; equipo en solo-lectura',
-  viewer: 'Solo lectura básica',
+  owner:    'Control total del sistema',
+  admin:    'Gestiona RRHH, usuarios y módulos',
+  contador: 'Revisa y contabiliza asientos; plan de cuentas y reportes',
+  member:   'Ve su ficha; equipo en solo-lectura',
+  viewer:   'Solo lectura básica',
 };
 
 export default function UsuariosPanel({ user }) {

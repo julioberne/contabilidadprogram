@@ -187,6 +187,103 @@ def test_anular_contabilizado_genera_espejo():
     assert all(abs(v) < 0.005 for v in neto.values()), neto
 
 
+# ── B2: workflow del contador ───────────────────────────────────────────────
+
+def _wf():
+    from kernel import kernel_journal_workflow as wf
+    return wf
+
+
+def test_contabilizar_y_doble_falla():
+    wf = _wf()
+    r = registrar_asiento(_evento(f"{PREFIX}-WF1", portfolio_id=PORTFOLIO_ID))
+    g = r["entry_group_id"]
+    out = wf.contabilizar_asiento(g, "contador1")
+    assert out["estado"] == "CONTABILIZADO", out
+    det = wf.obtener_asiento(g)
+    assert det["estado"] == "CONTABILIZADO" and det["posted_by"] == "contador1" and det["cuadra"], det
+    try:
+        wf.contabilizar_asiento(g, "contador1")
+        assert False, "segunda contabilización debió fallar"
+    except wf.EstadoAsientoError as e:
+        assert e.status == 409
+
+
+def test_rechazar_exige_motivo_y_transicion():
+    wf = _wf()
+    g = registrar_asiento(_evento(f"{PREFIX}-WF2"))["entry_group_id"]
+    try:
+        wf.rechazar_asiento(g, "c", "")
+        assert False, "sin motivo debió fallar"
+    except ValueError:
+        pass
+    out = wf.rechazar_asiento(g, "c", "duplicado")
+    assert out["estado"] == "RECHAZADO"
+    try:
+        wf.contabilizar_asiento(g, "c")
+        assert False, "un RECHAZADO no se contabiliza"
+    except wf.EstadoAsientoError:
+        pass
+
+
+def test_editar_lineas_borrador():
+    wf = _wf()
+    ref = f"{PREFIX}-WF3"
+    g = registrar_asiento(_evento(ref, monto=100))["entry_group_id"]
+    # descuadre → error y las líneas originales intactas
+    try:
+        wf.editar_lineas_borrador(g, [{"cuenta_codigo": CTA_GASTO, "debito": 50, "credito": 0},
+                                     {"cuenta_codigo": CTA_BANCO, "debito": 0, "credito": 49}], "c")
+        assert False, "descuadre debió fallar"
+    except Exception as e:
+        assert "cuadra" in str(e).lower(), e
+    lineas = _lineas(ref)
+    assert len(lineas) == 2 and float(lineas[0]["debito"]) == 100.0, lineas
+    # cuadrado con 3 líneas → renumeradas 1..3, mismo grupo y referencia
+    out = wf.editar_lineas_borrador(g, [
+        {"cuenta_codigo": CTA_GASTO, "debito": 70, "credito": 0},
+        {"cuenta_codigo": CTA_GASTO, "debito": 30, "credito": 0},
+        {"cuenta_codigo": CTA_BANCO, "debito": 0, "credito": 100},
+    ], "c", descripcion="editado")
+    assert out["lineas"] == 3, out
+    lineas = sorted(_lineas(ref), key=lambda l: l["id"])
+    assert len(lineas) == 3 and all(l["entry_group_id"] == g for l in lineas)
+    assert all(l["descripcion"] == "editado" and l["revisado_por"] == "c" for l in lineas)
+    # contabilizado ya no se edita
+    wf.contabilizar_asiento(g, "c")
+    try:
+        wf.editar_lineas_borrador(g, [{"cuenta_codigo": CTA_GASTO, "debito": 1, "credito": 0},
+                                     {"cuenta_codigo": CTA_BANCO, "debito": 0, "credito": 1}], "c")
+        assert False, "un CONTABILIZADO no se edita"
+    except wf.EstadoAsientoError:
+        pass
+
+
+def test_asiento_manual_y_bandeja():
+    wf = _wf()
+    r = wf.crear_asiento_manual(PORTFOLIO_ID, "2026-02-02", "manual test", [
+        {"cuenta_codigo": CTA_GASTO, "debito": 12.5, "credito": 0},
+        {"cuenta_codigo": CTA_BANCO, "debito": 0, "credito": 12.5},
+    ], "contador2", contabilizar=True)
+    assert r["status"] == "ok" and r["estado"] == "CONTABILIZADO", r
+    det = wf.obtener_asiento(r["entry_group_id"])
+    assert det["modulo_origen"] == "contadores" and det["referencia"].startswith("MAN-"), det
+    assert det["created_by"] == "contador2" and det["tx"] is None
+    # limpieza: la referencia MAN- no lleva el PREFIX → borrar por grupo
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM kernel_journal_entries WHERE entry_group_id = %s", (r["entry_group_id"],))
+        conn.commit(); cur.close()
+    finally:
+        put_conn(conn)
+    # bandeja filtrada por estado y portafolio devuelve items con líneas
+    registrar_asiento(_evento(f"{PREFIX}-WF4", portfolio_id=PORTFOLIO_ID))
+    b = wf.obtener_asientos_agrupados(estado="BORRADOR", portfolio_id=PORTFOLIO_ID, q=f"{PREFIX}-WF4")
+    assert b["total"] == 1 and len(b["items"][0]["lineas"]) == 2, b
+    assert b["items"][0]["portfolio_name"], b["items"][0]
+
+
 TESTS = [
     test_borrador_por_defecto,
     test_contabilizado_explicito,
@@ -195,6 +292,10 @@ TESTS = [
     test_cerrar_con_borradores_falla,
     test_anular_borrador_rechaza_sin_espejo,
     test_anular_contabilizado_genera_espejo,
+    test_contabilizar_y_doble_falla,
+    test_rechazar_exige_motivo_y_transicion,
+    test_editar_lineas_borrador,
+    test_asiento_manual_y_bandeja,
 ]
 
 

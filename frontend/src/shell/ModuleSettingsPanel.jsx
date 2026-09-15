@@ -15,13 +15,14 @@ import { API } from '../config';
 import { authHeaders } from './authHeaders.js';
 
 
-const ROLES = ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER'];
+const ROLES = ['OWNER', 'ADMIN', 'CONTADOR', 'MEMBER', 'VIEWER'];
 
 // IDs EXACTOS del moduleRegistry — antes usaba 'control-tower'/'project-hub'/
 // 'contabilidad-v2'/'trading', que no existen en el registry, así que las
 // reglas creadas para ellos jamás afectaban a ningún módulo real.
 const MODULE_LABELS = {
   'contabilidad': { icon: '◆', label: 'Contabilidad' },
+  'contadores':   { icon: '⊟', label: 'Contadores' },
   'tower':        { icon: '◈', label: 'Control Tower' },
   'rrhh':         { icon: '◇', label: 'RRHH (Project Hub)' },
   'bot':          { icon: '◉', label: 'Bot IA' },

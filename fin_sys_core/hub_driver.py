@@ -248,7 +248,8 @@ def get_all_users() -> list:
 def set_user_role(user_id: str, role: str) -> dict | None:
     """Cambia el rol global de un usuario en hub_users (panel de owner).
     También sincroniza el rol en todas sus membresías de workspace."""
-    if role not in ("owner", "admin", "member", "viewer"):
+    # 'contador' (2026-09-15, módulo Contadores): revisa y contabiliza asientos
+    if role not in ("owner", "admin", "member", "viewer", "contador"):
         raise ValueError(f"Rol inválido: {role}")
     conn = _get_conn()
     try:

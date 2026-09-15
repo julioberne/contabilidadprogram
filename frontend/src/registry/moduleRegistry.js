@@ -19,6 +19,15 @@ const modules = [
     component: lazy(() => import('../contabilidad-v2/ContabilidadApp.jsx')),
     wrapStyle: { minHeight: '100%', width: '100%' } },
 
+  { id: 'contadores', label: 'Contadores', icon: '⊟', group: 'FINANCIERO',
+    accent: 'green', active: true, order: 2,
+    desc: 'Bandeja de asientos · Contabilizar\nPlan de cuentas · Reglas · Reportes · Cierres',
+    // Módulo 12 (2026-09-15): visible solo para estos roles del hub. El
+    // backend lo protege con require_contador; esto solo oculta la UI.
+    roles: ['owner', 'admin', 'contador'],
+    component: lazy(() => import('../contadores/ContadoresApp.jsx')),
+    wrapStyle: { minHeight: '100%', width: '100%' } },
+
   { id: 'tesoreria', label: 'Tesorería', icon: '⊕', group: 'FINANCIERO',
     accent: 'green', active: false, order: 3 },
 
@@ -77,6 +86,31 @@ export default modules;
 // ── Helpers derivados ──
 
 /**
+ * Rol del hub del usuario en sesión (owner|admin|member|viewer|contador) y
+ * si es superusuario. Se lee de la sesión persistida (misma fuente que
+ * shell/authHeaders.js) para que Sidebar/Home/main.jsx no cambien de firma.
+ */
+function sesionActual() {
+  try {
+    const s = JSON.parse(localStorage.getItem('finsys_session'));
+    const hubUser = s?.raw?.user || {};
+    return {
+      role: (s?.hubRole || hubUser.role || 'member').toLowerCase(),
+      su: !!(hubUser.is_superuser),
+    };
+  } catch {
+    return { role: 'member', su: false };
+  }
+}
+
+/** ¿El módulo es visible para el rol en sesión? (sin `roles` = para todos) */
+function visiblePorRol(m) {
+  if (!m.roles || !m.roles.length) return true;
+  const { role, su } = sesionActual();
+  return su || m.roles.includes(role);
+}
+
+/**
  * Aplica feature flags remotos sobre el registry local.
  * Retorna un Set de module_ids que están habilitados.
  * @param {Array} flags — [{module_id, enabled}, ...]
@@ -103,7 +137,7 @@ export function applyFlags(flags = []) {
 /** Módulos agrupados por grupo (para Sidebar) */
 export function getNavGroups(enabledIds = null) {
   const groups = {};
-  modules.forEach(m => {
+  modules.filter(visiblePorRol).forEach(m => {
     if (!groups[m.group]) groups[m.group] = { group: m.group, items: [] };
     const isActive = enabledIds ? enabledIds.has(m.id) : m.active;
     groups[m.group].items.push({
@@ -117,7 +151,7 @@ export function getNavGroups(enabledIds = null) {
 /** Módulos para el launchpad (HomeDashboard) */
 export function getLaunchpadModules(enabledIds = null) {
   return modules
-    .filter(m => m.desc && m.id !== 'home')
+    .filter(m => m.desc && m.id !== 'home' && visiblePorRol(m))
     .map(m => ({
       id: m.id, icon: m.icon, name: m.label,
       desc: m.desc, accent: m.accent,
@@ -138,7 +172,7 @@ export function getNoScrollIds() {
 /** Módulos renderizables (con componente + habilitados) */
 export function getRenderableModules(enabledIds = null) {
   return modules.filter(m => {
-    if (!m.component) return false;
+    if (!m.component || !visiblePorRol(m)) return false;
     return enabledIds ? enabledIds.has(m.id) : m.active;
   });
 }

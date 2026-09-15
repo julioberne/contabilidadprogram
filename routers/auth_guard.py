@@ -90,3 +90,13 @@ def require_admin(user: dict = Depends(require_auth)) -> dict:
     if not (user.get("su") or user.get("role") in ("owner", "admin")):
         raise HTTPException(status_code=403, detail="Se requiere rol administrador.")
     return user
+
+
+CONTADOR_ROLES = ("owner", "admin", "contador")
+
+
+def require_contador(user: dict = Depends(require_auth)) -> dict:
+    """Módulo Contadores (B2): contador, owner, admin o superusuario."""
+    if not (user.get("su") or user.get("role") in CONTADOR_ROLES):
+        raise HTTPException(status_code=403, detail="Se requiere rol contador o administrador.")
+    return user

@@ -205,16 +205,22 @@ def _asegurar_columnas_contadores(cur) -> None:
         cur.execute(sql)
 
 
-def _filtro_estado(estado: Optional[str]) -> Optional[str]:
+def _filtro_estado(estado: Optional[str], en_libros: bool = False) -> Optional[str]:
     """Cláusula SQL para el filtro de estado de las consultas:
-       None  → todo menos RECHAZADO (B1: los reportes aún incluyen borradores;
-               en B2 el default de los reportes pasa a 'CONTABILIZADO')
+       None    → todo menos RECHAZADO
        'TODOS' → sin filtro
-       otro  → estado = ese"""
+       otro    → estado = ese
+    en_libros=True (reportes/balances): 'CONTABILIZADO' significa "lo que está
+    en los libros" = CONTABILIZADO + ANULADO. Un asiento anulado NO desaparece
+    de los libros: sigue ahí y su espejo (CONTABILIZADO) lo cancela. Excluir
+    el original y contar el espejo dejaba el efecto al revés (−monto en vez
+    de 0), detectado en la verificación HTTP del 15-sep."""
     if estado is None:
         return "estado <> 'RECHAZADO'"
     if str(estado).upper() == "TODOS":
         return None
+    if en_libros and str(estado).upper() == "CONTABILIZADO":
+        return "estado IN ('CONTABILIZADO', 'ANULADO')"
     return "estado = %s"
 
 
@@ -609,7 +615,7 @@ def obtener_balance_por_cuenta(
     fecha_desde: Optional[str] = None,
     fecha_hasta: Optional[str] = None,
     portfolio_id: Optional[int] = None,
-    estado: Optional[str] = None,
+    estado: Optional[str] = "CONTABILIZADO",
 ) -> List[Dict[str, Any]]:
     """
     Genera un balance de sumas y saldos agrupado por cuenta.
@@ -619,8 +625,8 @@ def obtener_balance_por_cuenta(
     - Balance General (cuentas 1, 2, 3)
     - Estado de Resultados / P&L (cuentas 4, 5)
 
-    estado: None (default) = todo menos RECHAZADO; 'CONTABILIZADO' = solo lo
-    que el contador contabilizó (default de los reportes desde B2); 'TODOS'.
+    estado: 'CONTABILIZADO' (default desde B2: los reportes solo ven lo que el
+    contador contabilizó); None = todo menos RECHAZADO; 'TODOS'.
     portfolio_id: None = consolidado.
     """
     conn = get_conn()
@@ -639,7 +645,7 @@ def obtener_balance_por_cuenta(
         if portfolio_id is not None:
             conditions.append("portfolio_id = %s")
             params.append(int(portfolio_id))
-        clausula = _filtro_estado(estado)
+        clausula = _filtro_estado(estado, en_libros=True)
         if clausula:
             conditions.append(clausula)
             if "%s" in clausula:
@@ -678,7 +684,7 @@ def obtener_resumen_financiero(
     fecha_desde: Optional[str] = None,
     fecha_hasta: Optional[str] = None,
     portfolio_id: Optional[int] = None,
-    estado: Optional[str] = None,
+    estado: Optional[str] = "CONTABILIZADO",
 ) -> Dict[str, Any]:
     """
     Genera resumen financiero básico: Activos, Pasivos, Patrimonio, Ingresos, Gastos.

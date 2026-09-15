@@ -37,9 +37,9 @@ def get_journal_entries(
 # ── GET /api/financial-summary ──
 @router.get("/api/financial-summary")
 def get_financial_summary(fecha_desde: Optional[str] = None, fecha_hasta: Optional[str] = None,
-                          portfolio_id: Optional[int] = None, estado: Optional[str] = None,
+                          portfolio_id: Optional[int] = None, estado: Optional[str] = "CONTABILIZADO",
                           _u: dict = Depends(require_auth)):
-    """estado: None = todo menos RECHAZADO (B1) | CONTABILIZADO | TODOS.
+    """estado: CONTABILIZADO (default desde B2) | BORRADOR | TODOS | ...
     portfolio_id: None = consolidado."""
     try:
         from kernel.kernel_accounting import obtener_resumen_financiero

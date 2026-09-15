@@ -91,6 +91,7 @@ from routers.inventory import router as inventory_router
 from routers.assets import router as assets_router
 from routers.module_flags import router as flags_router
 from routers.bot import router as bot_router
+from routers.contadores import router as contadores_router
 
 app.include_router(portfolios_router)
 app.include_router(transactions_router)
@@ -108,6 +109,7 @@ app.include_router(inventory_router)
 app.include_router(assets_router)
 app.include_router(flags_router)
 app.include_router(bot_router)
+app.include_router(contadores_router)   # módulo 12: Contadores (B2)
 
 
 # ==============================================================================

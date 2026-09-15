@@ -46,6 +46,10 @@ export function useGlobalSession() {
           email:    hubUser?.email || data.email || email,
           name:     hubUser?.name || data.name || email.split('@')[0],
           role:     isAdmin ? 'ADMIN' : 'USER',
+          // Rol crudo del hub (owner|admin|member|viewer|contador): lo usan
+          // los módulos con acceso por rol (Contadores). `role` sigue siendo
+          // ADMIN|USER para el shell (Sidebar, UserProvider, main.jsx).
+          hubRole:  (hubUser?.role || 'member').toLowerCase(),
           initials: (hubUser?.name || email)[0].toUpperCase(),
           raw:      data,
         });
