@@ -4,7 +4,8 @@
    ============================================================ */
 import { useState } from 'react';
 import BandejaTab from './BandejaTab.jsx';
-import LineasEditor, { lineasValidas, lineasPayload } from '../components/LineasEditor.jsx';
+import LineasEditor from '../components/LineasEditor.jsx';
+import { lineasValidas, lineasPayload } from '../components/lineasUtils.js';
 import { api } from '../useContadoresApi.js';
 import { hoy } from '../fmt.js';
 

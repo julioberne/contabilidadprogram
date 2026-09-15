@@ -284,7 +284,88 @@ def test_asiento_manual_y_bandeja():
     assert b["items"][0]["portfolio_name"], b["items"][0]
 
 
+# ── B3: plan de cuentas y reglas ────────────────────────────────────────────
+
+def test_coa_crud_y_bloqueos():
+    from fin_sys_core import coa_admin_driver as coa
+    grupo = coa.crear_cuenta(PORTFOLIO_ID, f"T{RUN}", "Grupo test", "GASTO", is_group=True)
+    hija = coa.crear_cuenta(PORTFOLIO_ID, f"T{RUN}01", "Hija test", "gasto", parent_code=f"T{RUN}")
+    assert hija["parent_id"] == grupo["id"] and hija["account_type"] == "GASTO", hija
+    try:
+        coa.crear_cuenta(PORTFOLIO_ID, f"T{RUN}01", "dup", "GASTO")
+        assert False, "código duplicado debió fallar"
+    except coa.CoaError as e:
+        assert e.status == 409
+    try:
+        coa.crear_cuenta(PORTFOLIO_ID, f"T{RUN}02", "x", "RARO")
+        assert False, "tipo inválido debió fallar"
+    except coa.CoaError as e:
+        assert e.status == 400
+    # grupo con hijas no se borra ni deja de ser grupo
+    for fn in (lambda: coa.eliminar_cuenta(grupo["id"]), lambda: coa.actualizar_cuenta(grupo["id"], is_group=False)):
+        try:
+            fn(); assert False, "debió fallar por subcuentas"
+        except coa.CoaError as e:
+            assert e.status == 409
+    # cuenta con movimientos no se borra
+    registrar_asiento(_evento(f"{PREFIX}-COA", portfolio_id=PORTFOLIO_ID, asientos=[
+        {"cuenta_codigo": f"T{RUN}01", "debito": 5, "credito": 0},
+        {"cuenta_codigo": CTA_BANCO, "debito": 0, "credito": 5}]))
+    try:
+        coa.eliminar_cuenta(hija["id"]); assert False, "con movimientos debió fallar"
+    except coa.CoaError as e:
+        assert e.status == 409 and "movimiento" in str(e)
+    filas = {c["code"]: c for c in coa.listar_coa(PORTFOLIO_ID)}
+    assert filas[f"T{RUN}01"]["movimientos"] == 1 and filas[f"T{RUN}"]["hijos"] == 1, filas[f"T{RUN}01"]
+    # borrar líneas → ahora sí se borra hija y luego el grupo
+    conn = get_conn()
+    try:
+        cur = conn.cursor(); cur.execute("DELETE FROM kernel_journal_entries WHERE referencia = %s", (f"{PREFIX}-COA",)); conn.commit(); cur.close()
+    finally:
+        put_conn(conn)
+    coa.actualizar_cuenta(hija["id"], name="Hija renombrada")
+    assert coa.eliminar_cuenta(hija["id"])["status"] == "ok"
+    assert coa.eliminar_cuenta(grupo["id"])["status"] == "ok"
+
+
+def test_posting_rule_validaciones():
+    from fin_sys_core import coa_admin_driver as coa
+    cat = f"Cat {RUN}"
+    for kwargs, esperado in (
+        (dict(debit_account_code="999999", credit_account_code="__BANK__"), "no existe"),
+        (dict(debit_account_code="5105", credit_account_code="5105"), "misma"),
+        (dict(debit_account_code="1", credit_account_code="__BANK__"), "grupo"),
+        (dict(transaction_type="OTRO", debit_account_code="522005", credit_account_code="__BANK__"), "inválido"),
+    ):
+        try:
+            coa.crear_regla("r", cat, kwargs.pop("transaction_type", "GASTO"), **kwargs)
+            assert False, f"debió fallar: {esperado}"
+        except coa.CoaError as e:
+            assert esperado in str(e).lower(), (esperado, str(e))
+    r = coa.crear_regla("Regla test", cat, "GASTO", "522005", "__BANK__", description="t")
+    assert r["id"] and r["transaction_type"] == "GASTO"
+    try:
+        coa.crear_regla("dup", cat, "GASTO", "522005", "__BANK__")
+        assert False, "duplicada debió fallar"
+    except coa.CoaError as e:
+        assert e.status == 409
+    # la caché de reglas ve la nueva regla de inmediato (invalidate)
+    from shared import rules_cache
+    assert rules_cache.get_rule(cat, "GASTO") == ("522005", "__BANK__", "Regla test")
+    r2 = coa.actualizar_regla(r["id"], is_active=False, rule_name="Regla test off")
+    assert r2["is_active"] is False
+    assert rules_cache.get_rule(cat, "GASTO") is None or rules_cache.get_rule(cat, "GASTO")[2] != "Regla test"
+    assert coa.eliminar_regla(r["id"])["status"] == "ok"
+    reglas = coa.listar_reglas(PORTFOLIO_ID)
+    assert all(x["id"] != r["id"] for x in reglas)
+    # debit_name/credit_name pueden ser None: el COA sembrado no contiene
+    # todos los códigos PUC de las reglas (hallazgo 15-sep) — solo la forma.
+    assert all("debit_name" in x and "credit_name" in x for x in reglas)
+
+
 TESTS = [
+    test_coa_crud_y_bloqueos,
+    test_posting_rule_validaciones,
     test_borrador_por_defecto,
     test_contabilizado_explicito,
     test_estado_inicial_invalido,

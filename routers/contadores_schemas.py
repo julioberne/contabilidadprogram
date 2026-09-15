@@ -42,6 +42,51 @@ class AsientoManualInput(BaseModel):
     contabilizar: bool = False
 
 
+class CuentaInput(BaseModel):
+    portfolio_id: int
+    code: str = Field(min_length=1, max_length=50)
+    name: str = Field(min_length=1, max_length=150)
+    account_type: str = Field(min_length=1, max_length=20)
+    is_group: bool = False
+    parent_code: Optional[str] = None
+    description: Optional[str] = None
+
+
+class CuentaUpdateInput(BaseModel):
+    name: Optional[str] = None
+    account_type: Optional[str] = None
+    is_group: Optional[bool] = None
+    parent_code: Optional[str] = None      # "" = sin padre
+    description: Optional[str] = None
+
+
+class CopiarCoaInput(BaseModel):
+    from_portfolio_id: int
+    to_portfolio_id: int
+
+
+class ReglaInput(BaseModel):
+    rule_name: Optional[str] = None
+    category: str = Field(min_length=1, max_length=150)
+    transaction_type: str = Field(min_length=1, max_length=15)
+    debit_account_code: str = Field(min_length=1, max_length=50)
+    credit_account_code: str = Field(min_length=1, max_length=50)
+    description: Optional[str] = None
+    portfolio_id: Optional[int] = None
+    is_active: bool = True
+
+
+class ReglaUpdateInput(BaseModel):
+    rule_name: Optional[str] = None
+    category: Optional[str] = None
+    transaction_type: Optional[str] = None
+    debit_account_code: Optional[str] = None
+    credit_account_code: Optional[str] = None
+    description: Optional[str] = None
+    portfolio_id: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
 class PeriodoInput(BaseModel):
     portfolio_id: int
     anio: int = Field(ge=1990, le=2100)

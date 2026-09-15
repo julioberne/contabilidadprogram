@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from routers.auth_guard import require_admin, require_contador
 from routers.contadores_schemas import (
     LineasEditInput, MotivoInput, AnularInput, LoteInput, AsientoManualInput, PeriodoInput,
+    CuentaInput, CuentaUpdateInput, CopiarCoaInput, ReglaInput, ReglaUpdateInput,
 )
 
 router = APIRouter(prefix="/api/contadores", tags=["Contadores"])
@@ -26,8 +27,11 @@ def _http(e: Exception) -> HTTPException:
     from kernel.kernel_accounting import PartidaDobleError, CuentaNoExisteError
     from kernel.kernel_periods import PeriodoCerradoError
     from kernel.kernel_journal_workflow import EstadoAsientoError
+    from fin_sys_core.coa_admin_driver import CoaError
     if isinstance(e, HTTPException):
         return e
+    if isinstance(e, CoaError):
+        return HTTPException(status_code=e.status, detail=str(e))
     if isinstance(e, (PartidaDobleError, CuentaNoExisteError, ValueError)):
         return HTTPException(status_code=400, detail=str(e))
     if isinstance(e, PeriodoCerradoError):
@@ -162,6 +166,93 @@ def crear_manual(body: AsientoManualInput, user: dict = Depends(require_contador
                                    [l.model_dump() for l in body.lineas], _quien(user),
                                    contabilizar=body.contabilizar)
         return {"resultado": res, "asiento": obtener_asiento(res["entry_group_id"])}
+    except Exception as e:
+        raise _http(e)
+
+
+# ── Plan de cuentas (B3) ─────────────────────────────────────────────────────
+
+@router.get("/coa")
+def coa_listar(portfolio_id: int, _u: dict = Depends(require_contador)):
+    try:
+        from fin_sys_core.coa_admin_driver import listar_coa
+        return listar_coa(portfolio_id)
+    except Exception as e:
+        raise _http(e)
+
+
+@router.post("/coa", status_code=201)
+def coa_crear(body: CuentaInput, _u: dict = Depends(require_contador)):
+    try:
+        from fin_sys_core.coa_admin_driver import crear_cuenta
+        return crear_cuenta(body.portfolio_id, body.code, body.name, body.account_type,
+                            is_group=body.is_group, parent_code=body.parent_code,
+                            description=body.description)
+    except Exception as e:
+        raise _http(e)
+
+
+@router.put("/coa/{cuenta_id}")
+def coa_actualizar(cuenta_id: int, body: CuentaUpdateInput, _u: dict = Depends(require_contador)):
+    try:
+        from fin_sys_core.coa_admin_driver import actualizar_cuenta
+        return actualizar_cuenta(cuenta_id, **body.model_dump())
+    except Exception as e:
+        raise _http(e)
+
+
+@router.delete("/coa/{cuenta_id}")
+def coa_eliminar(cuenta_id: int, _u: dict = Depends(require_contador)):
+    try:
+        from fin_sys_core.coa_admin_driver import eliminar_cuenta
+        return eliminar_cuenta(cuenta_id)
+    except Exception as e:
+        raise _http(e)
+
+
+@router.post("/coa/copiar")
+def coa_copiar(body: CopiarCoaInput, _u: dict = Depends(require_admin)):
+    try:
+        from fin_sys_core.coa_admin_driver import copiar_coa
+        return copiar_coa(body.from_portfolio_id, body.to_portfolio_id)
+    except Exception as e:
+        raise _http(e)
+
+
+# ── Posting rules (B3) ───────────────────────────────────────────────────────
+
+@router.get("/posting-rules")
+def reglas_listar(portfolio_id: Optional[int] = None, _u: dict = Depends(require_contador)):
+    try:
+        from fin_sys_core.coa_admin_driver import listar_reglas
+        return listar_reglas(portfolio_id)
+    except Exception as e:
+        raise _http(e)
+
+
+@router.post("/posting-rules", status_code=201)
+def reglas_crear(body: ReglaInput, _u: dict = Depends(require_contador)):
+    try:
+        from fin_sys_core.coa_admin_driver import crear_regla
+        return crear_regla(**body.model_dump())
+    except Exception as e:
+        raise _http(e)
+
+
+@router.put("/posting-rules/{rule_id}")
+def reglas_actualizar(rule_id: int, body: ReglaUpdateInput, _u: dict = Depends(require_contador)):
+    try:
+        from fin_sys_core.coa_admin_driver import actualizar_regla
+        return actualizar_regla(rule_id, **body.model_dump())
+    except Exception as e:
+        raise _http(e)
+
+
+@router.delete("/posting-rules/{rule_id}")
+def reglas_eliminar(rule_id: int, _u: dict = Depends(require_contador)):
+    try:
+        from fin_sys_core.coa_admin_driver import eliminar_regla
+        return eliminar_regla(rule_id)
     except Exception as e:
         raise _http(e)
 

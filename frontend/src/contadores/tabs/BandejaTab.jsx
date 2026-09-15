@@ -10,7 +10,8 @@ import { api } from '../useContadoresApi.js';
 import { fmt, fmtFecha } from '../fmt.js';
 import EstadoBadge from '../components/EstadoBadge.jsx';
 import PeriodoPicker from '../components/PeriodoPicker.jsx';
-import LineasEditor, { lineasValidas, lineasPayload } from '../components/LineasEditor.jsx';
+import LineasEditor from '../components/LineasEditor.jsx';
+import { lineasValidas, lineasPayload } from '../components/lineasUtils.js';
 import MotivoModal from '../components/MotivoModal.jsx';
 
 const ESTADOS = ['BORRADOR', 'CONTABILIZADO', 'RECHAZADO', 'ANULADO', 'TODOS'];
