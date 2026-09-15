@@ -61,7 +61,8 @@ def puc_tipo(cuenta_codigo: str) -> str:
 
 
 def build_journal_event(category, tx_type, amount, account_id=None, referencia="",
-                        descripcion="", fecha=None):
+                        descripcion="", fecha=None, portfolio_id=None, tx_id=None,
+                        estado=None, created_by=None):
     """Construye el evento del asiento (mismo payload que emit_journal_entry)
     SIN emitirlo y SIN viajes a la BD (usa shared.rules_cache).
 
@@ -82,7 +83,7 @@ def build_journal_event(category, tx_type, amount, account_id=None, referencia="
         debit_code = bank_code
     if credit_code == "__BANK__":
         credit_code = bank_code
-    return {
+    evento = {
         'fecha': fecha or str(date.today()),
         'modulo_origen': 'zero_coa',
         'referencia': referencia,
@@ -94,12 +95,22 @@ def build_journal_event(category, tx_type, amount, account_id=None, referencia="
              'cuenta_nombre': rule_name, 'cuenta_tipo': puc_tipo(credit_code)},
         ],
     }
+    # Metadatos del módulo Contadores (B1): solo si vienen (el kernel pone
+    # BORRADOR / 'sistema' por defecto y resuelve portfolio_id desde tx_id).
+    for k, v in (("portfolio_id", portfolio_id), ("tx_id", tx_id),
+                 ("estado", estado), ("created_by", created_by)):
+        if v is not None:
+            evento[k] = v
+    return evento
 
 
-def emit_journal_entry(category, tx_type, amount, account_id=None, referencia="", descripcion="", fecha=None):
+def emit_journal_entry(category, tx_type, amount, account_id=None, referencia="", descripcion="",
+                       fecha=None, portfolio_id=None, tx_id=None, estado=None, created_by=None):
     """
     Busca la posting_rule por (category, tx_type), resuelve __BANK__,
     y emite el evento al kernel para generar el asiento de partida doble.
+    portfolio_id / tx_id / estado / created_by: metadatos Contadores (B1),
+    opcionales; viajan en el payload del evento.
 
     No bloquea la operación original, pero SÍ reporta el resultado:
       {'status': 'ok'|'skipped_duplicate', 'entry_group_id': ...}
@@ -141,7 +152,7 @@ def emit_journal_entry(category, tx_type, amount, account_id=None, referencia=""
             debit_code = bank_code
         if credit_code == "__BANK__":
             credit_code = bank_code
-        results = emit('fin.transaccion.registrada', {
+        payload = {
             'fecha': fecha or str(date.today()),
             'modulo_origen': 'zero_coa',
             'referencia': referencia,
@@ -154,7 +165,12 @@ def emit_journal_entry(category, tx_type, amount, account_id=None, referencia=""
                 {'cuenta_codigo': credit_code, 'debito': 0, 'credito': amount,
                  'cuenta_nombre': rule_name, 'cuenta_tipo': puc_tipo(credit_code)},
             ]
-        })
+        }
+        for k, v in (("portfolio_id", portfolio_id), ("tx_id", tx_id),
+                     ("estado", estado), ("created_by", created_by)):
+            if v is not None:
+                payload[k] = v
+        results = emit('fin.transaccion.registrada', payload)
         # Inspeccionar el resultado de los handlers en vez de descartarlo
         if not results:
             # Sin listeners no se registró NADA — jamás reportar "ok"

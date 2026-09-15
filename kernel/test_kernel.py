@@ -180,10 +180,11 @@ def test_anulacion_espejo_cuadra_y_es_idempotente():
     cuenta, y una segunda anulación no inserta nada."""
     from kernel.kernel_accounting import anular_asiento_por_referencia
     ref = f"{PREFIX}-ANUL"
+    # B1: solo un asiento CONTABILIZADO recibe espejo (un BORRADOR se RECHAZA)
     registrar_asiento(_evento(ref, [
         {"cuenta_codigo": CTA_GASTO, "debito": 350.75, "credito": 0},
         {"cuenta_codigo": CTA_BANCO, "debito": 0, "credito": 350.75},
-    ]))
+    ]), estado="CONTABILIZADO")
     conn = get_conn()
     try:
         r1 = anular_asiento_por_referencia(conn, "test_kernel", ref, motivo="prueba", usuario="tester")

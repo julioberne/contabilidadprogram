@@ -156,6 +156,8 @@ def _startup():
     try:
         from kernel.kernel_event_bus import on, off
         from kernel.kernel_accounting import registrar_asiento, init_journal_entries_table
+        from kernel.kernel_periods import init_accounting_periods_table
+        init_accounting_periods_table()   # módulo Contadores (B1): periodos/cierres
         init_journal_entries_table()
         # Reset primero para evitar duplicados en hot-reload
         off('fin.transaccion.registrada')

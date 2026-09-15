@@ -81,6 +81,8 @@ def main():
             referencia=f"TX-{tx_id}",
             descripcion=concepto or "",
             fecha=str(fecha),
+            # B1: reparación = histórico → CONTABILIZADO con rastro de script
+            tx_id=tx_id, estado="CONTABILIZADO", created_by="script:repair_missing_journal",
         )
         estado = (res or {}).get("status")
         print(f"  TX-{tx_id}: {estado}")

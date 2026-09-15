@@ -123,16 +123,25 @@ def main():
             with urllib.request.urlopen(req, timeout=60) as r:
                 borrado = json.loads(r.read())
             print(f"5. DELETE por API: {borrado.get('status')} journal={borrado.get('journal')}")
-            if borrado.get("journal", {}).get(f"TX-{tx_id}") != "ok":
-                fallos.append(f"el borrado no generó contra-asiento: {borrado.get('journal')}")
-            todas = [e for e in get("/api/journal-entries?modulo_origen=zero_coa&limit=200")
+            resultado = borrado.get("journal", {}).get(f"TX-{tx_id}")
+            todas = [e for e in get("/api/journal-entries?modulo_origen=zero_coa&limit=200&estado=TODOS")
                      if e.get("referencia") in (f"TX-{tx_id}", f"REV-TX-{tx_id}")]
-            neto = {}
-            for e in todas:
-                neto[e["cuenta_codigo"]] = neto.get(e["cuenta_codigo"], 0.0) + float(e["debito"]) - float(e["credito"])
-            print(f"   líneas TX+REV: {len(todas)} | neto por cuenta: {neto}")
-            if len(todas) != 4 or any(abs(v) >= 0.01 for v in neto.values()):
-                fallos.append(f"contra-asiento incompleto: {len(todas)} líneas, neto {neto}")
+            estados = sorted({e.get("estado") for e in todas})
+            if resultado == "rejected_draft":
+                # B1: el asiento nació BORRADOR y nunca estuvo en los libros →
+                # se RECHAZA (sin espejo). Es el camino normal desde Contadores.
+                print(f"   borrador rechazado: {len(todas)} líneas, estados {estados}")
+                if len(todas) != 2 or estados != ["RECHAZADO"]:
+                    fallos.append(f"esperaba 2 líneas RECHAZADO, hay {len(todas)} {estados}")
+            elif resultado == "ok":
+                neto = {}
+                for e in todas:
+                    neto[e["cuenta_codigo"]] = neto.get(e["cuenta_codigo"], 0.0) + float(e["debito"]) - float(e["credito"])
+                print(f"   líneas TX+REV: {len(todas)} | neto por cuenta: {neto}")
+                if len(todas) != 4 or any(abs(v) >= 0.01 for v in neto.values()):
+                    fallos.append(f"contra-asiento incompleto: {len(todas)} líneas, neto {neto}")
+            else:
+                fallos.append(f"el borrado no trató el asiento: {borrado.get('journal')}")
         else:
             print("5. DELETE por API omitido (define FINSYS_ADMIN_PASSWORD para probarlo)")
     finally:

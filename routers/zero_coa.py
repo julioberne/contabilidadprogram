@@ -13,16 +13,19 @@ router = APIRouter(tags=["Zero-COA"])
 def get_journal_entries(
     fecha_desde: Optional[str] = None, fecha_hasta: Optional[str] = None,
     modulo_origen: Optional[str] = None, limit: int = 100, offset: int = 0,
+    estado: Optional[str] = "TODOS", portfolio_id: Optional[int] = None,
     _u: dict = Depends(require_auth),
 ):
+    """estado: TODOS (default) | BORRADOR | CONTABILIZADO | RECHAZADO | ANULADO."""
     try:
         from kernel.kernel_accounting import obtener_asientos
         entries = obtener_asientos(
             fecha_desde=fecha_desde, fecha_hasta=fecha_hasta,
-            modulo_origen=modulo_origen, limit=limit, offset=offset
+            modulo_origen=modulo_origen, limit=limit, offset=offset,
+            estado=estado, portfolio_id=portfolio_id,
         )
         for e in entries:
-            for k in ['fecha', 'created_at']:
+            for k in ['fecha', 'created_at', 'posted_at', 'revisado_en']:
                 if k in e and e[k]: e[k] = str(e[k])
             for k in ['debito', 'credito']:
                 if k in e and e[k] is not None: e[k] = float(e[k])
@@ -33,10 +36,15 @@ def get_journal_entries(
 
 # ── GET /api/financial-summary ──
 @router.get("/api/financial-summary")
-def get_financial_summary(fecha_desde: Optional[str] = None, fecha_hasta: Optional[str] = None, _u: dict = Depends(require_auth)):
+def get_financial_summary(fecha_desde: Optional[str] = None, fecha_hasta: Optional[str] = None,
+                          portfolio_id: Optional[int] = None, estado: Optional[str] = None,
+                          _u: dict = Depends(require_auth)):
+    """estado: None = todo menos RECHAZADO (B1) | CONTABILIZADO | TODOS.
+    portfolio_id: None = consolidado."""
     try:
         from kernel.kernel_accounting import obtener_resumen_financiero
-        return obtener_resumen_financiero(fecha_desde, fecha_hasta)
+        return obtener_resumen_financiero(fecha_desde, fecha_hasta,
+                                          portfolio_id=portfolio_id, estado=estado)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

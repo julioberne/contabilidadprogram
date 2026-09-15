@@ -131,6 +131,8 @@ def create_transaction(tx_input) -> dict:
             referencia=f"TX-{tx_id}",
             descripcion=tx_input.concept or "",
             fecha=tx_input.transaction_date,
+            tx_id=tx_id,                 # B1: el kernel resuelve el portafolio
+            created_by="sistema",        # y el asiento nace en BORRADOR
         )
         if evento is None:
             journal.clear(); journal["status"] = "no_rule"

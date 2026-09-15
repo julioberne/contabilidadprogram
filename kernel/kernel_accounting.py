@@ -32,7 +32,7 @@ TABLA QUE USA:
 
 import logging
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Dict, Any, List, Optional
 from psycopg2.extras import RealDictCursor, execute_values
@@ -41,6 +41,7 @@ logger = logging.getLogger("kernel.accounting")
 
 # Importar pool de conexiones centralizado
 from fin_sys_core.db_pool import get_conn, put_conn
+from kernel.kernel_periods import PeriodoCerradoError  # noqa: F401  (re-export)
 
 # Un centavo: todo monto se normaliza a 2 decimales con Decimal (nunca float)
 _CENT = Decimal("0.01")
@@ -151,6 +152,8 @@ def init_journal_entries_table():
             ON kernel_journal_entries(modulo_origen);
         """)
 
+        _asegurar_columnas_contadores(cur)
+
         conn.commit()
         cur.close()
         logger.info("✅ Tabla kernel_journal_entries inicializada")
@@ -166,6 +169,54 @@ def init_journal_entries_table():
 # ══════════════════════════════════════════════════════════════════════════════
 # FUNCIÓN CENTRAL — Registrar Asiento de Partida Doble
 # ══════════════════════════════════════════════════════════════════════════════
+
+ESTADOS_ASIENTO = ("BORRADOR", "CONTABILIZADO", "RECHAZADO", "ANULADO")
+
+# Columnas del módulo Contadores (B1, 2026-09-15). Todas las líneas de un
+# entry_group_id comparten estos valores; SOLO el kernel los muta.
+_DDL_CONTADORES = [
+    "ALTER TABLE kernel_journal_entries ADD COLUMN IF NOT EXISTS estado VARCHAR(15) NOT NULL DEFAULT 'BORRADOR'",
+    "ALTER TABLE kernel_journal_entries ADD COLUMN IF NOT EXISTS portfolio_id INTEGER REFERENCES portfolios(id) ON DELETE SET NULL",
+    "ALTER TABLE kernel_journal_entries ADD COLUMN IF NOT EXISTS tx_id INTEGER",
+    "ALTER TABLE kernel_journal_entries ADD COLUMN IF NOT EXISTS created_by VARCHAR(64)",
+    "ALTER TABLE kernel_journal_entries ADD COLUMN IF NOT EXISTS posted_by VARCHAR(64)",
+    "ALTER TABLE kernel_journal_entries ADD COLUMN IF NOT EXISTS posted_at TIMESTAMPTZ",
+    "ALTER TABLE kernel_journal_entries ADD COLUMN IF NOT EXISTS revisado_por VARCHAR(64)",
+    "ALTER TABLE kernel_journal_entries ADD COLUMN IF NOT EXISTS revisado_en TIMESTAMPTZ",
+    "ALTER TABLE kernel_journal_entries ADD COLUMN IF NOT EXISTS motivo TEXT",
+    "ALTER TABLE kernel_journal_entries ADD COLUMN IF NOT EXISTS reversa_de VARCHAR(50)",
+    "ALTER TABLE kernel_journal_entries ADD COLUMN IF NOT EXISTS anulado_por VARCHAR(50)",
+    "CREATE INDEX IF NOT EXISTS idx_journal_estado ON kernel_journal_entries(estado)",
+    "CREATE INDEX IF NOT EXISTS idx_journal_portfolio_fecha ON kernel_journal_entries(portfolio_id, fecha)",
+    "CREATE INDEX IF NOT EXISTS idx_journal_tx ON kernel_journal_entries(tx_id)",
+    """DO $$ BEGIN
+         IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_journal_estado') THEN
+           ALTER TABLE kernel_journal_entries ADD CONSTRAINT ck_journal_estado
+             CHECK (estado IN ('BORRADOR','CONTABILIZADO','RECHAZADO','ANULADO'));
+         END IF;
+       END $$""",
+]
+
+
+def _asegurar_columnas_contadores(cur) -> None:
+    """Idempotente: el server se auto-cura al arrancar aunque no se haya
+    corrido scripts/migrate_contadores.py (que además hace el backfill)."""
+    for sql in _DDL_CONTADORES:
+        cur.execute(sql)
+
+
+def _filtro_estado(estado: Optional[str]) -> Optional[str]:
+    """Cláusula SQL para el filtro de estado de las consultas:
+       None  → todo menos RECHAZADO (B1: los reportes aún incluyen borradores;
+               en B2 el default de los reportes pasa a 'CONTABILIZADO')
+       'TODOS' → sin filtro
+       otro  → estado = ese"""
+    if estado is None:
+        return "estado <> 'RECHAZADO'"
+    if str(estado).upper() == "TODOS":
+        return None
+    return "estado = %s"
+
 
 def registrar_asiento(evento: Dict[str, Any], conn=None, *, estado: str = None,
                       portfolio_id: int = None) -> Dict[str, Any]:
@@ -224,10 +275,16 @@ def registrar_asiento(evento: Dict[str, Any], conn=None, *, estado: str = None,
     modulo = evento.get("modulo_origen", "unknown")
     referencia = evento.get("referencia", "")
     descripcion = evento.get("descripcion", "")
-    if estado is not None:
-        evento.setdefault("estado", estado)
-    if portfolio_id is not None:
-        evento.setdefault("portfolio_id", portfolio_id)
+
+    # ── Metadatos del módulo Contadores (B1) ─────────────────────────────
+    estado_fila = str(estado or evento.get("estado") or "BORRADOR").upper()
+    if estado_fila not in ("BORRADOR", "CONTABILIZADO"):
+        raise ValueError(f"Estado inicial inválido para un asiento: {estado_fila}")
+    portfolio_fila = portfolio_id if portfolio_id is not None else evento.get("portfolio_id")
+    tx_id_fila = evento.get("tx_id")
+    created_by = evento.get("created_by") or "sistema"
+    posted_by = evento.get("posted_by") or (created_by if estado_fila == "CONTABILIZADO" else None)
+    reversa_de = evento.get("reversa_de")
 
     externa = conn is not None
     if not externa:
@@ -266,11 +323,22 @@ def registrar_asiento(evento: Dict[str, Any], conn=None, *, estado: str = None,
             raise CuentaNoExisteError("Asiento con cuenta_codigo vacío")
         validar_cuentas_existen(cur, codigos)
 
+        # ── Portafolio del asiento (desde la TX de origen si no viene) ────────
+        if tx_id_fila is not None and portfolio_fila is None:
+            cur.execute("SELECT portfolio_id FROM transactions WHERE id = %s", (int(tx_id_fila),))
+            r = cur.fetchone()
+            portfolio_fila = r[0] if r else None
+
+        # ── Periodo cerrado → no se asienta (B1) ─────────────────────────────
+        from kernel.kernel_periods import assert_periodo_abierto
+        assert_periodo_abierto(portfolio_fila, fecha, conn=conn)
+
         # ── ID de grupo sin COUNT+1 (el COUNT era una condición de carrera) ──
         fecha_clean = str(fecha).replace("-", "")
         entry_group_id = f"JE-{fecha_clean}-{uuid.uuid4().hex[:6].upper()}"
 
         # ── Insertar todas las líneas en UNA sentencia ────────────────────────
+        posted_at = datetime.now(timezone.utc) if estado_fila == "CONTABILIZADO" else None
         filas = []
         for num_linea, asiento in enumerate(asientos, start=1):
             cuenta_codigo = str(asiento.get("cuenta_codigo", "")).strip()
@@ -280,11 +348,13 @@ def registrar_asiento(evento: Dict[str, Any], conn=None, *, estado: str = None,
                 entry_group_id, fecha, cuenta_codigo, cuenta_nombre, cuenta_tipo,
                 _monto(asiento.get("debito", 0)), _monto(asiento.get("credito", 0)),
                 modulo, referencia, descripcion, num_linea,
+                estado_fila, portfolio_fila, tx_id_fila, created_by, posted_by, posted_at, reversa_de,
             ))
         execute_values(cur, """
             INSERT INTO kernel_journal_entries
                 (entry_group_id, fecha, cuenta_codigo, cuenta_nombre, cuenta_tipo,
-                 debito, credito, modulo_origen, referencia, descripcion, linea)
+                 debito, credito, modulo_origen, referencia, descripcion, linea,
+                 estado, portfolio_id, tx_id, created_by, posted_by, posted_at, reversa_de)
             VALUES %s
         """, filas)
 
@@ -306,9 +376,11 @@ def registrar_asiento(evento: Dict[str, Any], conn=None, *, estado: str = None,
             "lineas": len(asientos),
             "total_debito": float(total_debito),
             "total_credito": float(total_credito),
+            "estado": estado_fila,
+            "portfolio_id": portfolio_fila,
         }
 
-    except (PartidaDobleError, CuentaNoExisteError):
+    except (PartidaDobleError, CuentaNoExisteError, PeriodoCerradoError):
         _deshacer(conn, externa)
         raise
     except Exception as e:
@@ -340,39 +412,79 @@ def anular_asiento_por_referencia(conn, modulo_origen: str, referencia: str,
     → {"status": "ok"|"skipped_duplicate"|"nothing_to_reverse",
        "entry_group_id", "lineas"}
     """
-    fecha = fecha or str(date.today())
-    ref_rev = f"REV-{referencia}"
-    grupo = f"JE-{str(fecha).replace('-', '')}-{uuid.uuid4().hex[:6].upper()}"
-    quien = f" · por {usuario}" if usuario else ""
-    descripcion = f"[ANULACIÓN de {referencia}] {motivo}{quien}".strip()
     cur = conn.cursor()
     try:
         cur.execute("""
-            INSERT INTO kernel_journal_entries
-                (entry_group_id, fecha, cuenta_codigo, cuenta_nombre, cuenta_tipo,
-                 debito, credito, modulo_origen, referencia, descripcion, linea)
-            SELECT %(grupo)s, %(fecha)s, cuenta_codigo, cuenta_nombre, cuenta_tipo,
-                   credito, debito, modulo_origen, %(ref_rev)s, %(descripcion)s, linea
-            FROM kernel_journal_entries
-            WHERE modulo_origen = %(modulo)s AND referencia = %(ref)s
-            ON CONFLICT DO NOTHING
-            RETURNING id
-        """, {"grupo": grupo, "fecha": fecha, "ref_rev": ref_rev, "descripcion": descripcion,
-              "modulo": modulo_origen, "ref": referencia})
-        insertadas = len(cur.fetchall())
-        if insertadas:
-            logger.info(f"↩️ Contra-asiento {grupo}: {insertadas} líneas para {modulo_origen}/{referencia}")
-            return {"status": "ok", "entry_group_id": grupo, "lineas": insertadas}
-        cur.execute("""
-            SELECT entry_group_id FROM kernel_journal_entries
-            WHERE modulo_origen = %s AND referencia = %s LIMIT 1
-        """, (modulo_origen, ref_rev))
-        previo = cur.fetchone()
-        if previo:
-            return {"status": "skipped_duplicate", "entry_group_id": previo[0], "lineas": 0}
-        return {"status": "nothing_to_reverse", "entry_group_id": None, "lineas": 0}
+            SELECT entry_group_id, estado, anulado_por FROM kernel_journal_entries
+            WHERE modulo_origen = %s AND referencia = %s ORDER BY id LIMIT 1
+        """, (modulo_origen, referencia))
+        orig = cur.fetchone()
+        if not orig:
+            return {"status": "nothing_to_reverse", "entry_group_id": None, "lineas": 0}
+        grupo_orig, estado_orig, anulado_por = orig
+        return _anular_grupo(cur, grupo_orig, estado_orig, anulado_por,
+                             motivo=motivo, usuario=usuario, fecha=fecha)
     finally:
         cur.close()
+
+
+def _anular_grupo(cur, grupo_orig: str, estado_orig: str, anulado_por: Optional[str],
+                  motivo: str = "", usuario: str = None, fecha: str = None) -> Dict[str, Any]:
+    """Núcleo compartido por anular_asiento_por_referencia (A4) y el workflow
+    del contador (B2):
+      BORRADOR       → RECHAZADO (nunca estuvo en los libros; sin espejo)
+      CONTABILIZADO  → espejo CONTABILIZADO (REV-<ref>) + original ANULADO
+      ANULADO/RECHAZADO → skipped_duplicate (idempotente)"""
+    quien = usuario or "sistema"
+    if estado_orig == "BORRADOR":
+        cur.execute("""
+            UPDATE kernel_journal_entries
+               SET estado = 'RECHAZADO', motivo = %s, revisado_por = %s, revisado_en = NOW()
+             WHERE entry_group_id = %s AND estado = 'BORRADOR'
+        """, (motivo or "Anulación", quien, grupo_orig))
+        logger.info(f"↩️ Borrador {grupo_orig} RECHAZADO ({motivo})")
+        return {"status": "rejected_draft", "entry_group_id": grupo_orig, "lineas": 0,
+                "original": grupo_orig}
+    if estado_orig in ("ANULADO", "RECHAZADO"):
+        return {"status": "skipped_duplicate", "entry_group_id": anulado_por, "lineas": 0,
+                "original": grupo_orig}
+
+    fecha = fecha or str(date.today())
+    grupo = f"JE-{str(fecha).replace('-', '')}-{uuid.uuid4().hex[:6].upper()}"
+    firma = f" · por {usuario}" if usuario else ""
+    cur.execute("""
+        INSERT INTO kernel_journal_entries
+            (entry_group_id, fecha, cuenta_codigo, cuenta_nombre, cuenta_tipo,
+             debito, credito, modulo_origen, referencia, descripcion, linea,
+             estado, portfolio_id, tx_id, created_by, posted_by, posted_at, reversa_de)
+        SELECT %(grupo)s, %(fecha)s, cuenta_codigo, cuenta_nombre, cuenta_tipo,
+               credito, debito, modulo_origen, 'REV-' || referencia,
+               '[ANULACIÓN de ' || referencia || '] ' || %(motivo)s || %(firma)s, linea,
+               'CONTABILIZADO', portfolio_id, tx_id, %(quien)s, %(quien)s, NOW(), %(orig)s
+        FROM kernel_journal_entries
+        WHERE entry_group_id = %(orig)s
+        ON CONFLICT DO NOTHING
+        RETURNING id
+    """, {"grupo": grupo, "fecha": fecha, "motivo": motivo or "", "firma": firma,
+          "quien": quien, "orig": grupo_orig})
+    insertadas = len(cur.fetchall())
+    if not insertadas:
+        # El espejo ya existía (carrera): dejar el original como ANULADO igual
+        cur.execute("""
+            SELECT entry_group_id FROM kernel_journal_entries
+            WHERE reversa_de = %s LIMIT 1
+        """, (grupo_orig,))
+        previo = cur.fetchone()
+        return {"status": "skipped_duplicate", "entry_group_id": previo[0] if previo else None,
+                "lineas": 0, "original": grupo_orig}
+    cur.execute("""
+        UPDATE kernel_journal_entries
+           SET estado = 'ANULADO', anulado_por = %s, motivo = %s,
+               revisado_por = %s, revisado_en = NOW()
+         WHERE entry_group_id = %s
+    """, (grupo, motivo or "Anulación", quien, grupo_orig))
+    logger.info(f"↩️ Contra-asiento {grupo}: {insertadas} líneas; {grupo_orig} ANULADO")
+    return {"status": "ok", "entry_group_id": grupo, "lineas": insertadas, "original": grupo_orig}
 
 
 def _deshacer(conn, externa: bool) -> None:
@@ -428,18 +540,22 @@ def obtener_asientos(
     cuenta_codigo: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
+    estado: Optional[str] = "TODOS",
+    portfolio_id: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """
     Consulta asientos del libro diario con filtros opcionales.
     Retorna las líneas individuales agrupables por entry_group_id.
+    estado: 'TODOS' (default, comportamiento histórico) | un estado | None
+            (= todo menos RECHAZADO).
     """
     conn = get_conn()
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        
+
         conditions = []
         params = []
-        
+
         if fecha_desde:
             conditions.append("fecha >= %s")
             params.append(fecha_desde)
@@ -452,15 +568,25 @@ def obtener_asientos(
         if cuenta_codigo:
             conditions.append("cuenta_codigo = %s")
             params.append(cuenta_codigo)
-        
+        if portfolio_id is not None:
+            conditions.append("portfolio_id = %s")
+            params.append(int(portfolio_id))
+        clausula = _filtro_estado(estado)
+        if clausula:
+            conditions.append(clausula)
+            if "%s" in clausula:
+                params.append(str(estado).upper())
+
         where = ""
         if conditions:
             where = "WHERE " + " AND ".join(conditions)
-        
+
         query = f"""
             SELECT id, entry_group_id, fecha, cuenta_codigo, cuenta_nombre,
                    cuenta_tipo, debito, credito, modulo_origen, referencia,
-                   descripcion, created_at
+                   descripcion, created_at,
+                   estado, portfolio_id, tx_id, created_by, posted_by, posted_at,
+                   revisado_por, revisado_en, motivo, reversa_de, anulado_por
             FROM kernel_journal_entries
             {where}
             ORDER BY fecha DESC, entry_group_id, id
@@ -482,29 +608,43 @@ def obtener_asientos(
 def obtener_balance_por_cuenta(
     fecha_desde: Optional[str] = None,
     fecha_hasta: Optional[str] = None,
+    portfolio_id: Optional[int] = None,
+    estado: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Genera un balance de sumas y saldos agrupado por cuenta.
     Para cada cuenta: total_debito, total_credito, saldo (Db - Cr).
-    
+
     Esto es la base para generar:
     - Balance General (cuentas 1, 2, 3)
     - Estado de Resultados / P&L (cuentas 4, 5)
+
+    estado: None (default) = todo menos RECHAZADO; 'CONTABILIZADO' = solo lo
+    que el contador contabilizó (default de los reportes desde B2); 'TODOS'.
+    portfolio_id: None = consolidado.
     """
     conn = get_conn()
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        
+
         conditions = []
         params = []
-        
+
         if fecha_desde:
             conditions.append("fecha >= %s")
             params.append(fecha_desde)
         if fecha_hasta:
             conditions.append("fecha <= %s")
             params.append(fecha_hasta)
-        
+        if portfolio_id is not None:
+            conditions.append("portfolio_id = %s")
+            params.append(int(portfolio_id))
+        clausula = _filtro_estado(estado)
+        if clausula:
+            conditions.append(clausula)
+            if "%s" in clausula:
+                params.append(str(estado).upper())
+
         where = ""
         if conditions:
             where = "WHERE " + " AND ".join(conditions)
@@ -537,12 +677,15 @@ def obtener_balance_por_cuenta(
 def obtener_resumen_financiero(
     fecha_desde: Optional[str] = None,
     fecha_hasta: Optional[str] = None,
+    portfolio_id: Optional[int] = None,
+    estado: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Genera resumen financiero básico: Activos, Pasivos, Patrimonio, Ingresos, Gastos.
     Base para P&L y Balance General.
     """
-    balances = obtener_balance_por_cuenta(fecha_desde, fecha_hasta)
+    balances = obtener_balance_por_cuenta(fecha_desde, fecha_hasta,
+                                          portfolio_id=portfolio_id, estado=estado)
     
     resumen = {
         "activos": 0.0,
