@@ -257,6 +257,48 @@ def reglas_eliminar(rule_id: int, _u: dict = Depends(require_contador)):
         raise _http(e)
 
 
+# ── Reportes (B4) — solo asientos en libros ──────────────────────────────────
+
+@router.get("/reportes/libro-mayor")
+def rep_libro_mayor(cuenta: str, portfolio_id: Optional[int] = None, desde: Optional[str] = None,
+                    hasta: Optional[str] = None, _u: dict = Depends(require_contador)):
+    try:
+        from kernel.kernel_reports import libro_mayor
+        return libro_mayor(portfolio_id, cuenta, desde, hasta)
+    except Exception as e:
+        raise _http(e)
+
+
+@router.get("/reportes/balance-prueba")
+def rep_balance_prueba(portfolio_id: Optional[int] = None, desde: Optional[str] = None,
+                       hasta: Optional[str] = None, _u: dict = Depends(require_contador)):
+    try:
+        from kernel.kernel_reports import balance_prueba
+        return balance_prueba(portfolio_id, desde, hasta)
+    except Exception as e:
+        raise _http(e)
+
+
+@router.get("/reportes/balance-general")
+def rep_balance_general(portfolio_id: Optional[int] = None, hasta: Optional[str] = None,
+                        _u: dict = Depends(require_contador)):
+    try:
+        from kernel.kernel_reports import balance_general
+        return balance_general(portfolio_id, hasta)
+    except Exception as e:
+        raise _http(e)
+
+
+@router.get("/reportes/pyg")
+def rep_pyg(portfolio_id: Optional[int] = None, desde: Optional[str] = None,
+            hasta: Optional[str] = None, _u: dict = Depends(require_contador)):
+    try:
+        from kernel.kernel_reports import estado_resultados
+        return estado_resultados(portfolio_id, desde, hasta)
+    except Exception as e:
+        raise _http(e)
+
+
 # ── Periodos ─────────────────────────────────────────────────────────────────
 
 @router.get("/periodos")

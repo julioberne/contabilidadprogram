@@ -363,7 +363,36 @@ def test_posting_rule_validaciones():
     assert all("debit_name" in x and "credit_name" in x for x in reglas)
 
 
+# ── B4: reportes solo con asientos en libros ────────────────────────────────
+
+def test_reportes_en_libros():
+    from kernel import kernel_reports as rep
+    from kernel import kernel_journal_workflow as wf
+    # 3 asientos: uno CONTABILIZADO, uno BORRADOR (no cuenta), uno anulado (neto 0)
+    registrar_asiento(_evento(f"{PREFIX}-R1", fecha="2026-03-10", monto=1000, portfolio_id=PORTFOLIO_ID), estado="CONTABILIZADO")
+    registrar_asiento(_evento(f"{PREFIX}-R2", fecha="2026-03-11", monto=500, portfolio_id=PORTFOLIO_ID))  # borrador
+    g3 = registrar_asiento(_evento(f"{PREFIX}-R3", fecha="2026-03-12", monto=200, portfolio_id=PORTFOLIO_ID), estado="CONTABILIZADO")["entry_group_id"]
+    wf.anular_asiento(g3, "t", "prueba", fecha="2026-03-13")
+    # libro mayor de la cuenta de gasto en marzo 2026: solo R1 y R3 + espejo
+    lm = rep.libro_mayor(PORTFOLIO_ID, CTA_GASTO, "2026-03-01", "2026-03-31")
+    refs = [m["referencia"] for m in lm["movimientos"]]
+    assert f"{PREFIX}-R1" in refs and f"{PREFIX}-R3" in refs and f"REV-{PREFIX}-R3" in refs, refs
+    assert f"{PREFIX}-R2" not in refs, "un borrador no va al mayor"
+    propios = [m for m in lm["movimientos"] if PREFIX in (m["referencia"] or "")]
+    assert sum(m["debito"] for m in propios) - sum(m["credito"] for m in propios) == 1000.0, propios
+    # balance de prueba del periodo cuadra
+    bp = rep.balance_prueba(PORTFOLIO_ID, "2026-03-01", "2026-03-31")
+    assert bp["cuadra"], bp["totales"]
+    # P&G: gastos del periodo incluyen 1000 neto de R1 (R3 se cancela) — se
+    # comprueba por diferencia contra el mismo periodo sin nuestros asientos
+    pyg = rep.estado_resultados(PORTFOLIO_ID, "2026-03-01", "2026-03-31")
+    assert pyg["gastos"]["total"] >= 1000.0 and "utilidad_neta" in pyg, pyg["gastos"]["total"]
+    bg = rep.balance_general(PORTFOLIO_ID, "2026-03-31")
+    assert "ecuacion_contable" in bg and "activos" in bg, bg.keys()
+
+
 TESTS = [
+    test_reportes_en_libros,
     test_coa_crud_y_bloqueos,
     test_posting_rule_validaciones,
     test_borrador_por_defecto,

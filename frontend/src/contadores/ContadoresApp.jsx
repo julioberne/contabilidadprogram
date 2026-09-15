@@ -11,6 +11,7 @@ import DiarioTab from './tabs/DiarioTab.jsx';
 import PeriodosTab from './tabs/PeriodosTab.jsx';
 import PlanCuentasTab from './tabs/PlanCuentasTab.jsx';
 import ReglasTab from './tabs/ReglasTab.jsx';
+import ReportesTab from './tabs/ReportesTab.jsx';
 import PortfolioSelect from './components/PortfolioSelect.jsx';
 
 const TABS = [
@@ -98,11 +99,7 @@ export default function ContadoresApp({ user }) {
       {tab === 'periodos' && <PeriodosTab portfolioId={portfolioId} portfolios={portfolios} esAdmin={esAdmin} onCambio={cargarResumen} />}
       {tab === 'coa' && <PlanCuentasTab portfolioId={portfolioId} portfolios={portfolios} esAdmin={esAdmin} onCambio={() => setCoaVersion((v) => v + 1)} />}
       {tab === 'reglas' && <ReglasTab portfolioId={portfolioId} portfolios={portfolios} cuentas={cuentas} onCambio={cargarResumen} />}
-      {tab === 'reportes' && (
-        <div className="bg-white border-2 border-black shadow-brutal p-3 text-[11px]">
-          Reportes (libro mayor, balance de prueba, balance general, P&G) llegan en la fase B4. El backend de asientos, plan de cuentas, reglas y periodos ya está activo.
-        </div>
-      )}
+      {tab === 'reportes' && <ReportesTab portfolioId={portfolioId} portfolios={portfolios} cuentas={cuentas} />}
     </div>
   );
 }
