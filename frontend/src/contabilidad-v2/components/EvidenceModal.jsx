@@ -12,10 +12,16 @@ export default function EvidenceModal({
   onClose,
   profile,
 }) {
-  const { fetchAll } = useEmpresa();
-  // Parche local: lo corregido se refleja al instante sin cerrar el modal
-  // (el refresco global corre en segundo plano).
+  const { fetchAll, patchTransaction, refreshTerceros } = useEmpresa();
+  // Parche local: lo corregido se refleja al instante sin cerrar el modal.
+  // Plan A5: el mismo parche se aplica a la fila del diario (patchTransaction)
+  // en vez de recargar el dashboard completo tras cada campo.
   const [parche, setParche] = React.useState({});
+  const parcharDiario = React.useCallback((campos) => {
+    const id = selectedEvidenceTx?.id;
+    if (id != null && patchTransaction) patchTransaction(id, campos);
+    else fetchAll?.(true);
+  }, [selectedEvidenceTx?.id, patchTransaction, fetchAll]);
   const [editTp, setEditTp] = React.useState(false);
   const [terceros, setTerceros] = React.useState(null);
   const [tpSel, setTpSel] = React.useState('');
@@ -65,12 +71,12 @@ export default function EvidenceModal({
       });
       if (!r.ok) throw new Error('No se pudo registrar la evidencia en la transacción');
       const data = await r.json();
-      setParche(p => ({
-        ...p,
+      const campos = {
         evidences: data.evidences,
         evidence_file_path: txv.evidence_file_path || data.evidences[0],
-      }));
-      fetchAll?.(true);
+      };
+      setParche(p => ({ ...p, ...campos }));
+      parcharDiario(campos);
     } catch (err) {
       alert('❌ ' + (err.message || 'Error adjuntando la evidencia.'));
     } finally {
@@ -129,7 +135,7 @@ export default function EvidenceModal({
       if (!r.ok) throw new Error('No se pudieron guardar las etiquetas');
       setParche(p => ({ ...p, tags: [...tagsSel] }));
       setEditTags(false);
-      fetchAll?.(true);
+      parcharDiario({ tags: [...tagsSel] });
     } catch (e) {
       alert('❌ ' + (e.message || 'Error guardando.'));
     } finally {
@@ -139,6 +145,10 @@ export default function EvidenceModal({
 
   const guardarTercero = async () => {
     setGuardando(true);
+    // Campos del tercero que cambiaron: se aplican al parche local Y a la
+    // fila del diario (plan A5), sin recargar el dashboard.
+    let camposTp = null;
+    const parchar = (campos) => { camposTp = campos; setParche(p => ({ ...p, ...campos })); };
     try {
       if (tpSel && Number(tpSel) !== txv.third_party_id) {
         // Revincular la transacción a un tercero YA registrado
@@ -148,9 +158,9 @@ export default function EvidenceModal({
         });
         if (!r.ok) throw new Error('No se pudo revincular el tercero');
         const t = (terceros || []).find(x => x.id === Number(tpSel)) || {};
-        setParche(p => ({ ...p, third_party_id: t.id, third_party_name: t.name,
+        parchar({ third_party_id: t.id, third_party_name: t.name,
           identification_type: t.identification_type, identification_number: t.identification_number,
-          tp_phone: t.phone, tp_email: t.email, tp_address: t.address }));
+          tp_phone: t.phone, tp_email: t.email, tp_address: t.address });
       } else if (esGenerico && (tpForm.name || '').trim()) {
         // El actual es el genérico compartido: se CREA un tercero nuevo con
         // lo escrito y se vincula SOLO esta transacción (renombrar al
@@ -199,10 +209,10 @@ export default function EvidenceModal({
           body: JSON.stringify({ third_party_id: nuevo.id }),
         });
         if (!rv.ok) throw new Error('Tercero creado pero no se pudo vincular');
-        setParche(p => ({ ...p, third_party_id: nuevo.id, third_party_name: tpForm.name.trim(),
+        parchar({ third_party_id: nuevo.id, third_party_name: tpForm.name.trim(),
           identification_type: tpForm.identification_type || 'NIT',
           identification_number: (tpForm.identification_number || '').trim() || '999999999',
-          tp_phone: contacto.phone, tp_email: contacto.email, tp_address: contacto.address }));
+          tp_phone: contacto.phone, tp_email: contacto.email, tp_address: contacto.address });
       } else if (txv.third_party_id) {
         // Completar NOMBRE, contacto e identificación del tercero actual
         // (módulo de Terceros = fuente de la verdad)
@@ -220,15 +230,18 @@ export default function EvidenceModal({
             body: JSON.stringify(cuerpo),
           });
           if (!r.ok) throw new Error('No se pudo actualizar el tercero');
-          setParche(p => ({ ...p, third_party_name: cuerpo.name ?? txv.third_party_name,
+          parchar({ third_party_name: cuerpo.name ?? txv.third_party_name,
             tp_phone: cuerpo.phone ?? txv.tp_phone,
             tp_email: cuerpo.email ?? txv.tp_email, tp_address: cuerpo.address ?? txv.tp_address,
             identification_number: cuerpo.identification_number ?? txv.identification_number,
-            identification_type: cuerpo.identification_type ?? txv.identification_type }));
+            identification_type: cuerpo.identification_type ?? txv.identification_type });
         }
       }
       setEditTp(false);
-      fetchAll?.(true);
+      // El tercero cambió: la fila del diario y la lista de terceros se
+      // actualizan sin recargar el dashboard entero.
+      if (camposTp) parcharDiario(camposTp);
+      refreshTerceros?.();
     } catch (e) {
       alert('❌ ' + (e.message || 'Error guardando.'));
     } finally {
@@ -246,7 +259,7 @@ export default function EvidenceModal({
       if (!r.ok) throw new Error('No se pudo guardar la nota');
       setParche(p => ({ ...p, note: notaTxt.trim().slice(0, 280) }));
       setEditNota(false);
-      fetchAll?.(true);
+      parcharDiario({ note: notaTxt.trim().slice(0, 280) });
     } catch (e) {
       alert('❌ ' + (e.message || 'Error guardando.'));
     } finally {
@@ -266,7 +279,7 @@ export default function EvidenceModal({
       if (!r.ok) throw new Error('No se pudo guardar la ubicación');
       setParche(p => ({ ...p, geo_maps_link: link }));
       setGeoInput('');
-      fetchAll?.(true);
+      parcharDiario({ geo_maps_link: link });
     } catch (e) {
       alert('❌ ' + (e.message || 'Error guardando.'));
     } finally {

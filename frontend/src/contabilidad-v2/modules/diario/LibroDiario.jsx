@@ -28,7 +28,7 @@ export default function LibroDiario({
   // Totalizador (2026-09-08, pedido de Andrés): cifras de la caja viva del
   // portafolio ACTIVO completo — no de la página cargada, que con paginación
   // (50 en 50) sumaría solo lo visible y mentiría.
-  const { cajaViva = {}, fetchAll } = useEmpresa();
+  const { cajaViva = {}, fetchAll, removeTransaction, refreshBalance } = useEmpresa();
   const totIngresos = Number(cajaViva.total_ingresos_cop || 0);
   const totGastos = Number(cajaViva.total_gastos_cop || 0);
   const totBalance = Number(cajaViva.balance_neto_cop ?? (totIngresos - totGastos));
@@ -54,8 +54,10 @@ export default function LibroDiario({
       }
       setDelTxId(null); setDelClave('');
       setExpandedTxId(null);
-      fetchAll?.(true);
-      alert(`✅ Registro #${tx.id} eliminado — saldos revertidos.`);
+      // Plan A5: quitar la fila localmente + KPIs/cuentas en un viaje
+      if (removeTransaction) { removeTransaction(tx.id); refreshBalance?.(); }
+      else fetchAll?.(true);
+      alert(`✅ Registro #${tx.id} eliminado — saldos revertidos y asiento anulado.`);
     } catch (e) {
       setDelError(e.message || 'Error eliminando.');
     } finally {

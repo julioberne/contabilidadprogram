@@ -36,7 +36,7 @@ export default function RegistroModule() {
       });
       const data = await res.json();
       if (res.ok && data.status === "CARGADO") {
-        empresa.fetchAll();
+        empresa.fetchAll(true);
       } else {
         alert(data.detail || "Error cargando plantilla COA");
       }
@@ -82,7 +82,7 @@ export default function RegistroModule() {
       isCoaSearchFocused={isCoaSearchFocused} setIsCoaSearchFocused={setIsCoaSearchFocused}
       handleLoadCoaTemplate={handleLoadCoaTemplate}
       accounts={empresa.accounts}
-      activeCompany={empresa.activeCompany} activePortfolio={empresa.activePortfolio} fetchData={empresa.fetchAll}
+      activeCompany={empresa.activeCompany} activePortfolio={empresa.activePortfolio} fetchData={() => empresa.fetchAll(true)}
     />
   );
 }

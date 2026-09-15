@@ -162,10 +162,20 @@ def create_transaction(tx_input) -> dict:
     except Exception:
         pass
 
+    # Plan A5: la fila creada con la MISMA forma que dashboard-data.transactions,
+    # para que el frontend la inserte sin recargar el dashboard entero.
+    fila = None
+    try:
+        from fin_sys_core.dashboard_query import obtener_transaccion
+        fila = obtener_transaccion(transaction_id)
+    except Exception as e:
+        print(f"⚠️ no se pudo leer la TX {transaction_id} recién creada: {e}")
+
     return {
         "status": "EXITOSO",
         "transaction_id": transaction_id,
         "net_value": tax_results["net_value"],
         "concept": tx_input.concept,
         "journal": journal.get("status"),
+        "transaction": fila,
     }

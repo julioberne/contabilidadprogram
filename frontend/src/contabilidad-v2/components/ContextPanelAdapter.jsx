@@ -18,7 +18,8 @@ export default function ContextPanelAdapter({ activeTab, setActiveTab }) {
 
   // Perfil: hook v1 + sincronización desde dashboard-data
   // (en v1 fetchData hacía setProfile + setEditProfile*; App.jsx:196-201)
-  const perfil = useProfile({ fetchData: empresa.fetchAll });
+  // Plan A5: el perfil guardado no necesita recargar con parpadeo
+  const perfil = useProfile({ fetchData: () => empresa.fetchAll(true) });
   const { setProfile, setEditProfileName, setEditProfileEmail, setEditProfileRole, setEditProfileAvatar } = perfil;
   useEffect(() => {
     if (empresa.profile && empresa.profile.name) {
@@ -72,7 +73,7 @@ export default function ContextPanelAdapter({ activeTab, setActiveTab }) {
       activeCompany={empresa.activeCompany}
       onCompanyUpdated={(updated) => empresa.setActiveCompany(updated)}
       accounts={empresa.accounts}
-      refreshAccounts={empresa.fetchAll}
+      refreshAccounts={empresa.refreshBalance || empresa.fetchAll}
       profile={perfil.profile}
       profileEdit={{
         isEditing: perfil.isEditingProfile, setIsEditing: perfil.setIsEditingProfile,

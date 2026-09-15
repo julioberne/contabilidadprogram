@@ -26,7 +26,8 @@ const TransactionDraftContext = createContext(null);
 
 export function TransactionDraftProvider({ children }) {
   const empresa = useEmpresa();
-  const { activePortfolio, accounts, fetchAll: fetchData } = empresa;
+  const { activePortfolio, accounts, fetchAll: fetchData,
+          prependTransaction, refreshBalance, refreshTerceros } = empresa;
 
   // --- Tipo y campos principales ---
   const [formType, setFormType] = useState("GASTO");
@@ -250,7 +251,16 @@ export function TransactionDraftProvider({ children }) {
       if (res.ok) {
         const savedConcept = concept;
         resetForm();
-        fetchData();
+        // Plan A5: el backend devuelve la fila creada con la misma forma que
+        // el diario → se inserta al frente y solo se refrescan KPIs/cuentas
+        // (un viaje) en vez de recargar el dashboard entero con parpadeo.
+        if (data.transaction && prependTransaction) {
+          prependTransaction(data.transaction);
+          refreshBalance?.();
+          refreshTerceros?.();
+        } else {
+          fetchData(true);
+        }
         setDrafts(prev => prev.filter(d => d.concept !== savedConcept));
         return true;
       } else {

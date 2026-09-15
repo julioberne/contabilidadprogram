@@ -14,7 +14,20 @@ const API_BASE_URL = API;
 
 export function useLibroDiario() {
   const empresa = useEmpresa();
-  const { fetchAll: fetchData } = empresa;
+  const { fetchAll: fetchData, patchTransaction, refreshBalance } = empresa;
+
+  // Plan A5: el PUT devuelve la fila actualizada → parche local + KPIs/cuentas
+  // (un viaje) en vez de recargar todo el dashboard.
+  const aplicarActualizacion = async (txId, res) => {
+    let data = null;
+    try { data = await res.json(); } catch { /* sin cuerpo */ }
+    if (data?.transaction && patchTransaction) {
+      patchTransaction(txId, data.transaction);
+      refreshBalance?.();
+    } else {
+      fetchData(true);
+    }
+  };
 
   // --- Fila expandible + edición inline (en v1 vivían en App.jsx) ---
   const [expandedTxId, setExpandedTxId] = useState(null);
@@ -49,7 +62,7 @@ export function useLibroDiario() {
       });
       if (res.ok) {
         setEditingCell(null);
-        fetchData();
+        await aplicarActualizacion(txId, res);
       } else {
         const data = await res.json();
         alert(`❌ Error al actualizar: ${data.detail}`);
@@ -67,7 +80,7 @@ export function useLibroDiario() {
         body: JSON.stringify({ is_recurring: !currentVal })
       });
       if (res.ok) {
-        fetchData();
+        await aplicarActualizacion(txId, res);
       } else {
         const data = await res.json();
         alert(`❌ Error al cambiar recurrencia: ${data.detail}`);

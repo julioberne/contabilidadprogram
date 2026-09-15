@@ -125,7 +125,15 @@ def update_transaction_endpoint(tx_id: int, tx_update: TransactionUpdateInput, _
         success = actualizar_transaccion(tx_id, update_dict)
         if not success:
             raise HTTPException(status_code=404, detail="Transacción no encontrada.")
-        return {"status": "ACTUALIZADO", "transaction_id": tx_id}
+        # Plan A5: devolver la fila actualizada (forma del diario) para que el
+        # frontend parche localmente en vez de recargar el dashboard.
+        fila = None
+        try:
+            from fin_sys_core.dashboard_query import obtener_transaccion
+            fila = obtener_transaccion(tx_id)
+        except Exception:
+            fila = None
+        return {"status": "ACTUALIZADO", "transaction_id": tx_id, "transaction": fila}
     except ValueError as ve:
         raise HTTPException(status_code=404, detail=str(ve))
     except Exception as e:
