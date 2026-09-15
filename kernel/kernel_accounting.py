@@ -32,6 +32,7 @@ TABLA QUE USA:
 
 import logging
 import uuid
+from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Dict, Any, List, Optional
 from psycopg2.extras import RealDictCursor, execute_values
@@ -321,6 +322,57 @@ def registrar_asiento(evento: Dict[str, Any], conn=None, *, estado: str = None,
     finally:
         if not externa:
             put_conn(conn)
+
+
+def anular_asiento_por_referencia(conn, modulo_origen: str, referencia: str,
+                                  motivo: str = "", usuario: str = None,
+                                  fecha: str = None, estado: str = None) -> Dict[str, Any]:
+    """Contra-asiento (plan cimientos A4, 2026-09-15): inserta el ESPEJO del
+    asiento (débitos ↔ créditos) con referencia 'REV-<referencia>' dentro de
+    la transacción del llamador (`conn`; sin commit aquí). Antes, borrar una
+    TX o un abono dejaba el asiento huérfano (o lo borraba físicamente),
+    separando el libro del saldo operativo.
+
+    Idempotente: el índice único (modulo_origen, referencia, linea) hace que
+    una segunda anulación no inserte nada → 'skipped_duplicate'.
+    `estado`: reservado para el módulo Contadores (ANULADO/CONTABILIZADO);
+    hoy se ignora.
+    → {"status": "ok"|"skipped_duplicate"|"nothing_to_reverse",
+       "entry_group_id", "lineas"}
+    """
+    fecha = fecha or str(date.today())
+    ref_rev = f"REV-{referencia}"
+    grupo = f"JE-{str(fecha).replace('-', '')}-{uuid.uuid4().hex[:6].upper()}"
+    quien = f" · por {usuario}" if usuario else ""
+    descripcion = f"[ANULACIÓN de {referencia}] {motivo}{quien}".strip()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            INSERT INTO kernel_journal_entries
+                (entry_group_id, fecha, cuenta_codigo, cuenta_nombre, cuenta_tipo,
+                 debito, credito, modulo_origen, referencia, descripcion, linea)
+            SELECT %(grupo)s, %(fecha)s, cuenta_codigo, cuenta_nombre, cuenta_tipo,
+                   credito, debito, modulo_origen, %(ref_rev)s, %(descripcion)s, linea
+            FROM kernel_journal_entries
+            WHERE modulo_origen = %(modulo)s AND referencia = %(ref)s
+            ON CONFLICT DO NOTHING
+            RETURNING id
+        """, {"grupo": grupo, "fecha": fecha, "ref_rev": ref_rev, "descripcion": descripcion,
+              "modulo": modulo_origen, "ref": referencia})
+        insertadas = len(cur.fetchall())
+        if insertadas:
+            logger.info(f"↩️ Contra-asiento {grupo}: {insertadas} líneas para {modulo_origen}/{referencia}")
+            return {"status": "ok", "entry_group_id": grupo, "lineas": insertadas}
+        cur.execute("""
+            SELECT entry_group_id FROM kernel_journal_entries
+            WHERE modulo_origen = %s AND referencia = %s LIMIT 1
+        """, (modulo_origen, ref_rev))
+        previo = cur.fetchone()
+        if previo:
+            return {"status": "skipped_duplicate", "entry_group_id": previo[0], "lineas": 0}
+        return {"status": "nothing_to_reverse", "entry_group_id": None, "lineas": 0}
+    finally:
+        cur.close()
 
 
 def _deshacer(conn, externa: bool) -> None:

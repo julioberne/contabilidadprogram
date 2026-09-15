@@ -144,8 +144,31 @@ def delete_transaction_endpoint(tx_id: int, body: TransactionDeleteInput, _admin
         raise HTTPException(status_code=403, detail="Clave de administrador incorrecta.")
     try:
         from database_driver import eliminar_transaccion
-        info = eliminar_transaccion(tx_id)
-        return {"status": "ELIMINADO", "transaction_id": tx_id, **info}
+        from kernel.kernel_accounting import anular_asiento_por_referencia
+        journal = {}
+
+        def _contra_asientos(conn, _id, _snapshot):
+            """Plan A4: el diario no se toca con DELETE. Cada asiento ligado a
+            la TX (el suyo, los de su cartera CXC/CXP y los de sus abonos PAY)
+            recibe su contra-asiento en la MISMA transacción del borrado."""
+            usuario = _admin.get("name") or _admin.get("uid")
+            motivo = f"Eliminación de la transacción {_id}"
+            refs = [f"TX-{_id}"]
+            cur = conn.cursor()
+            cur.execute("SELECT id, type FROM cxp_cxc_ledger WHERE transaction_id = %s;", (_id,))
+            ledgers = cur.fetchall()
+            refs += [f"{(t or 'CXC').upper()}-{lid}" for lid, t in ledgers]
+            if ledgers:
+                cur.execute("""SELECT p.id FROM cartera_payments p
+                               WHERE p.ledger_id = ANY(%s);""", ([lid for lid, _ in ledgers],))
+                refs += [f"PAY-{pid}" for (pid,) in cur.fetchall()]
+            cur.close()
+            for ref in refs:
+                journal[ref] = anular_asiento_por_referencia(
+                    conn, "zero_coa", ref, motivo=motivo, usuario=usuario)["status"]
+
+        info = eliminar_transaccion(tx_id, on_before_delete=_contra_asientos)
+        return {"status": "ELIMINADO", "transaction_id": tx_id, "journal": journal, **info}
     except ValueError as ve:
         raise HTTPException(status_code=404, detail=str(ve))
     except Exception as e:

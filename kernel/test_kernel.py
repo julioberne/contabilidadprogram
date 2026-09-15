@@ -83,8 +83,8 @@ def _cleanup():
     try:
         cur = conn.cursor()
         cur.execute(
-            "DELETE FROM kernel_journal_entries WHERE referencia LIKE %s",
-            (f"{PREFIX}%",),
+            "DELETE FROM kernel_journal_entries WHERE referencia LIKE %s OR referencia LIKE %s",
+            (f"{PREFIX}%", f"REV-{PREFIX}%"),
         )
         borradas = cur.rowcount
         conn.commit()
@@ -175,12 +175,52 @@ def test_tipo_derivado_del_puc():
     assert tipos.get(CTA_BANCO) == "ACTIVO", f"Tipo no derivado: {tipos}"
 
 
+def test_anulacion_espejo_cuadra_y_es_idempotente():
+    """Plan A4: el contra-asiento invierte débitos/créditos, deja neto 0 por
+    cuenta, y una segunda anulación no inserta nada."""
+    from kernel.kernel_accounting import anular_asiento_por_referencia
+    ref = f"{PREFIX}-ANUL"
+    registrar_asiento(_evento(ref, [
+        {"cuenta_codigo": CTA_GASTO, "debito": 350.75, "credito": 0},
+        {"cuenta_codigo": CTA_BANCO, "debito": 0, "credito": 350.75},
+    ]))
+    conn = get_conn()
+    try:
+        r1 = anular_asiento_por_referencia(conn, "test_kernel", ref, motivo="prueba", usuario="tester")
+        conn.commit()
+        assert r1["status"] == "ok" and r1["lineas"] == 2, f"anulación: {r1}"
+        r2 = anular_asiento_por_referencia(conn, "test_kernel", ref, motivo="otra vez")
+        conn.commit()
+        assert r2["status"] == "skipped_duplicate", f"segunda anulación: {r2}"
+        r3 = anular_asiento_por_referencia(conn, "test_kernel", f"{PREFIX}-NOEXISTE")
+        conn.commit()
+        assert r3["status"] == "nothing_to_reverse", f"sin original: {r3}"
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT cuenta_codigo, SUM(debito) - SUM(credito)
+            FROM kernel_journal_entries
+            WHERE referencia IN (%s, %s) GROUP BY cuenta_codigo
+        """, (ref, f"REV-{ref}"))
+        netos = dict(cur.fetchall())
+        cur.execute("SELECT descripcion FROM kernel_journal_entries WHERE referencia = %s LIMIT 1",
+                    (f"REV-{ref}",))
+        desc = cur.fetchone()[0]
+        cur.close()
+    finally:
+        put_conn(conn)
+    assert all(float(v) == 0 for v in netos.values()), f"neto por cuenta ≠ 0: {netos}"
+    assert "prueba" in desc and "tester" in desc, f"descripción del espejo: {desc}"
+    n, grupos = _contar_lineas(f"REV-{ref}")
+    assert (n, grupos) == (2, 1), f"espejo: {n} líneas / {grupos} grupos"
+
+
 TESTS = [
     test_descuadre_rechazado,
     test_decimal_cuadra_exacto,
     test_cuenta_fantasma_rechazada,
     test_idempotencia,
     test_tipo_derivado_del_puc,
+    test_anulacion_espejo_cuadra_y_es_idempotente,
 ]
 
 

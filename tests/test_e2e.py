@@ -51,6 +51,8 @@ def limpiar(tx_id):
     from fin_sys_core.db_pool import get_conn, put_conn
     try:
         eliminar_transaccion(tx_id)
+    except ValueError:
+        pass   # ya la borró el paso 5 (DELETE por API)
     except Exception as e:
         print(f"   ⚠️ no se pudo eliminar la TX {tx_id}: {e}")
     conn = get_conn()
@@ -110,6 +112,29 @@ def main():
                 fallos.append(f"el débito {db} no coincide con net_value {tx.get('net_value')}")
         resumen = get("/api/financial-summary")
         print(f"4. financial-summary: ecuación contable = {resumen.get('ecuacion_contable')}")
+
+        # 5. (opcional) Borrado por API → contra-asiento REV-TX-{id} (plan A4).
+        # Exige la clave admin real: FINSYS_ADMIN_PASSWORD (no va en el repo).
+        clave = os.environ.get("FINSYS_ADMIN_PASSWORD")
+        if clave and tx_id:
+            req = urllib.request.Request(f"{BASE}/api/transactions/{tx_id}",
+                                         data=json.dumps({"password": clave}).encode(),
+                                         headers=HDRS, method="DELETE")
+            with urllib.request.urlopen(req, timeout=60) as r:
+                borrado = json.loads(r.read())
+            print(f"5. DELETE por API: {borrado.get('status')} journal={borrado.get('journal')}")
+            if borrado.get("journal", {}).get(f"TX-{tx_id}") != "ok":
+                fallos.append(f"el borrado no generó contra-asiento: {borrado.get('journal')}")
+            todas = [e for e in get("/api/journal-entries?modulo_origen=zero_coa&limit=200")
+                     if e.get("referencia") in (f"TX-{tx_id}", f"REV-TX-{tx_id}")]
+            neto = {}
+            for e in todas:
+                neto[e["cuenta_codigo"]] = neto.get(e["cuenta_codigo"], 0.0) + float(e["debito"]) - float(e["credito"])
+            print(f"   líneas TX+REV: {len(todas)} | neto por cuenta: {neto}")
+            if len(todas) != 4 or any(abs(v) >= 0.01 for v in neto.values()):
+                fallos.append(f"contra-asiento incompleto: {len(todas)} líneas, neto {neto}")
+        else:
+            print("5. DELETE por API omitido (define FINSYS_ADMIN_PASSWORD para probarlo)")
     finally:
         if tx_id:
             limpiar(tx_id)

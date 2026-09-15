@@ -952,8 +952,11 @@ def actualizar_transaccion(tx_id: int, update_data: Dict[str, Any]) -> bool:
             release_db_connection(conn)
 
 
-def eliminar_transaccion(tx_id: int) -> Dict[str, Any]:
+def eliminar_transaccion(tx_id: int, on_before_delete=None) -> Dict[str, Any]:
     """
+    on_before_delete(conn, tx_id, snapshot): opcional; misma conexión, antes
+    de revertir saldos y borrar (contra-asiento del diario, plan A4).
+
     Elimina una transacción con REVERSA contable completa (pedido de
     Andrés, 2026-09-11 — siempre tras verificar la clave de admin en el
     router): revierte su delta de saldos, borra su cartera asociada
@@ -981,6 +984,10 @@ def eliminar_transaccion(tx_id: int) -> Dict[str, Any]:
             "account_id": row[3], "dest_account_id": row[4],
             "trm": row[5], "transaction_currency": row[6],
         }
+        # Plan cimientos A4 (2026-09-15): contra-asiento en ESTA transacción,
+        # antes de los DELETE (el hook aún puede leer cartera/cxp que caen).
+        if on_before_delete is not None:
+            on_before_delete(conn, tx_id, snapshot)
         revertir_delta_incremental(conn, snapshot)
         cur.execute("DELETE FROM cxp_cxc_ledger WHERE transaction_id = %s;", (tx_id,))
         cur.execute("DELETE FROM transactions WHERE id = %s;", (tx_id,))

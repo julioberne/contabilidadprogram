@@ -101,10 +101,14 @@ def delete_cartera_payment(payment_id: int, _admin: dict = Depends(require_admin
         if not row:
             raise HTTPException(status_code=404, detail="Abono no encontrado")
         ledger_id = row[0]
-        # La partida contable del abono desaparece COMPLETA con él (2 líneas de
-        # partida doble con referencia PAY-{id}) — libros coherentes con cartera.
-        cur.execute("DELETE FROM kernel_journal_entries WHERE referencia = %s;", (f"PAY-{payment_id}",))
-        asientos_borrados = cur.rowcount
+        # Plan A4 (2026-09-15): la partida del abono NO se borra; se anula con
+        # su contra-asiento (REV-PAY-{id}) en esta misma transacción. Antes se
+        # hacía DELETE físico y el libro perdía la historia.
+        from kernel.kernel_accounting import anular_asiento_por_referencia
+        rev = anular_asiento_por_referencia(
+            conn, "zero_coa", f"PAY-{payment_id}",
+            motivo="Abono eliminado", usuario=_admin.get("name") or _admin.get("uid"))
+        asientos_borrados = rev.get("lineas", 0)   # clave de respuesta conservada
         # Saldo SIEMPRE derivado: original - abonos restantes
         cur.execute("""
             UPDATE cxp_cxc_ledger l
