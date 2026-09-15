@@ -153,26 +153,22 @@ def get_dashboard_data(portfolio: Optional[str] = None, limit: int = 50, offset:
         except:
             result["profile"] = None
         
-        # COA
+        # COA (2026-09-15): este bloque consultaba `coa_accounts`, una tabla
+        # que NO existe. Fallaba SIEMPRE, el `except` lo tragaba (coa=null en
+        # el frontend) y —peor— la conexión prestada nunca se devolvía: cada
+        # dashboard quemaba un slot del pool (used 2→5 tras 3 llamadas medido
+        # con pool_status). A los ~8 dashboards el pool quedaba muerto y todo
+        # caía al fallback → "Base de datos saturada". obtener_coa_tree lee la
+        # tabla real (chart_of_accounts), devuelve el mismo árbol
+        # {..., children: []} y libera la conexión en su finally.
         try:
-            from fin_sys_core.database_driver import get_db_connection, release_db_connection
-            conn = get_db_connection()
-            cur = conn.cursor()
+            from fin_sys_core.database_driver import obtener_coa_tree
             # Sin portafolio explícito se usa el primero de la BD (antes estaba
             # hardcodeado "Negocio A", que dejaba de existir si lo renombraban).
             coa_portfolio = portfolio or (portfolios[0]["name"] if portfolios else None)
-            cur.execute("""
-                SELECT id, code, name, parent_id, is_group, naturaleza, nivel
-                FROM coa_accounts
-                WHERE portfolio_name = %s
-                ORDER BY code;
-            """, (coa_portfolio,))
-            cols = [d[0] for d in cur.description]
-            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
-            cur.close()
-            release_db_connection(conn)
-            if rows:
-                result["coa"] = {"status": "OK", "data": _build_coa_tree(rows)}
+            tree = obtener_coa_tree(coa_portfolio) if coa_portfolio else []
+            if tree:
+                result["coa"] = {"status": "OK", "data": tree}
             else:
                 result["coa"] = {"status": "EMPTY", "data": []}
         except Exception:

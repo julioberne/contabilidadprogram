@@ -9,20 +9,36 @@ El archivo real se sube directamente desde el frontend usando la
 Supabase JS client (URL firmada). Este driver solo maneja metadatos.
 """
 
-import os
-import psycopg2
 import psycopg2.extras
+from contextlib import contextmanager
 
 
+@contextmanager
 def _get_conn():
-    return psycopg2.connect(
-        host=os.getenv("DB_HOST"),
-        database=os.getenv("DB_NAME"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-        port=os.getenv("DB_PORT", "5432"),
-        cursor_factory=psycopg2.extras.RealDictCursor,
-    )
+    """Presta una conexión del pool con la MISMA semántica que tenía el
+    `with psycopg2.connect(...) as conn` original (commit al salir bien,
+    rollback si hay excepción)... pero devolviéndola al pool.
+
+    DT-24 (2026-09-15): la versión anterior abría una conexión directa a
+    Supabase por llamada y NUNCA la cerraba (el `with` de psycopg2 solo
+    commitea; no cierra) — cada listado de carpetas/documentos dejaba una
+    conexión viva hasta que el GC la recogiera. Los 8 call-sites
+    `with _get_conn() as conn:` no cambian.
+    """
+    from fin_sys_core.db_pool import get_conn, put_conn
+    conn = get_conn()
+    conn.cursor_factory = psycopg2.extras.RealDictCursor
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        put_conn(conn)   # devuelve al pool y deja cursor_factory neutra
 
 
 # ─── CARPETAS ─────────────────────────────────────────────────────────────────

@@ -23,8 +23,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-# Agregar subdirectorio fin_sys_core a la ruta de búsqueda de Python
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fin_sys_core"))
+# Un solo objeto por módulo (2026-09-15): antes se hacía
+# sys.path.insert(0, "fin_sys_core") y `import db_pool` cargaba una SEGUNDA
+# copia distinta de `fin_sys_core.db_pool` → dos pools por proceso. El
+# paquete instala un alias de importación; ver fin_sys_core/__init__.py.
+import fin_sys_core  # noqa: F401
 
 # Directorio de uploads
 os.makedirs("uploads", exist_ok=True)
@@ -62,6 +65,10 @@ app.add_middleware(
 )
 
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+# Tiempo por request: cabecera Server-Timing + log "[req] ..." (2026-09-15).
+from shared.observability import install_timing_middleware
+install_timing_middleware(app)
 
 
 # ==============================================================================
@@ -209,9 +216,17 @@ def health_check():
         db_status = f"error: {e}"
     finally:
         ex.shutdown(wait=False)   # jamás bloquear el health esperando al hilo
+    # Estado del pool (sin viaje a la BD). Con el alias de fin_sys_core hay
+    # UN solo pool por proceso, así que este número es fiel (2026-09-15).
+    try:
+        from fin_sys_core.db_pool import pool_status
+        pool = pool_status()
+    except Exception as e:
+        pool = {"active": False, "reason": str(e)}
     return {
         "status": "ok",
         "db": db_status,
+        "pool": pool,
         "version": "2.0"
     }
 

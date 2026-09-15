@@ -21,6 +21,7 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _ROOT)
 sys.path.insert(0, os.path.join(_ROOT, "fin_sys_core"))
 os.chdir(_ROOT)  # uploads/ y .env relativos al repo, igual que server.py
+import fin_sys_core  # noqa: E402,F401  — un solo pool por proceso (ver su __init__)
 
 # --- Cargador de Variables de Entorno (mismo patrón de server.py) ---
 if os.path.exists(".env"):

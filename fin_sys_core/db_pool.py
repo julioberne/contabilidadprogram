@@ -429,11 +429,24 @@ def close_pool():
 def pool_status() -> dict:
     """Devuelve información sobre el estado del pool (para health checks)."""
     if _pool is None:
-        return {"active": False, "reason": "Pool no inicializado"}
+        return {"active": False, "reason": "Pool no inicializado",
+                "init_failed": _init_failed}
+    # `_used` / `_pool` son internos de psycopg2.pool.AbstractConnectionPool
+    # (estables desde 2.x); si cambian, el health no debe caerse.
+    try:
+        en_uso = len(getattr(_pool, "_used", {}))
+        libres = len(getattr(_pool, "_pool", []))
+    except Exception:
+        en_uso, libres = None, None
     return {
         "active": True,
         "minconn": _pool.minconn,
         "maxconn": _pool.maxconn,
+        "used": en_uso,
+        "free": libres,
+        "fallback_en_uso": DB_FALLBACK_MAX - _fallback_sem._value,
+        "fallback_max": DB_FALLBACK_MAX,
         "puerto": _canal["puerto"],
         "en_respaldo": _canal["respaldo"],
+        "init_failed": _init_failed,
     }
