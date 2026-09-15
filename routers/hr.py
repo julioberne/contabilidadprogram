@@ -9,12 +9,38 @@ Endpoints: /api/hr/*
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional
 
-from routers.auth_guard import require_admin
+from routers.auth_guard import require_admin, require_auth
 
 router = APIRouter(tags=["RRHH"])
 
 
 # ── Endpoints ──
+
+@router.get("/api/hr/employees/summary")
+def hr_employees_summary(_u: dict = Depends(require_auth)):
+    """KPI de la Home (2026-09-15): la Home pedía esta ruta desde siempre y
+    no existía (404 en cada carga). total = usuarios del hub; con_perfil =
+    los que tienen ficha RRHH; con_salario = los que tienen salario definido."""
+    from fin_sys_core.db_pool import get_conn, put_conn
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM hub_users")
+        total = int(cur.fetchone()[0])
+        salida = {"total": total, "con_perfil": 0, "con_salario": 0}
+        for clave, tabla in (("con_perfil", "hr_profiles"), ("con_salario", "hr_salaries")):
+            try:
+                cur.execute("SAVEPOINT s")
+                cur.execute(f"SELECT COUNT(DISTINCT user_id) FROM {tabla}")
+                salida[clave] = int(cur.fetchone()[0])
+            except Exception:
+                cur.execute("ROLLBACK TO SAVEPOINT s")   # tabla ausente en esta instalación
+        cur.close()
+        return salida
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        put_conn(conn)
 
 @router.get("/api/hr/profile/{user_id}")
 def hr_get_profile(user_id: str, workspace_id: str = "default"):

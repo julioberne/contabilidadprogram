@@ -68,14 +68,18 @@ export default function HomeDashboard({ user, onNavigate, enabledIds }) {
   useEffect(() => {
     const load = async () => {
       try {
+        // 2026-09-15: KPIs consolidados (todos los portafolios) con la misma
+        // matemática del dashboard, en un viaje a la BD. Antes: "Negocio A"
+        // hardcodeado y /portfolios/balance con patrimonio sin filtrar (DT-32).
         const [balRes, hrRes] = await Promise.allSettled([
-          fetch(`${API}/portfolios/balance?portfolio=Negocio A`),
+          fetch(`${API}/dashboard-data/balance`),
           fetch(`${API}/hr/employees/summary`),
         ]);
 
-        const bal = balRes.status === 'fulfilled' && balRes.value.ok
+        const balData = balRes.status === 'fulfilled' && balRes.value.ok
           ? await balRes.value.json()
           : null;
+        const bal = balData?.balance ?? balData;
 
         const hr = hrRes.status === 'fulfilled' && hrRes.value.ok
           ? await hrRes.value.json()
