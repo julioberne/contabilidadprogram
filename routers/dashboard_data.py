@@ -2,6 +2,7 @@
 """FIN-SYS OS v2.0 — Router: Dashboard Data (3 endpoints)
 Dashboard aggregator, reconcile-balances, cache invalidate.
 Extracted from contabilidad.py — PURE refactor, zero logic changes."""
+import os
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional
 
@@ -79,8 +80,91 @@ def reconcile_balances(_admin: dict = Depends(require_admin)):
                 pass
 
 
+def _armar_respuesta(totals, paginated_txs, total_tx_count, accounts, portfolios):
+    """Las MISMAS claves que siempre devolvió /api/dashboard-data (contrato
+    que consume frontend/src/contabilidad-v2/hooks/useDashboardData.js)."""
+    return {
+        # KPIs (balance)
+        "status": totals["status"],
+        "total_ingresos": totals["total_ingresos"],
+        "total_gastos": totals["total_gastos"],
+        "balance_neto": totals["balance_neto"],
+        "capital_inicial": totals.get("capital_inicial", 5000000.0),
+        "patrimonio": totals.get("patrimonio", 5000000.0),
+        "total_ingresos_cop": totals["total_ingresos_cop"],
+        "total_gastos_cop": totals["total_gastos_cop"],
+        "balance_neto_cop": totals["balance_neto_cop"],
+        "patrimonio_cop": totals["patrimonio_cop"],
+        "total_ingresos_usd": totals["total_ingresos_usd"],
+        "total_gastos_usd": totals["total_gastos_usd"],
+        "balance_neto_usd": totals["balance_neto_usd"],
+        "patrimonio_usd": totals["patrimonio_usd"],
+        "alerts": totals.get("alerts", []),
+        # SOL-04A: datos consolidados para el frontend
+        "transactions": paginated_txs,
+        "total_tx_count": total_tx_count,
+        "accounts": accounts,
+        "portfolios": portfolios,
+        "balance": totals,
+    }
+
+
+def _dashboard_fast(portfolio: Optional[str], limit: int, offset: int):
+    """Ruta rápida (plan cimientos A2, 2026-09-15): UN viaje a la BD vía
+    fin_sys_core/dashboard_query.py. Mismo contrato de respuesta que la ruta
+    legacy; scripts/verify_dashboard_parity.py compara ambas. Se activa con
+    DASHBOARD_FAST=1 (apagarlo = rollback sin redeploy)."""
+    from fin_sys_core.dashboard_query import obtener_dashboard_snapshot, caja_viva_desde_agregados
+    from fin_sys_core.database_driver import MOCK_USER_PROFILE
+
+    snap = obtener_dashboard_snapshot(portfolio, limit=limit, offset=offset)
+    portfolios = snap["portfolios"]
+    if portfolio and not any(p.get("name") == portfolio for p in portfolios):
+        raise HTTPException(status_code=404, detail=f"Portafolio no encontrado: '{portfolio}'")
+
+    totals = caja_viva_desde_agregados(snap["kpi"], snap["accounts"])
+    result = _armar_respuesta(totals, snap["transactions"], snap["total_tx_count"],
+                              snap["accounts"], portfolios)
+    # obtener_perfil_usuario devuelve el default útil cuando no hay perfil
+    result["profile"] = snap["profile"] or dict(MOCK_USER_PROFILE)
+    result["coa"] = ({"status": "OK", "data": snap["coa"]} if snap["coa"]
+                     else {"status": "EMPTY", "data": []})
+    return result
+
+
+def _fast_activo() -> bool:
+    # Activa por defecto tras paridad 0 diffs en los 7 portafolios (15-sep).
+    # DASHBOARD_FAST=0 en Dokploy → vuelve a la ruta legacy sin redeploy.
+    return os.environ.get("DASHBOARD_FAST", "1") != "0"
+
+
+@router.get("/api/dashboard-data/balance")
+def get_dashboard_balance(portfolio: Optional[str] = None):
+    """Refresco liviano tras una mutación (plan A5): KPIs + cuentas sin la
+    página de transacciones. Un viaje a la BD."""
+    try:
+        from fin_sys_core.dashboard_query import obtener_dashboard_snapshot, caja_viva_desde_agregados
+        snap = obtener_dashboard_snapshot(portfolio, limit=0, incluir_txs=False)
+        if portfolio and not any(p.get("name") == portfolio for p in snap["portfolios"]):
+            raise HTTPException(status_code=404, detail=f"Portafolio no encontrado: '{portfolio}'")
+        totals = caja_viva_desde_agregados(snap["kpi"], snap["accounts"])
+        return {"balance": totals, "accounts": snap["accounts"],
+                "total_tx_count": snap["total_tx_count"], "portfolios": snap["portfolios"]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/api/dashboard-data")
 def get_dashboard_data(portfolio: Optional[str] = None, limit: int = 50, offset: int = 0):
+    if _fast_activo():
+        try:
+            return _dashboard_fast(portfolio, limit, offset)
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
     try:
         from fin_sys_core.database_driver import obtener_transacciones, obtener_cuentas, obtener_portafolios, obtener_perfil_usuario
         from fin_sys_core.ledger_math import calculate_caja_viva
@@ -122,30 +206,7 @@ def get_dashboard_data(portfolio: Optional[str] = None, limit: int = 50, offset:
         # Paginación de transacciones
         paginated_txs = txs[offset:offset + limit] if txs else []
         
-        result = {
-            # KPIs (balance)
-            "status": totals["status"],
-            "total_ingresos": totals["total_ingresos"],
-            "total_gastos": totals["total_gastos"],
-            "balance_neto": totals["balance_neto"],
-            "capital_inicial": totals.get("capital_inicial", 5000000.0),
-            "patrimonio": totals.get("patrimonio", 5000000.0),
-            "total_ingresos_cop": totals["total_ingresos_cop"],
-            "total_gastos_cop": totals["total_gastos_cop"],
-            "balance_neto_cop": totals["balance_neto_cop"],
-            "patrimonio_cop": totals["patrimonio_cop"],
-            "total_ingresos_usd": totals["total_ingresos_usd"],
-            "total_gastos_usd": totals["total_gastos_usd"],
-            "balance_neto_usd": totals["balance_neto_usd"],
-            "patrimonio_usd": totals["patrimonio_usd"],
-            "alerts": totals.get("alerts", []),
-            # SOL-04A: datos consolidados para el frontend
-            "transactions": paginated_txs,
-            "total_tx_count": len(txs),
-            "accounts": accounts,
-            "portfolios": portfolios,
-            "balance": totals,
-        }
+        result = _armar_respuesta(totals, paginated_txs, len(txs), accounts, portfolios)
         
         # Perfil
         try:
