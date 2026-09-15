@@ -1,0 +1,11 @@
+/* Módulo Análisis — el visor Perspective necesita altura explícita */
+.analisis-visor {
+  height: calc(100vh - 210px);
+  min-height: 380px;
+}
+
+.analisis-visor perspective-viewer {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

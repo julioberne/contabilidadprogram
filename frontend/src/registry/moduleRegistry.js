@@ -28,8 +28,15 @@ const modules = [
     component: lazy(() => import('../contadores/ContadoresApp.jsx')),
     wrapStyle: { minHeight: '100%', width: '100%' } },
 
+  { id: 'analisis', label: 'Análisis', icon: '∑', group: 'FINANCIERO',
+    accent: 'green', active: true, order: 3,
+    desc: 'Explora · Pivotea · Grafica\nPregunta en español · Sello de origen',
+    // Análisis Inteligente hito 1 (2026-09-15): Perspective (WASM) + /ask
+    component: lazy(() => import('../analisis/AnalisisApp.jsx')),
+    wrapStyle: { minHeight: '100%', width: '100%' } },
+
   { id: 'tesoreria', label: 'Tesorería', icon: '⊕', group: 'FINANCIERO',
-    accent: 'green', active: false, order: 3 },
+    accent: 'green', active: false, order: 4 },
 
   { id: 'facturacion', label: 'Facturación', icon: '▦', group: 'FINANCIERO',
     accent: 'green', active: false, order: 4 },

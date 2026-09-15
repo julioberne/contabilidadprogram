@@ -23,6 +23,7 @@ const ROLES = ['OWNER', 'ADMIN', 'CONTADOR', 'MEMBER', 'VIEWER'];
 const MODULE_LABELS = {
   'contabilidad': { icon: '◆', label: 'Contabilidad' },
   'contadores':   { icon: '⊟', label: 'Contadores' },
+  'analisis':     { icon: '∑', label: 'Análisis' },
   'tower':        { icon: '◈', label: 'Control Tower' },
   'rrhh':         { icon: '◇', label: 'RRHH (Project Hub)' },
   'bot':          { icon: '◉', label: 'Bot IA' },
