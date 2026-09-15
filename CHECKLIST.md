@@ -2,7 +2,7 @@
 
 > **Único archivo de estado vivo.** Aquí: qué hay, qué falta, cómo arrancar.
 > Lo que ya pasó (con verificación) va a `docs/checkpoints.md` — un checkpoint por sesión.
-> Última actualización: **11 Sep 2026**.
+> Última actualización: **15 Sep 2026**.
 
 ---
 
@@ -10,7 +10,7 @@
 
 | Dónde | Estado |
 |---|---|
-| `master` local | = `origin/master` (el agente lo sincroniza tras cada push). Últimos hitos (11-sep): terceros sin duplicados (buscador en el formulario + resolución backend por nombre/SN-), 📎 adjuntar evidencias olvidadas al comprobante, campo dirección, 🗑 eliminar TX con clave admin + reversa contable, fix chunk RRHH (circular vendor-calendar), fix pool contaminado por cursor_factory |
+| `master` local | 14 commits SIN push (15-sep, `ddc5491..792b822`): cimientos (un solo pool por proceso + fuga del dashboard cerrada, índices, dashboard en 1 viaje, TX+asiento atómicos, contra-asiento al borrar, frontend sin refetch total, auth en GETs) + módulo 12 Contadores (B1–B5). **Antes del deploy**: `python scripts/migrate_contadores.py` ya corrió en la BD compartida; volver a correrla tras el deploy para barrer lo que el backend viejo inserte entre medias. Hitos previos (11-sep): terceros sin duplicados (buscador en el formulario + resolución backend por nombre/SN-), 📎 adjuntar evidencias olvidadas al comprobante, campo dirección, 🗑 eliminar TX con clave admin + reversa contable, fix chunk RRHH (circular vendor-calendar), fix pool contaminado por cursor_factory |
 | `origin/master` = producción :8080 | desplegado y verificado 11 sep (`796ebc9`): 3 contenedores sanos. Deploy: `scratch/deploy_prod.py` (agente, tras cada push); push: Andrés. CI verde (suites puras ampliadas: +terceros_resolucion, +tx_eliminar_evidencias) |
 | BD Supabase | compartida local↔prod · **reiniciada con `feat(reset)`: 0 TXs** · 6 entidades CT (2 vinculadas) · 5 cuentas · 4 portafolios · patrimonio $1.000.000 (verificado 26 ago) |
 
@@ -25,6 +25,7 @@
 | 09 | Bot IA (Telegram + Groq) | ✅ MVP en producción · faltan etapas C, B.5, D–F | `fin_sys_core/bot_*.py`, `routers/bot.py` |
 | 10 | Trading NASDAQ | 🔵 PLANIFICADO | — |
 | 11 | Reportes PDF/Excel · Facturación B2B | 🔵 PLANIFICADO | — |
+| 12 | Contadores (bandeja de asientos BORRADOR→CONTABILIZADO, diario, plan de cuentas, reglas, reportes, cierres) | ✅ v1 (15-sep) — rol `contador` | `frontend/src/contadores/`, `routers/contadores.py`, `kernel/kernel_journal_workflow.py`, `kernel/kernel_periods.py`, `kernel/kernel_reports.py`, `fin_sys_core/coa_admin_driver.py` |
 
 ---
 
@@ -51,10 +52,15 @@
 | ~~DT-22~~ | **CERRADA 02 sep** — pooler en transaction mode `6543` en local Y en Dokploy (verificado por API) + redeploy hecho. NUNCA volver a 5432 | ✅ |
 | DT-21 | Endpoints huérfanos (stubs `NOT_IMPLEMENTED` en `routers/hr.py`): `POST /api/hr/storage/sign-upload`, `POST /api/hr/salary/calculate` — remover o activar con DT-09 | Baja |
 | DT-23 | Fugas de conexión "solo en except" (~40 funciones patrón release-en-try): `control_tower_driver` (16 fn, además responden MOCK silencioso al fallar), `database_driver` (~20 fn), `inventory_driver`, `org_driver`. Las fugas 100% y las estructurales YA corregidas 04-sep | Media |
-| DT-24 | `hr_documents_driver.py` bypassea el pool (psycopg2.connect directo, sin timeout, 8 funciones) — migrar al pool con release en call sites | Media |
+| ~~DT-24~~ | ✅ CERRADA 15-sep: `_get_conn` de `hr_documents_driver` presta del pool y lo devuelve (antes abría conexiones directas y NUNCA las cerraba) | — |
 | ~~DT-25~~ | ✅ CERRADA 04-sep: el arranque ABORTA si Postgres no responde (FINSYS_ALLOW_MOCK=1 solo dev) | — |
 | ~~DT-26~~ | ✅ CERRADA 04-sep: el arranque ABORTA si DB_PORT falta o es 5432 (FINSYS_ALLOW_5432=1 override) | — |
-| DT-27 | `dashboard-data` carga TODAS las transacciones + COA completo por request (5.2s en local); con miles de TXs necesitará paginación/caché. El poller del cliente ya bajó a 60s con pausa por pestaña oculta | Media |
+| ~~DT-27~~ | ✅ CERRADA 15-sep: `/api/dashboard-data` y `/api/accounts` en UN viaje (`fin_sys_core/dashboard_query.py`, paridad 0 diffs con `scripts/verify_dashboard_parity.py`); 2.1 s → 0.28 s local. `DASHBOARD_FAST=0` en Dokploy = ruta legacy sin redeploy. Además el bloque COA consultaba `coa_accounts` (inexistente) y FUGABA una conexión por request (pool muerto a los ~8 dashboards) — corregido | — |
+| DT-30 | El COA sembrado (23 cuentas de plantilla, códigos cortos) NO contiene los códigos PUC de 6 dígitos que usan las posting_rules (522005, 513520, 130505…); `scripts/seed_puc.py` se salta si el portafolio ya tiene cuentas. El contador puede crearlas en Contadores → Plan de cuentas, o adaptar el seed para insertar solo las faltantes | Media |
+| DT-31 | Recurrencia: `is_recurring/recurrence_*` se guardan pero NINGÚN proceso materializa las ocurrencias (no hay scheduler) | Media |
+| DT-32 | `/api/portfolios/balance` calcula patrimonio con TODAS las cuentas (sin filtrar por portafolio); el dashboard sí filtra. `HomeDashboard.jsx:72` lo consume con "Negocio A" hardcodeado. Usar `/api/dashboard-data/balance` | Baja |
+| DT-33 | GETs de `hub/*`, `hr/*` y `tags/*` siguen sin `require_auth` (los de dinero ya exigen sesión desde 15-sep) | Media |
+| DT-34 | Registrar una TX sigue costando 8-12 sentencias en serie (~0.4 s en prod). Opcionales pendientes del plan A3: `_asegurar_tercero` en una sentencia con CTEs y `aplicar_delta_incremental` con un solo UPDATE | Baja |
 | ~~DT-28~~ | ✅ CERRADA 07-sep (autorizada por Andrés): 18 fallbacks mock gateados con `mock_policy.mock_permitido()` (org ×5, database ×6, inventory ×7) — fallo de BD ⇒ error visible; mock SOLO con `FINSYS_ALLOW_MOCK=1`. El modo simulación explícito (`IS_POSTGRES_ACTIVE=False`) se conserva. UI: chip rojo "⚠ SIN CONEXIÓN BD" en el consolidado + reintento 30s. Tests en CI (`test_mock_policy`). **Resto**: `control_tower_driver` aún tiene MOCK_ENTITIES en su except (16 fn, Zero-Impact CT) — misma receta cuando se toque | — |
 
 - [x] **Failover automático de canal de BD** ✅ IMPLEMENTADO Y DESPLEGADO 09-sep (probado bajo recaída real): si :6543 no fluye, db_pool cae solo a :5432 con pools mínimos y el vigía regresa al sanar (2 aciertos/45s). Regla del puente manual (si algún día vuelve): NO usar scratch/deploy_prod.py mientras esté activo (su guard-rail revierte DB_PORT). Respaldo completo de la BD en backups/ (gitignored)
@@ -114,11 +120,15 @@ esto — siempre sirve el código vivo.
 ### Verificación mínima antes de dar algo por bueno
 
 ```powershell
-python -m kernel.test_kernel                                                   # 5/5 partida doble
+python -m kernel.test_kernel                                                   # 6/6 partida doble (+ anulación espejo)
 python tests/test_core.py                                                      # 5/5 motor matemático
+python -m unittest tests.test_single_module_identity tests.test_tx_atomica tests.test_dashboard_snapshot tests.test_db_pool_fallback   # un solo pool, TX+asiento atómicos, snapshot
 python -m unittest tests.test_bot_driver tests.test_bot_confirmation tests.test_bot_resolvers
-python tests/test_e2e.py                                                       # ⚠️ crea una TX REAL en la BD compartida — solo a propósito, con backend arriba
-cd frontend; npx vitest run; npm run build                                     # 45 tests y build de producción
+python tests/test_contadores.py                                                # 15/15 módulo Contadores (BD real, limpia sus filas)
+python scripts/verify_dashboard_parity.py                                      # 0 diffs legacy vs rápido
+python tests/test_e2e.py                                                       # ⚠️ crea y BORRA una TX real — FINSYS_BASE=http://127.0.0.1:8001 y FINSYS_ADMIN_PASSWORD=... para probar el borrado por API
+cd frontend; npx vitest run; npm run build                                     # 56 tests y build de producción
+# /api/health ahora expone "pool": used/free/fallback — used debe volver a 0 en reposo; log "[req] METHOD ruta status ms" por request
 ```
 
 - `GET http://127.0.0.1:8000/docs` responde · `GET /api/org/consolidated` → 200 (si 404, backend viejo)

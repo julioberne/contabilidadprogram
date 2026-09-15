@@ -65,6 +65,7 @@ python tests/test_e2e.py
 | **Zero-COA** | `server.py` (bloque final), `kernel/`, `scripts/seed_puc.py`, `posting_rules` (BD) | ✅ FASE 1+2 | Emit automático de partida doble |
 | Módulo 09 (Bot IA) | `frontend/src/bot/*` (por crear) | 🔵 PLANIFICADO | Crear en carpeta nueva, registrar en registry |
 | Módulo 10 (Trading NASDAQ) | `frontend/src/trading/*` (por crear) | 🔵 PLANIFICADO | Crear en carpeta nueva, registrar en registry |
+| **Módulo 12 (Contadores)** | `frontend/src/contadores/*`, `routers/contadores.py`, `kernel/kernel_journal_workflow.py`, `kernel/kernel_periods.py`, `kernel/kernel_reports.py`, `fin_sys_core/coa_admin_driver.py` | ✅ v1 (15 Sep 2026) | Asientos nacen BORRADOR y solo el contador los CONTABILIZA; reportes = asientos en libros (CONTABILIZADO+ANULADO). Rol `contador` + `require_contador`. Un periodo cerrado bloquea TXs y asientos |
 
 ---
 
@@ -133,8 +134,10 @@ y `PUT /api/hr/profile/v2/{user_id}`._
 python server.py                              # arrancar FastAPI :8000
 python scripts/health_check.py                # health check (7 checks)
 python tests/test_core.py                     # tests motor matemático (5/5)
-python -m kernel.test_kernel                  # tests kernel Zero-COA
-python tests/test_e2e.py                      # tests end-to-end kernel
+python -m kernel.test_kernel                  # tests kernel Zero-COA (6/6)
+python tests/test_contadores.py               # módulo Contadores (15/15, BD real)
+python -m unittest tests.test_single_module_identity tests.test_tx_atomica   # un solo pool / TX+asiento atómicos
+python tests/test_e2e.py                      # tests end-to-end kernel (FINSYS_BASE para otro puerto)
 
 # ── Frontend (desde frontend/) ──
 npm run dev                                   # Vite dev server :5173
