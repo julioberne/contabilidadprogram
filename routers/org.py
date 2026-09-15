@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 
-from routers.auth_guard import require_admin
+from routers.auth_guard import require_admin, require_auth
 
 router = APIRouter(tags=["Organización"])
 
@@ -44,7 +44,7 @@ class OrgEntityIndustryInput(BaseModel):
 # ── Endpoints ──
 
 @router.get("/api/org/entities/selector")
-def org_get_entities_selector():
+def org_get_entities_selector(_u: dict = Depends(require_auth)):
     """Retorna entidades formateadas para el dropdown de selección de empresa."""
     try:
         from fin_sys_core.org_driver import get_entities_for_selector
@@ -54,7 +54,7 @@ def org_get_entities_selector():
 
 
 @router.get("/api/org/consolidated")
-def org_get_consolidated():
+def org_get_consolidated(_u: dict = Depends(require_auth)):
     """Consolidado real por entidad (cifras del portafolio vinculado).
 
     Reemplaza el patrón anterior del frontend, que pedía N veces
@@ -70,7 +70,7 @@ def org_get_consolidated():
 
 
 @router.get("/api/org/entities/tree")
-def org_get_entity_tree():
+def org_get_entity_tree(_u: dict = Depends(require_auth)):
     """Retorna el árbol completo de entidades con hijos anidados."""
     try:
         from fin_sys_core.org_driver import get_entity_tree

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from typing import Optional
 import os, re, shutil, uuid
 
-from routers.auth_guard import require_admin
+from routers.auth_guard import require_admin, require_auth
 from routers.schemas import (
     TransactionInput, TransactionUpdateInput, StructureRequest,
     TransactionDeleteInput, EvidenceAttachInput,
@@ -47,7 +47,7 @@ def _safe_upload_name(filename: str, allowed_exts: set) -> str:
 # ==============================================================================
 
 @router.get("/api/transactions")
-def list_transactions(portfolio: Optional[str] = None):
+def list_transactions(portfolio: Optional[str] = None, _u: dict = Depends(require_auth)):
     """
     Obtiene el historial de transacciones ordenado para el Libro Diario (Módulo 02).
     Soporta filtrado dinámico por la pestaña del portafolio.

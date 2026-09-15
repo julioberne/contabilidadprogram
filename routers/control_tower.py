@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 
-from routers.auth_guard import require_admin
+from routers.auth_guard import require_admin, require_auth
 
 router = APIRouter(tags=["Control Tower"])
 
@@ -80,7 +80,7 @@ class CTQuickTransactionInput(BaseModel):
 # ── Endpoints: Entidades ──
 
 @router.get("/api/ct/entities")
-def ct_get_entities():
+def ct_get_entities(_u: dict = Depends(require_auth)):
     try:
         from control_tower_driver import obtener_entidades_arbol
         return obtener_entidades_arbol()
@@ -115,7 +115,7 @@ def ct_delete_entity(entity_id: int, _admin: dict = Depends(require_admin)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/ct/entities/{entity_id}/kpis")
-def ct_get_entity_kpis(entity_id: int):
+def ct_get_entity_kpis(entity_id: int, _u: dict = Depends(require_auth)):
     try:
         from control_tower_driver import obtener_kpis_entidad
         return obtener_kpis_entidad(entity_id)
@@ -126,7 +126,7 @@ def ct_get_entity_kpis(entity_id: int):
 # ── Endpoints: Usuarios del Workspace ──
 
 @router.get("/api/ct/users")
-def ct_get_users():
+def ct_get_users(_u: dict = Depends(require_auth)):
     try:
         from control_tower_driver import obtener_workspace_users
         return obtener_workspace_users()
@@ -161,7 +161,7 @@ def ct_login_user(data: CTLoginInput):
 # ── Endpoints: Resource IDs ──
 
 @router.get("/api/ct/entities/{entity_id}/resources")
-def ct_get_resources(entity_id: int):
+def ct_get_resources(entity_id: int, _u: dict = Depends(require_auth)):
     try:
         from control_tower_driver import obtener_resource_ids
         return obtener_resource_ids(entity_id)
@@ -190,7 +190,7 @@ def ct_delete_resource(rid: int, _admin: dict = Depends(require_admin)):
 # ── Endpoints: Aprobaciones ──
 
 @router.get("/api/ct/approvals")
-def ct_get_approvals(entity_id: Optional[int] = None):
+def ct_get_approvals(entity_id: Optional[int] = None, _u: dict = Depends(require_auth)):
     try:
         from control_tower_driver import obtener_aprobaciones
         return obtener_aprobaciones(entity_id)
@@ -219,7 +219,7 @@ def ct_resolve_approval(approval_id: int, data: ResolveApprovalInput, _admin: di
 # ── Endpoints: Miembros por entidad ──
 
 @router.get("/api/ct/entities/{entity_id}/members")
-def ct_get_members(entity_id: int):
+def ct_get_members(entity_id: int, _u: dict = Depends(require_auth)):
     try:
         from control_tower_driver import obtener_miembros_entidad
         return obtener_miembros_entidad(entity_id)

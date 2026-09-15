@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 
-from routers.auth_guard import require_admin
+from routers.auth_guard import require_admin, require_auth
 
 router = APIRouter(tags=["Inventario"])
 
@@ -59,7 +59,7 @@ class InventoryMovementInput(BaseModel):
 # ── Endpoints ──
 
 @router.get("/api/inventory/items")
-def inventory_list_items(portfolio: str = "Principal", company_id: Optional[int] = None):
+def inventory_list_items(portfolio: str = "Principal", company_id: Optional[int] = None, _u: dict = Depends(require_auth)):
     """Retorna todos los artículos de inventario de un portafolio."""
     try:
         from fin_sys_core.inventory_driver import get_items
@@ -126,7 +126,7 @@ def inventory_list_movements(
 
 
 @router.get("/api/inventory/summary")
-def inventory_stock_summary(portfolio: str = "Principal", company_id: Optional[int] = None):
+def inventory_stock_summary(portfolio: str = "Principal", company_id: Optional[int] = None, _u: dict = Depends(require_auth)):
     """Retorna resumen de inventario: totales (costo/venta/utilidad), unidades, alertas.
     Opcionalmente acotado a una empresa (company_id)."""
     try:

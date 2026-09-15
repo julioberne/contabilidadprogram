@@ -4,7 +4,7 @@ Extracted from contabilidad.py — PURE refactor, zero logic changes."""
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional
 
-from routers.auth_guard import require_admin
+from routers.auth_guard import require_admin, require_auth
 from routers.schemas import PortfolioInput
 
 router = APIRouter(tags=["Portafolios"])
@@ -42,7 +42,7 @@ def create_portfolio_endpoint(port_input: PortfolioInput, _admin: dict = Depends
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/portfolios/balance")
-def get_caja_viva_balance(portfolio: Optional[str] = None):
+def get_caja_viva_balance(portfolio: Optional[str] = None, _u: dict = Depends(require_auth)):
     """
     Obtiene los agregados acumulados de la Caja Viva en tiempo real.
     Suma el total de ingresos, gastos, balance neto y patrimonio con alertas.

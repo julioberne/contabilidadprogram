@@ -56,10 +56,30 @@ def load_env():
                     os.environ[k.strip()] = v.strip()
 
 # ─── Helper HTTP ──────────────────────────────────────────────────────────────
+def _token_sesion():
+    """Bearer firmado con el secreto local (los GET de dinero exigen sesión
+    desde el plan cimientos A6, 2026-09-15). Sin .env/secreto → sin header."""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from routers.auth_guard import create_session_token
+        return create_session_token({"id": "health", "name": "health_check", "role": "admin"})
+    except Exception:
+        return None
+
+
+_TOKEN = None
+
+
 def fetch(url, timeout=5):
     """Hace un GET y retorna (status_code, body_dict | None)."""
+    global _TOKEN
     try:
-        req = urllib.request.urlopen(url, timeout=timeout)
+        if _TOKEN is None:
+            _TOKEN = _token_sesion() or ""
+        req = urllib.request.Request(url)
+        if _TOKEN:
+            req.add_header("Authorization", f"Bearer {_TOKEN}")
+        req = urllib.request.urlopen(req, timeout=timeout)
         body = req.read().decode("utf-8")
         try:
             return req.status, json.loads(body)

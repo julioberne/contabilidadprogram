@@ -15,7 +15,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from routers.auth_guard import require_admin
+from routers.auth_guard import require_admin, require_auth
 
 router = APIRouter(tags=["Recursos"])
 
@@ -26,7 +26,7 @@ def _conn():
 
 
 @router.get("/api/assets")
-def list_assets(entity_id: Optional[int] = None, portfolio: Optional[str] = None):
+def list_assets(entity_id: Optional[int] = None, portfolio: Optional[str] = None, _u: dict = Depends(require_auth)):
     """Con entity_id: los recursos de esa empresa + los legado del portafolio
     (entity NULL). Solo portfolio: por portafolio. Sin filtros: todos."""
     get_db, release_db = _conn()

@@ -62,9 +62,30 @@ def load_env():
                     os.environ.setdefault(k.strip(), v.strip())
 
 # ─── HTTP helper ──────────────────────────────────────────────────────────────
-def fetch(url, timeout=5):
+_TOKEN = None
+
+
+def _token_sesion():
+    """Bearer firmado con el secreto local: los GET de dinero exigen sesión
+    (plan cimientos A6, 2026-09-15). Sin secreto → sin header (401 = vivo)."""
     try:
-        req = urllib.request.urlopen(url, timeout=timeout)
+        if ROOT not in sys.path:
+            sys.path.insert(0, ROOT)
+        from routers.auth_guard import create_session_token
+        return create_session_token({"id": "maint", "name": "session_maintenance", "role": "admin"})
+    except Exception:
+        return ""
+
+
+def fetch(url, timeout=5):
+    global _TOKEN
+    try:
+        if _TOKEN is None:
+            _TOKEN = _token_sesion()
+        req = urllib.request.Request(url)
+        if _TOKEN:
+            req.add_header("Authorization", f"Bearer {_TOKEN}")
+        req = urllib.request.urlopen(req, timeout=timeout)
         body = req.read().decode("utf-8")
         try:    return req.status, json.loads(body)
         except: return req.status, None

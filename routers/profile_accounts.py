@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from routers.auth_guard import require_admin
+from routers.auth_guard import require_admin, require_auth
 from routers.schemas import ProfileInput, AccountInput, AccountUpdateInput
 
 router = APIRouter(tags=["Perfil & Cuentas"])
@@ -120,7 +120,7 @@ def _unlink_cuenta(account_id, entity_id):
 # ==============================================================================
 
 @router.get("/api/profile")
-def get_profile():
+def get_profile(_u: dict = Depends(require_auth)):
     try:
         from database_driver import obtener_perfil_usuario
         return obtener_perfil_usuario()
@@ -141,7 +141,7 @@ def update_profile(profile: ProfileInput, _admin: dict = Depends(require_admin))
 
 
 @router.get("/api/accounts")
-def list_accounts(portfolio: Optional[str] = None):
+def list_accounts(portfolio: Optional[str] = None, _u: dict = Depends(require_auth)):
     """Sin ?portfolio= devuelve todas; con él, las del portafolio + compartidas.
     Cada cuenta viene con portfolio_name, tx_delta y expected_balance — lo que
     necesitan las tabs del Pulso de Cuentas para mostrar cualquier empresa."""

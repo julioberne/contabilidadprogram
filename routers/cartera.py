@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional
 
-from routers.auth_guard import require_admin
+from routers.auth_guard import require_admin, require_auth
 
 router = APIRouter(tags=["Cartera"])
 
@@ -13,7 +13,7 @@ router = APIRouter(tags=["Cartera"])
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/api/cartera")
-def list_cartera(portfolio: Optional[str] = None):
+def list_cartera(portfolio: Optional[str] = None, _u: dict = Depends(require_auth)):
     from fin_sys_core.database_driver import listar_cartera
     return listar_cartera(portfolio)
 
@@ -178,7 +178,7 @@ def update_cartera_plan(ledger_id: int, body: dict, _admin: dict = Depends(requi
 
 
 @router.get("/api/cartera/summary")
-def get_cartera_summary():
+def get_cartera_summary(_u: dict = Depends(require_auth)):
     from fin_sys_core.database_driver import get_db_connection, release_db_connection
     conn = None
     try:
@@ -226,7 +226,7 @@ def get_cartera_summary():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/cartera/{ledger_id}/payments")
-def get_cartera_payments(ledger_id: int):
+def get_cartera_payments(ledger_id: int, _u: dict = Depends(require_auth)):
     from fin_sys_core.database_driver import get_db_connection, release_db_connection
     conn = None
     try:
@@ -438,7 +438,7 @@ def update_third_party(tp_id: int, body: dict, _admin: dict = Depends(require_ad
 
 # ── GET /api/cartera/alerts ──
 @router.get("/api/cartera/alerts")
-def get_cartera_alerts():
+def get_cartera_alerts(_u: dict = Depends(require_auth)):
     from fin_sys_core.database_driver import get_db_connection, release_db_connection
     conn = None
     try:

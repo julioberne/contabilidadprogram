@@ -3,7 +3,7 @@
 Extracted from contabilidad.py — PURE refactor, zero logic changes."""
 from fastapi import APIRouter, Depends, HTTPException
 
-from routers.auth_guard import require_admin
+from routers.auth_guard import require_admin, require_auth
 from routers.schemas import CoaTemplateInput, CoaAccountInput
 
 router = APIRouter(tags=["COA & Terceros"])
@@ -14,7 +14,7 @@ router = APIRouter(tags=["COA & Terceros"])
 # ==============================================================================
 
 @router.get("/api/coa")
-def get_coa_tree(portfolio: str):
+def get_coa_tree(portfolio: str, _u: dict = Depends(require_auth)):
     """Obtiene el árbol del catálogo de cuentas"""
     try:
         from database_driver import obtener_coa_tree
@@ -62,7 +62,7 @@ def add_coa_account(payload: CoaAccountInput, _admin: dict = Depends(require_adm
 # ==============================================================================
 
 @router.get("/api/third-parties")
-def get_third_parties():
+def get_third_parties(_u: dict = Depends(require_auth)):
     try:
         from database_driver import obtener_terceros
         return obtener_terceros()

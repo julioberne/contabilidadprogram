@@ -6,7 +6,7 @@ import os
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional
 
-from routers.auth_guard import require_admin
+from routers.auth_guard import require_admin, require_auth
 from routers.schemas import _build_coa_tree
 
 router = APIRouter(tags=["Dashboard"])
@@ -139,7 +139,7 @@ def _fast_activo() -> bool:
 
 
 @router.get("/api/dashboard-data/balance")
-def get_dashboard_balance(portfolio: Optional[str] = None):
+def get_dashboard_balance(portfolio: Optional[str] = None, _u: dict = Depends(require_auth)):
     """Refresco liviano tras una mutación (plan A5): KPIs + cuentas sin la
     página de transacciones. Un viaje a la BD."""
     try:
@@ -157,7 +157,7 @@ def get_dashboard_balance(portfolio: Optional[str] = None):
 
 
 @router.get("/api/dashboard-data")
-def get_dashboard_data(portfolio: Optional[str] = None, limit: int = 50, offset: int = 0):
+def get_dashboard_data(portfolio: Optional[str] = None, limit: int = 50, offset: int = 0, _u: dict = Depends(require_auth)):
     if _fast_activo():
         try:
             return _dashboard_fast(portfolio, limit, offset)

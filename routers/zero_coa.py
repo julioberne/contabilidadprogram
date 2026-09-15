@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """FIN-SYS OS v2.0 — Router: Zero-COA (Kernel Contable)"""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional
+
+from routers.auth_guard import require_auth
 
 router = APIRouter(tags=["Zero-COA"])
 
@@ -10,7 +12,8 @@ router = APIRouter(tags=["Zero-COA"])
 @router.get("/api/journal-entries")
 def get_journal_entries(
     fecha_desde: Optional[str] = None, fecha_hasta: Optional[str] = None,
-    modulo_origen: Optional[str] = None, limit: int = 100, offset: int = 0
+    modulo_origen: Optional[str] = None, limit: int = 100, offset: int = 0,
+    _u: dict = Depends(require_auth),
 ):
     try:
         from kernel.kernel_accounting import obtener_asientos
@@ -30,7 +33,7 @@ def get_journal_entries(
 
 # ── GET /api/financial-summary ──
 @router.get("/api/financial-summary")
-def get_financial_summary(fecha_desde: Optional[str] = None, fecha_hasta: Optional[str] = None):
+def get_financial_summary(fecha_desde: Optional[str] = None, fecha_hasta: Optional[str] = None, _u: dict = Depends(require_auth)):
     try:
         from kernel.kernel_accounting import obtener_resumen_financiero
         return obtener_resumen_financiero(fecha_desde, fecha_hasta)
@@ -40,7 +43,7 @@ def get_financial_summary(fecha_desde: Optional[str] = None, fecha_hasta: Option
 
 # ── GET /api/posting-rules ──
 @router.get("/api/posting-rules")
-def list_posting_rules():
+def list_posting_rules(_u: dict = Depends(require_auth)):
     from fin_sys_core.database_driver import get_db_connection, release_db_connection
     conn = None
     try:
@@ -65,7 +68,7 @@ def list_posting_rules():
 
 # ── GET /api/posting-rules/preview ──
 @router.get("/api/posting-rules/preview")
-def preview_posting_rule(category: str, tx_type: str, amount: float = 0, account_id: int = None):
+def preview_posting_rule(category: str, tx_type: str, amount: float = 0, account_id: int = None, _u: dict = Depends(require_auth)):
     """Retorna el preview del asiento contable sin emitirlo."""
     conn = None
     try:
