@@ -41,7 +41,7 @@ export function useGlobalSession() {
         // ADMIN de shell: superusuario o rol owner/admin del hub
         const isAdmin = hubUser?.is_superuser
           || ['owner', 'admin'].includes(hubUser?.role);
-        setUser({
+        const sesion = {
           id:       hubUser?.id || data.id,
           email:    hubUser?.email || data.email || email,
           name:     hubUser?.name || data.name || email.split('@')[0],
@@ -52,7 +52,14 @@ export function useGlobalSession() {
           hubRole:  (hubUser?.role || 'member').toLowerCase(),
           initials: (hubUser?.name || email)[0].toUpperCase(),
           raw:      data,
-        });
+        };
+        // Persistir ANTES de renderizar: installAuthFetch lee el token de
+        // localStorage y la Home dispara sus GET (ahora con sesión
+        // obligatoria) en el mismo ciclo en que se monta — el useEffect de
+        // abajo llegaba tarde y el primer fetch salía sin Bearer (401 visto
+        // en prod el 15-sep).
+        try { localStorage.setItem(SESSION_KEY, JSON.stringify(sesion)); } catch { /* sin storage */ }
+        setUser(sesion);
         // ── SSO: Propagate Hub session so ProjectHub finds its user ──
         if (hubUser) {
           localStorage.setItem('hub_user', JSON.stringify(hubUser));
