@@ -6,3 +6,6 @@ python-multipart==0.0.30
 httpx==0.28.1
 pydantic==2.13.4
 gunicorn==23.0.0
+# Análisis Inteligente (B3): gráficas servidas por el backend (web y Telegram)
+matplotlib==3.10.6
+pillow==11.3.0

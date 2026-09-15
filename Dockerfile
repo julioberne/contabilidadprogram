@@ -28,6 +28,9 @@ RUN mkdir -p uploads
 
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8000
+# Análisis Inteligente (B3): matplotlib sin display y con caché escribible
+ENV MPLBACKEND=Agg
+ENV MPLCONFIGDIR=/tmp/matplotlib
 
 EXPOSE 8000
 

@@ -9,6 +9,7 @@ desde la base de datos PostgreSQL.
 
 import os
 import base64
+import datetime
 import json
 import httpx
 from typing import Dict, Any, List, Optional
@@ -314,3 +315,107 @@ def parse_audio_to_transaction(
     """
     transcript = transcribe_audio_only(audio_file_path)
     return structure_text_only(transcript, portfolio_name)
+
+
+def structure_analytics_question(pregunta: str, catalogo_prompt: str) -> Dict[str, Any]:
+    """
+    Análisis Inteligente (B3): traduce una pregunta en español a UNA métrica
+    del catálogo whitelisted. El LLM SOLO elige {metrica, params} del menú:
+    jamás calcula cifras y jamás decide la empresa (la inyecta el backend).
+
+    Devuelve {"metrica": "<id>"|None, "params": {...}, "motivo": "..."}.
+    """
+    if not pregunta or not pregunta.strip():
+        raise ValueError("La pregunta está vacía.")
+
+    system_instruction = (
+        "Eres el traductor de preguntas analíticas de FIN-SYS OS (contabilidad en Colombia).\n"
+        "Tu ÚNICA tarea es elegir la métrica del catálogo que responde la pregunta del usuario "
+        "y sus parámetros. NO calculas cifras, NO inventas métricas fuera del catálogo y NO "
+        "decides la empresa (eso lo hace el sistema por su cuenta).\n\n"
+        "CATÁLOGO DE MÉTRICAS DISPONIBLES:\n"
+        f"{catalogo_prompt}\n\n"
+        "DEBES RETORNAR UN OBJETO JSON CON ESTA ESTRUCTURA EXACTA:\n"
+        "{\n"
+        "  \"metrica\": \"id de la métrica del catálogo\" | null,\n"
+        "  \"params\": { solo parámetros que la métrica declara },\n"
+        "  \"motivo\": \"si metrica es null: explicación corta y honesta en español de por qué "
+        "no se puede responder con el catálogo; si no, cadena vacía\"\n"
+        "}\n\n"
+        "REGLAS:\n"
+        f"- Hoy es {datetime.date.today().isoformat()}. Resuelve referencias como "
+        "'este mes', 'el mes pasado' o 'septiembre' a valores concretos (mes YYYY-MM, fechas YYYY-MM-DD).\n"
+        "- Si la pregunta no corresponde a NINGUNA métrica del catálogo, responde metrica null "
+        "con el motivo. Jamás fuerces una métrica que no aplica.\n"
+        "- No incluyas parámetros de empresa/portafolio aunque el usuario los mencione: el "
+        "sistema los ignora por diseño.\n"
+        "- Omite los parámetros opcionales que el usuario no pidió (el sistema usa los defaults)."
+    )
+
+    # --- RUTA 1: GROQ (mismo patrón json_object de structure_text_only) ---
+    if GROQ_API_KEY:
+        print(f"🚀 [GROQ LLM] Traduciendo pregunta analítica con {GROQ_MODEL}...")
+        chat_payload = {
+            "model": GROQ_MODEL,
+            "messages": [
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": f"Pregunta del usuario: '{pregunta.strip()}'"}
+            ],
+            "response_format": {"type": "json_object"},
+            "temperature": 0.1
+        }
+        chat_headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+        chat_response = _http_client.post(GROQ_API_URL_CHAT, headers=chat_headers, json=chat_payload)
+        if chat_response.status_code != 200:
+            raise RuntimeError(f"❌ Error en Groq ({GROQ_MODEL}): {chat_response.text}")
+        chat_result = chat_response.json()["choices"][0]["message"]["content"]
+        try:
+            parsed = json.loads(chat_result)
+        except Exception as e:
+            raise RuntimeError(f"❌ Fallo al parsear la respuesta JSON de Groq: {e}. Respuesta: {chat_result}")
+        return _normalizar_eleccion_analitica(parsed)
+
+    # --- RUTA 2: GEMINI (fallback con responseSchema) ---
+    if not GEMINI_API_KEY:
+        raise ValueError("No se configuró ninguna clave de API (Groq o Gemini) para traducir la pregunta.")
+    print("🔄 [FALLBACK GEMINI] Traduciendo pregunta analítica con Gemini 2.5 Flash...")
+    payload = {
+        "contents": [{"parts": [{"text": f"Pregunta del usuario: '{pregunta.strip()}'"}]}],
+        "systemInstruction": {"parts": [{"text": system_instruction}]},
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "temperature": 0.1
+        }
+    }
+    response = _http_client.post(GEMINI_API_URL, headers={"Content-Type": "application/json"},
+                                 params={"key": GEMINI_API_KEY}, json=payload)
+    if response.status_code != 200:
+        raise RuntimeError(f"Error en Gemini Text JSON: {response.text}")
+    try:
+        text_response = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+        parsed = json.loads(text_response)
+    except Exception as e:
+        raise RuntimeError(f"Fallo al parsear respuesta JSON de Gemini: {e}")
+    return _normalizar_eleccion_analitica(parsed)
+
+
+def _normalizar_eleccion_analitica(parsed: Dict[str, Any]) -> Dict[str, Any]:
+    """Forma canónica y saneada de la elección del LLM (sin confiar en él)."""
+    if not isinstance(parsed, dict):
+        return {"metrica": None, "params": {},
+                "motivo": "El traductor no devolvió un objeto válido."}
+    metrica = parsed.get("metrica")
+    if isinstance(metrica, str):
+        metrica = metrica.strip() or None
+    elif metrica is not None:
+        metrica = None
+    params = parsed.get("params")
+    if not isinstance(params, dict):
+        params = {}
+    # La empresa JAMÁS viene del LLM (criterio inmutable 2). El catálogo
+    # además descarta todo parámetro no declarado, esto es cinturón doble.
+    for prohibido in ("empresa", "portfolio", "portfolio_id", "portafolio", "company", "company_id"):
+        params.pop(prohibido, None)
+    motivo = parsed.get("motivo")
+    motivo = motivo.strip() if isinstance(motivo, str) else ""
+    return {"metrica": metrica, "params": params, "motivo": motivo}
