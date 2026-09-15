@@ -391,7 +391,39 @@ def test_reportes_en_libros():
     assert "ecuacion_contable" in bg and "activos" in bg, bg.keys()
 
 
+# ── B5: una TX no entra en un periodo cerrado ───────────────────────────────
+
+def test_transaccion_bloqueada_en_periodo_cerrado():
+    from fin_sys_core.transaction_service import create_transaction
+    from routers.schemas import TransactionInput
+    conn = get_conn()
+    try:
+        cur = conn.cursor(); cur.execute("SELECT name FROM portfolios WHERE id = %s", (PORTFOLIO_ID,))
+        nombre = cur.fetchone()[0]; cur.execute("SELECT COUNT(*) FROM transactions"); antes = cur.fetchone()[0]; cur.close()
+    finally:
+        put_conn(conn)
+    cerrar_periodo(PORTFOLIO_ID, ANIO_TEST, 6, "tester")
+    tx = TransactionInput(portfolio_name=nombre, type="GASTO", amount=10, concept="TEST periodo cerrado",
+                          payment_method="Efectivo", category="Servicios",
+                          third_party={"identification_type": "NIT", "identification_number": "999999999",
+                                       "name": "Sin especificar"},
+                          transaction_date=f"{ANIO_TEST}-06-15")
+    try:
+        create_transaction(tx)
+        assert False, "debió bloquearse por periodo cerrado"
+    except PeriodoCerradoError as e:
+        assert "cerrado" in str(e)
+    conn = get_conn()
+    try:
+        cur = conn.cursor(); cur.execute("SELECT COUNT(*) FROM transactions"); despues = cur.fetchone()[0]; cur.close()
+    finally:
+        put_conn(conn)
+    assert despues == antes, "no debe quedar ninguna transacción"
+    reabrir_periodo(PORTFOLIO_ID, ANIO_TEST, 6, "admin", motivo="test")
+
+
 TESTS = [
+    test_transaccion_bloqueada_en_periodo_cerrado,
     test_reportes_en_libros,
     test_coa_crud_y_bloqueos,
     test_posting_rule_validaciones,

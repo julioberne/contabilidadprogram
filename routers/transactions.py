@@ -70,13 +70,39 @@ def create_manual_transaction(tx_input: TransactionInput, _admin: dict = Depends
     try:
         from transaction_service import create_transaction
         from ledger_math import ExcedeLimitePocketError
+        from kernel.kernel_periods import PeriodoCerradoError
 
         return create_transaction(tx_input)
     except ExcedeLimitePocketError as e:
         # Error controlado de sobregasto de bolsillo
         raise HTTPException(status_code=400, detail=str(e))
+    except PeriodoCerradoError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _asegurar_periodo_abierto_de_tx(tx_id: int, nueva_fecha: str = None) -> None:
+    """Módulo Contadores (B5): editar o borrar una TX exige que su mes (y el
+    de la nueva fecha, si cambia) esté abierto para su portafolio. 409 si no."""
+    from kernel.kernel_periods import assert_periodo_abierto, PeriodoCerradoError
+    from db_pool import get_conn, put_conn
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT portfolio_id, transaction_date FROM transactions WHERE id = %s", (tx_id,))
+        row = cur.fetchone()
+        cur.close()
+    finally:
+        put_conn(conn)
+    if not row:
+        return   # el 404 lo da el flujo normal
+    try:
+        assert_periodo_abierto(row[0], row[1])
+        if nueva_fecha:
+            assert_periodo_abierto(row[0], nueva_fecha)
+    except PeriodoCerradoError as e:
+        raise HTTPException(status_code=409, detail=str(e))
 
 
 @router.post("/api/upload-evidence")
@@ -109,6 +135,7 @@ def update_transaction_endpoint(tx_id: int, tx_update: TransactionUpdateInput, _
         from database_driver import actualizar_transaccion
         from tax_motor import process_transaction_taxes
         update_dict = tx_update.dict(exclude_unset=True)
+        _asegurar_periodo_abierto_de_tx(tx_id, update_dict.get("transaction_date"))
         
         # Si se modifica el amount, recalculamos net_value e impuestos por conveniencia
         if "amount" in update_dict and "net_value" not in update_dict:
@@ -150,6 +177,7 @@ def delete_transaction_endpoint(tx_id: int, body: TransactionDeleteInput, _admin
     from fin_sys_core.hub_driver import verificar_clave_admin
     if not verificar_clave_admin(body.password):
         raise HTTPException(status_code=403, detail="Clave de administrador incorrecta.")
+    _asegurar_periodo_abierto_de_tx(tx_id)
     try:
         from database_driver import eliminar_transaccion
         from kernel.kernel_accounting import anular_asiento_por_referencia

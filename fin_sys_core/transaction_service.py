@@ -144,6 +144,11 @@ def create_transaction(tx_input) -> dict:
         except (PartidaDobleError, CuentaNoExisteError) as e:
             journal.clear(); journal.update({"status": "error", "error": str(e)})
 
+    # Periodo cerrado (módulo Contadores, B5): ni la TX ni su asiento entran
+    # en un mes cerrado del portafolio. Se verifica ANTES de tocar la BD.
+    from kernel.kernel_periods import assert_periodo_abierto_por_nombre
+    assert_periodo_abierto_por_nombre(tx_input.portfolio_name, tx_input.transaction_date)
+
     transaction_id = registrar_transaccion(tx_data, on_before_commit=_asiento)
 
     if journal.get("status") not in ("ok", "skipped_duplicate"):
