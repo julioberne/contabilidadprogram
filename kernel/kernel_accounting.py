@@ -34,7 +34,7 @@ import logging
 import uuid
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Dict, Any, List, Optional
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import RealDictCursor, execute_values
 
 logger = logging.getLogger("kernel.accounting")
 
@@ -166,12 +166,25 @@ def init_journal_entries_table():
 # FUNCIÓN CENTRAL — Registrar Asiento de Partida Doble
 # ══════════════════════════════════════════════════════════════════════════════
 
-def registrar_asiento(evento: Dict[str, Any]) -> Dict[str, Any]:
+def registrar_asiento(evento: Dict[str, Any], conn=None, *, estado: str = None,
+                      portfolio_id: int = None) -> Dict[str, Any]:
     """
     Recibe un Evento Contable y crea los asientos de partida doble.
-    
+
     REGLA: sum(débitos) == sum(créditos) — si no, rechaza.
-    
+
+    Plan cimientos A3 (2026-09-15):
+      conn: conexión EXTERNA opcional. Si viene, el asiento se escribe dentro
+            de la transacción del llamador (sin commit/rollback/put_conn aquí)
+            protegido por un SAVEPOINT: un error de configuración
+            (PartidaDobleError / CuentaNoExisteError / duplicado) deja la
+            transacción del llamador sana; cualquier otro error se relanza
+            para que el llamador haga rollback total.
+      evento['omitir_dedupe']: salta el SELECT de idempotencia (referencia
+            recién creada; el índice único sigue protegiendo).
+      estado / portfolio_id: se anotan en el evento (los persistirá el módulo
+            Contadores cuando existan las columnas; hoy no cambian nada).
+
     Args:
         evento: {
             'fecha': '2026-06-19',
@@ -210,15 +223,23 @@ def registrar_asiento(evento: Dict[str, Any]) -> Dict[str, Any]:
     modulo = evento.get("modulo_origen", "unknown")
     referencia = evento.get("referencia", "")
     descripcion = evento.get("descripcion", "")
+    if estado is not None:
+        evento.setdefault("estado", estado)
+    if portfolio_id is not None:
+        evento.setdefault("portfolio_id", portfolio_id)
 
-    conn = get_conn()
+    externa = conn is not None
+    if not externa:
+        conn = get_conn()
     try:
         cur = conn.cursor()
+        if externa:
+            cur.execute("SAVEPOINT asiento")
 
         # ── Idempotencia (chequeo rápido) ─────────────────────────────────────
         # Si este módulo ya asentó esta referencia, no se duplica. El índice
         # único uq_journal_modulo_ref_linea cubre además la carrera concurrente.
-        if referencia:
+        if referencia and not evento.get("omitir_dedupe"):
             cur.execute("""
                 SELECT entry_group_id FROM kernel_journal_entries
                 WHERE modulo_origen = %s AND referencia = %s LIMIT 1
@@ -236,49 +257,40 @@ def registrar_asiento(evento: Dict[str, Any]) -> Dict[str, Any]:
         # Un código es válido si está en el catálogo (chart_of_accounts) O si
         # una posting rule activa lo declara (el COA por portafolio suele estar
         # incompleto respecto a las reglas Zero-COA, que son la fuente de verdad).
+        # La caché (shared.rules_cache) evita el viaje cuando todos los códigos
+        # ya son conocidos; si alguno no está, se consulta la BD (puede ser
+        # una cuenta recién creada).
         codigos = sorted({str(a.get("cuenta_codigo", "")).strip() for a in asientos})
         if any(not c for c in codigos):
             raise CuentaNoExisteError("Asiento con cuenta_codigo vacío")
-        cur.execute("""
-            SELECT DISTINCT code FROM chart_of_accounts WHERE code = ANY(%(c)s)
-            UNION
-            SELECT DISTINCT debit_account_code FROM posting_rules
-                WHERE is_active AND debit_account_code = ANY(%(c)s)
-            UNION
-            SELECT DISTINCT credit_account_code FROM posting_rules
-                WHERE is_active AND credit_account_code = ANY(%(c)s)
-        """, {"c": codigos})
-        existentes = {r[0] for r in cur.fetchall()}
-        faltantes = [c for c in codigos if c not in existentes]
-        if faltantes:
-            raise CuentaNoExisteError(
-                f"Cuentas inexistentes (ni en COA ni en posting rules): {', '.join(faltantes)}. "
-                f"Carga el plan de cuentas o corrige la posting rule."
-            )
+        validar_cuentas_existen(cur, codigos)
 
         # ── ID de grupo sin COUNT+1 (el COUNT era una condición de carrera) ──
         fecha_clean = str(fecha).replace("-", "")
         entry_group_id = f"JE-{fecha_clean}-{uuid.uuid4().hex[:6].upper()}"
 
-        # ── Insertar cada línea del asiento ───────────────────────────────────
+        # ── Insertar todas las líneas en UNA sentencia ────────────────────────
+        filas = []
         for num_linea, asiento in enumerate(asientos, start=1):
             cuenta_codigo = str(asiento.get("cuenta_codigo", "")).strip()
             cuenta_nombre = asiento.get("cuenta_nombre", "")
             cuenta_tipo = asiento.get("cuenta_tipo") or derivar_tipo_puc(cuenta_codigo)
-            debito = _monto(asiento.get("debito", 0))
-            credito = _monto(asiento.get("credito", 0))
-
-            cur.execute("""
-                INSERT INTO kernel_journal_entries
-                    (entry_group_id, fecha, cuenta_codigo, cuenta_nombre, cuenta_tipo,
-                     debito, credito, modulo_origen, referencia, descripcion, linea)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (
+            filas.append((
                 entry_group_id, fecha, cuenta_codigo, cuenta_nombre, cuenta_tipo,
-                debito, credito, modulo, referencia, descripcion, num_linea
+                _monto(asiento.get("debito", 0)), _monto(asiento.get("credito", 0)),
+                modulo, referencia, descripcion, num_linea,
             ))
+        execute_values(cur, """
+            INSERT INTO kernel_journal_entries
+                (entry_group_id, fecha, cuenta_codigo, cuenta_nombre, cuenta_tipo,
+                 debito, credito, modulo_origen, referencia, descripcion, linea)
+            VALUES %s
+        """, filas)
 
-        conn.commit()
+        if externa:
+            cur.execute("RELEASE SAVEPOINT asiento")
+        else:
+            conn.commit()
         cur.close()
 
         logger.info(
@@ -296,10 +308,10 @@ def registrar_asiento(evento: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     except (PartidaDobleError, CuentaNoExisteError):
-        conn.rollback()
+        _deshacer(conn, externa)
         raise
     except Exception as e:
-        conn.rollback()
+        _deshacer(conn, externa)
         # Carrera perdida contra el índice único = otro proceso ya asentó esto
         if "uq_journal_modulo_ref_linea" in str(e):
             logger.info(f"↩️ Asiento duplicado bloqueado por índice único: {modulo}/{referencia}")
@@ -307,7 +319,50 @@ def registrar_asiento(evento: Dict[str, Any]) -> Dict[str, Any]:
         logger.error(f"❌ Error registrando asiento: {e}")
         raise
     finally:
-        put_conn(conn)
+        if not externa:
+            put_conn(conn)
+
+
+def _deshacer(conn, externa: bool) -> None:
+    """Rollback propio o ROLLBACK TO SAVEPOINT si la conexión es del llamador."""
+    try:
+        if externa:
+            cur = conn.cursor()
+            cur.execute("ROLLBACK TO SAVEPOINT asiento")
+            cur.close()
+        else:
+            conn.rollback()
+    except Exception:
+        pass
+
+
+def validar_cuentas_existen(cur, codigos, portfolio_id: int = None) -> None:
+    """Lanza CuentaNoExisteError si algún código no está en chart_of_accounts
+    ni en una posting rule activa. Usa la caché de shared.rules_cache para
+    evitar el viaje cuando todos los códigos ya son conocidos."""
+    codigos = sorted({str(c).strip() for c in codigos})
+    try:
+        from shared.rules_cache import codigos_conocidos
+        if codigos_conocidos(codigos):
+            return
+    except Exception:
+        pass
+    cur.execute("""
+        SELECT DISTINCT code FROM chart_of_accounts WHERE code = ANY(%(c)s)
+        UNION
+        SELECT DISTINCT debit_account_code FROM posting_rules
+            WHERE is_active AND debit_account_code = ANY(%(c)s)
+        UNION
+        SELECT DISTINCT credit_account_code FROM posting_rules
+            WHERE is_active AND credit_account_code = ANY(%(c)s)
+    """, {"c": codigos})
+    existentes = {r[0] for r in cur.fetchall()}
+    faltantes = [c for c in codigos if c not in existentes]
+    if faltantes:
+        raise CuentaNoExisteError(
+            f"Cuentas inexistentes (ni en COA ni en posting rules): {', '.join(faltantes)}. "
+            f"Carga el plan de cuentas o corrige la posting rule."
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════════════

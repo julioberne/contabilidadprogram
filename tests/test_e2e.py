@@ -1,15 +1,19 @@
-"""Test: Registrar TX via API → verificar que journal entry se genera automáticamente"""
+# -*- coding: utf-8 -*-
+"""E2E: POST /api/transactions → asiento Zero-COA en la MISMA transacción.
+
+Requiere un backend vivo (FINSYS_BASE, default http://127.0.0.1:8000) y el
+.env del repo (firma el token con el mismo secreto). Crea UNA transacción de
+prueba y la elimina al final (limpieza también de sus líneas del diario).
+
+Reescrito 2026-09-15 (plan cimientos A3): la versión anterior consultaba
+/api/kernel/* (rutas que ya no existen) y dejaba la TX de prueba en la BD.
+"""
 import json
 import os
 import sys
+import urllib.parse
 import urllib.request
 
-BASE = "http://127.0.0.1:8000"
-
-# Los endpoints mutadores exigen sesión admin (remediación 2026-09-11).
-# El test corre en la misma máquina que el server y comparte su .env, así
-# que puede firmar un token válido con el mismo secreto (SESSION_SECRET o
-# derivado de DB_PASSWORD) — sin credenciales reales en el repo.
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _REPO)
 if os.path.exists(os.path.join(_REPO, ".env")):
@@ -20,97 +24,103 @@ if os.path.exists(os.path.join(_REPO, ".env")):
                 _k, _v = _line.split("=", 1)
                 os.environ.setdefault(_k.strip(), _v.strip())
 
-from routers.auth_guard import create_session_token
+BASE = os.environ.get("FINSYS_BASE", "http://127.0.0.1:8000")
+
+from routers.auth_guard import create_session_token  # noqa: E402
 
 TOKEN = create_session_token({"id": "e2e", "name": "Test E2E", "role": "admin"})
+HDRS = {"Content-Type": "application/json", "Authorization": f"Bearer {TOKEN}"}
+
 
 def post(path, data):
-    req = urllib.request.Request(
-        f"{BASE}{path}",
-        data=json.dumps(data).encode(),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {TOKEN}",
-        },
-    )
-    r = urllib.request.urlopen(req)
-    return json.loads(r.read())
+    req = urllib.request.Request(f"{BASE}{path}", data=json.dumps(data).encode(), headers=HDRS)
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return json.loads(r.read())
+
 
 def get(path):
-    r = urllib.request.urlopen(f"{BASE}{path}")
-    return json.loads(r.read())
+    req = urllib.request.Request(f"{BASE}{path}", headers=HDRS)
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return json.loads(r.read())
 
-print("=" * 65)
-print("TEST: Flujo completo Frontend -> TX -> Journal Entry automatico")
-print("=" * 65)
 
-# 1. Estado ANTES
-print("\n1. Journal entries ANTES:")
-entries_before = get("/api/kernel/journal-entries")
-print(f"   Total: {len(entries_before)}")
+def limpiar(tx_id):
+    """Elimina la TX de prueba (revierte saldos) y sus líneas del diario."""
+    import fin_sys_core  # noqa: F401
+    from fin_sys_core.database_driver import eliminar_transaccion
+    from fin_sys_core.db_pool import get_conn, put_conn
+    try:
+        eliminar_transaccion(tx_id)
+    except Exception as e:
+        print(f"   ⚠️ no se pudo eliminar la TX {tx_id}: {e}")
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM kernel_journal_entries WHERE referencia IN (%s, %s)",
+                    (f"TX-{tx_id}", f"REV-TX-{tx_id}"))
+        n = cur.rowcount
+        conn.commit()
+        cur.close()
+        print(f"   🧹 limpieza: TX {tx_id} eliminada, {n} líneas del diario borradas")
+    finally:
+        put_conn(conn)
 
-# 2. Registrar una TX de GASTO via API real
-print("\n2. Registrando TX de GASTO via POST /api/transactions...")
-tx = post("/api/transactions", {
-    "type": "GASTO",
-    "amount": 350000,
-    "concept": "Pago hosting servidor (TEST KERNEL E2E)",
-    "transaction_date": "2026-06-19",
-    "payment_method": "Transferencia",
-    "category": "Infraestructura",
-    "portfolio_name": "Negocio A",
-    "third_party": {
-        "identification_type": "NIT",
-        "identification_number": "900.999.001-1",
-        "name": "Cloud Hosting SAS"
-    },
-    "apply_iva": False,
-    "apply_gmf": True,
-    "account_id": 2
-})
-print(f"   TX creada: {tx}")
 
-# 3. Estado DESPUES
-print("\n3. Journal entries DESPUES:")
-entries_after = get("/api/kernel/journal-entries")
-print(f"   Total: {len(entries_after)}")
-new_count = len(entries_after) - len(entries_before)
-print(f"   Nuevos asientos: {new_count}")
+def main():
+    print("=" * 65)
+    print(f"E2E: TX → asiento atómico  ({BASE})")
+    print("=" * 65)
+    fallos = []
+    tx = post("/api/transactions", {
+        "type": "GASTO",
+        "amount": 350000,
+        "concept": "Pago hosting servidor (TEST KERNEL E2E)",
+        "transaction_date": "2026-06-19",
+        "payment_method": "Transferencia",
+        "category": "Infraestructura",
+        "portfolio_name": "Negocio A",
+        "third_party": {"identification_type": "NIT",
+                        "identification_number": "900.999.001-1",
+                        "name": "Cloud Hosting SAS"},
+        "apply_iva": False,
+        "apply_gmf": True,
+        "account_id": 2,
+    })
+    tx_id = tx.get("transaction_id")
+    print(f"1. TX creada: id={tx_id} journal={tx.get('journal')} net={tx.get('net_value')}")
+    if tx.get("journal") != "ok":
+        fallos.append(f"journal esperado 'ok', llegó {tx.get('journal')!r}")
+    try:
+        ref = urllib.parse.quote(f"TX-{tx_id}")
+        lineas = [e for e in get("/api/journal-entries?modulo_origen=zero_coa&limit=200")
+                  if e.get("referencia") == f"TX-{tx_id}"]
+        print(f"2. Líneas del diario para TX-{tx_id}: {len(lineas)}")
+        for e in lineas:
+            print(f"   {e['entry_group_id']} | {e['cuenta_codigo']:>8} | "
+                  f"Db={float(e['debito']):>12,.2f} | Cr={float(e['credito']):>12,.2f}")
+        if len(lineas) != 2:
+            fallos.append(f"esperaba 2 líneas, hay {len(lineas)}")
+        else:
+            db = sum(float(e["debito"]) for e in lineas)
+            cr = sum(float(e["credito"]) for e in lineas)
+            print(f"3. Partida doble: Db={db:,.2f} Cr={cr:,.2f} → {'CUADRA' if abs(db - cr) < 0.01 else 'NO CUADRA'}")
+            if abs(db - cr) >= 0.01:
+                fallos.append("partida doble no cuadra")
+            if abs(db - float(tx.get("net_value") or 0)) >= 0.01:
+                fallos.append(f"el débito {db} no coincide con net_value {tx.get('net_value')}")
+        resumen = get("/api/financial-summary")
+        print(f"4. financial-summary: ecuación contable = {resumen.get('ecuacion_contable')}")
+    finally:
+        if tx_id:
+            limpiar(tx_id)
+    print("=" * 65)
+    if fallos:
+        print("❌ FALLOS:")
+        for f in fallos:
+            print("   -", f)
+        sys.exit(1)
+    print("✅ E2E OK")
 
-if new_count > 0:
-    new_entries = entries_after[:new_count]  # Los mas recientes estan primero (ORDER BY fecha DESC)
-    print(f"\n   Asientos generados automaticamente:")
-    for e in new_entries:
-        db = float(e['debito'])
-        cr = float(e['credito'])
-        print(f"   {e['entry_group_id']} | {e['cuenta_codigo']} {e.get('cuenta_nombre',''):<25} | Db={db:>12,.2f} | Cr={cr:>12,.2f}")
-    
-    total_db = sum(float(e['debito']) for e in new_entries)
-    total_cr = sum(float(e['credito']) for e in new_entries)
-    print(f"\n4. Validacion partida doble:")
-    print(f"   Total Debitos:  ${total_db:>12,.2f}")
-    print(f"   Total Creditos: ${total_cr:>12,.2f}")
-    print(f"   Cuadra: {'SI' if abs(total_db - total_cr) < 0.01 else 'NO'}")
-else:
-    print("\n   WARNING: No se generaron asientos nuevos")
 
-# 5. Resumen financiero general
-print("\n5. Resumen financiero completo:")
-resumen = get("/api/kernel/resumen-financiero")
-for k, v in resumen.items():
-    if isinstance(v, (int, float)):
-        print(f"   {k:<20}: ${v:>15,.2f}")
-    else:
-        print(f"   {k:<20}: {'OK' if v else 'FALLO'}")
-
-# 6. Event bus status
-print("\n6. Event Bus:")
-bus = get("/api/kernel/event-bus/status")
-print(f"   Listeners: {len(bus['listeners'])} eventos registrados")
-print(f"   Eventos recientes: {len(bus['recent_events'])}")
-for ev in bus['recent_events']:
-    print(f"   -> {ev['type']} (origen: {ev.get('modulo_origen','?')})")
-
-print("\n" + "=" * 65)
-print("TEST COMPLETADO")
-print("=" * 65)
+if __name__ == "__main__":
+    main()

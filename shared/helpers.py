@@ -60,6 +60,42 @@ def puc_tipo(cuenta_codigo: str) -> str:
     }.get(str(cuenta_codigo or "")[:1], "")
 
 
+def build_journal_event(category, tx_type, amount, account_id=None, referencia="",
+                        descripcion="", fecha=None):
+    """Construye el evento del asiento (mismo payload que emit_journal_entry)
+    SIN emitirlo y SIN viajes a la BD (usa shared.rules_cache).
+
+    Plan cimientos A3 (2026-09-15): permite que el asiento se registre dentro
+    de la MISMA transacción de BD que la TX (registrar_asiento(evento, conn=conn))
+    en vez de emitirlo después, en otra conexión, con otro commit.
+    → dict listo para registrar_asiento, o None si no hay posting rule.
+    """
+    from datetime import date
+    from shared import rules_cache
+    rule = rules_cache.get_rule(category, tx_type)
+    if not rule:
+        logger.warning(f"⚠️ Zero-COA: sin posting rule para ({category}, {tx_type}) — asiento NO generado ({referencia})")
+        return None
+    debit_code, credit_code, rule_name = rule
+    bank_code = rules_cache.resolve_bank_code(account_id)
+    if debit_code == "__BANK__":
+        debit_code = bank_code
+    if credit_code == "__BANK__":
+        credit_code = bank_code
+    return {
+        'fecha': fecha or str(date.today()),
+        'modulo_origen': 'zero_coa',
+        'referencia': referencia,
+        'descripcion': f"[{rule_name}] {descripcion}",
+        'asientos': [
+            {'cuenta_codigo': debit_code, 'debito': amount, 'credito': 0,
+             'cuenta_nombre': rule_name, 'cuenta_tipo': puc_tipo(debit_code)},
+            {'cuenta_codigo': credit_code, 'debito': 0, 'credito': amount,
+             'cuenta_nombre': rule_name, 'cuenta_tipo': puc_tipo(credit_code)},
+        ],
+    }
+
+
 def emit_journal_entry(category, tx_type, amount, account_id=None, referencia="", descripcion="", fecha=None):
     """
     Busca la posting_rule por (category, tx_type), resuelve __BANK__,

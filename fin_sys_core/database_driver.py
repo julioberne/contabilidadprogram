@@ -521,10 +521,13 @@ def _asegurar_tercero(cur, third_party: Dict[str, Any]) -> int:
     return cur.fetchone()[0]
 
 
-def registrar_transaccion(tx_data: Dict[str, Any]) -> int:
+def registrar_transaccion(tx_data: Dict[str, Any], on_before_commit=None) -> int:
     """
     Registra una transacción contable.
     Si falla la conexión con Postgres, se almacena en memoria local (Mock).
+
+    on_before_commit(conn, transaction_id): opcional; se ejecuta con la misma
+    conexión ANTES del commit (asiento contable atómico, plan A3).
     """
     conn = None  # SOL: liberar SIEMPRE en finally (antes el except fugaba la conexión)
     try:
@@ -638,7 +641,14 @@ def registrar_transaccion(tx_data: Dict[str, Any]) -> int:
         
         # SOL-01: Actualización incremental O(1) — solo toca las cuentas afectadas
         aplicar_delta_incremental(conn, tx_data)
-        
+
+        # Plan cimientos A3 (2026-09-15): el asiento Zero-COA se registra en
+        # ESTA misma transacción (transaction_service pasa el hook). Si el
+        # hook lanza, el finally hace rollback de todo: nunca más una TX
+        # guardada sin su asiento por un error de BD.
+        if on_before_commit is not None:
+            on_before_commit(conn, transaction_id)
+
         conn.commit()
         cur.close()
         release_db_connection(conn)

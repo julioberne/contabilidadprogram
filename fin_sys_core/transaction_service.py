@@ -108,29 +108,59 @@ def create_transaction(tx_input) -> dict:
         "evidence_files": getattr(tx_input, "evidence_files", None),
     }
 
-    # 3. Guardar en la base de datos PostgreSQL
-    transaction_id = registrar_transaccion(tx_data)
-
-    # 4. Zero-COA: Emitir asiento contable al kernel.
-    # No bloquea la TX, pero el resultado se reporta (antes: except: pass
-    # → el diario podía desincronizarse en silencio).
-    ensure_journal_listener()   # imprescindible fuera del proceso de server.py
-    from shared.helpers import emit_journal_entry
+    # 3 + 4. Guardar la TX y su asiento Zero-COA en la MISMA transacción de BD
+    # (plan cimientos A3, 2026-09-15). Antes el asiento se emitía DESPUÉS del
+    # commit, en otra conexión y con otro commit: una TX podía quedar guardada
+    # sin asiento ante cualquier error de BD. Ahora:
+    #   · sin posting rule ('no_rule')            → la TX se guarda igual
+    #     (decisión de negocio vigente; el contador la asienta a mano);
+    #   · PartidaDobleError / CuentaNoExisteError → error de CONFIGURACIÓN:
+    #     la TX se guarda, el asiento no, y se reporta;
+    #   · cualquier error de BD en el asiento     → sube → registrar_transaccion
+    #     hace rollback de TODO (ni TX ni asiento).
+    from shared.helpers import build_journal_event
+    from kernel.kernel_accounting import registrar_asiento, PartidaDobleError, CuentaNoExisteError
     journal = {"status": "error", "error": "sin ejecutar"}
-    try:
-        journal = emit_journal_entry(
+
+    def _asiento(conn, tx_id):
+        evento = build_journal_event(
             category=tx_input.category or "",
             tx_type=tx_input.type,
             amount=float(tax_results["net_value"]),
             account_id=tx_input.account_id,
-            referencia=f"TX-{transaction_id}",
+            referencia=f"TX-{tx_id}",
             descripcion=tx_input.concept or "",
-            fecha=tx_input.transaction_date
-        ) or {"status": "error", "error": "emit devolvió None"}
-    except Exception as e:
-        journal = {"status": "error", "error": str(e)}
+            fecha=tx_input.transaction_date,
+        )
+        if evento is None:
+            journal.clear(); journal["status"] = "no_rule"
+            return
+        evento["omitir_dedupe"] = True   # referencia recién creada
+        try:
+            r = registrar_asiento(evento, conn=conn)
+            journal.clear(); journal.update(r)
+        except (PartidaDobleError, CuentaNoExisteError) as e:
+            journal.clear(); journal.update({"status": "error", "error": str(e)})
+
+    transaction_id = registrar_transaccion(tx_data, on_before_commit=_asiento)
+
     if journal.get("status") not in ("ok", "skipped_duplicate"):
         print(f"❌ [ZERO-COA] TX-{transaction_id} SIN asiento contable: {journal}")
+
+    # Evento post-commit (nuevo, sin listeners hoy): punto de extensión para
+    # notificaciones/bot sin acoplarse a la transacción de BD. El listener
+    # clásico 'fin.transaccion.registrada' sigue vivo para cartera/CT.
+    try:
+        from kernel.kernel_event_bus import emit
+        emit('fin.transaccion.confirmada', {
+            "transaction_id": transaction_id,
+            "referencia": f"TX-{transaction_id}",
+            "portfolio_name": tx_input.portfolio_name,
+            "journal": journal.get("status"),
+            "modulo_origen": "transaction_service",
+        })
+    except Exception:
+        pass
 
     return {
         "status": "EXITOSO",
