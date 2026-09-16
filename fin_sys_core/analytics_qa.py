@@ -212,27 +212,66 @@ def _generar_grafica_o_falla(r: Dict[str, Any]) -> Optional[str]:
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+_SENIALES_SIN_RED = ("getaddrinfo", "errno 11001", "connecterror", "connect error",
+                     "connection refused", "timed out", "timeout", "name or service",
+                     "temporary failure", "network is unreachable")
+
+
+def _resumen_error(msg: str, tope: int = 160) -> str:
+    """Primera línea del error, recortada — para humanos, no tracebacks."""
+    linea = (msg or "").strip().splitlines()[0] if (msg or "").strip() else "error desconocido"
+    return linea[:tope]
+
+
 def responder_pregunta(pregunta: str, portfolio_id: Optional[int] = None) -> Dict[str, Any]:
     """Cadena completa web/bot. Devuelve SIEMPRE un dict con:
-      {texto, metrica, datos, grafica_png_base64}
-    Los errores de traducción/cálculo se devuelven como texto honesto."""
+      {texto, metrica, datos, grafica_png_base64} (+ "error" si no se respondió).
+
+    Errores honestos y ESPECÍFICOS (16-sep): el texto dice qué no se encontró
+    y por qué, y toda pregunta sin responder queda en analytics_question_log
+    (retención 30 días) para evaluar métricas nuevas del catálogo.
+    """
     from metrics_catalog import catalogo_para_prompt, ejecutar_metrica
+    from analytics_log import registrar_pregunta
     import ai_engine
 
-    eleccion = ai_engine.structure_analytics_question(pregunta, catalogo_para_prompt())
+    try:
+        eleccion = ai_engine.structure_analytics_question(pregunta, catalogo_para_prompt())
+    except Exception as e:
+        msg = str(e)
+        if any(s in msg.lower() for s in _SENIALES_SIN_RED):
+            codigo = "SIN_RED"
+            texto = ("Sin salida a internet hacia el traductor (Groq): el servidor no pudo "
+                     f"resolver/contactar la API ({_resumen_error(msg)}). Tus datos están "
+                     "intactos — reintenta cuando vuelva la red. La pregunta quedó registrada.")
+        else:
+            codigo = "ERROR_TRADUCTOR"
+            texto = (f"El traductor de preguntas falló: {_resumen_error(msg)}. "
+                     "La pregunta quedó registrada para revisarla.")
+        registrar_pregunta(pregunta, codigo, msg, portfolio_id=portfolio_id)
+        return {"texto": texto, "metrica": None, "datos": None,
+                "grafica_png_base64": None, "error": codigo}
+
     if not eleccion.get("metrica"):
-        motivo = eleccion.get("motivo") or (
-            "No encontré una métrica del catálogo que responda esa pregunta."
-        )
-        return {"texto": motivo, "metrica": None, "datos": None, "grafica_png_base64": None}
+        motivo = eleccion.get("motivo") or "ninguna métrica del catálogo corresponde a esa pregunta"
+        registrar_pregunta(pregunta, "SIN_METRICA", motivo, portfolio_id=portfolio_id)
+        texto = (f"No encontré cómo responder «{pregunta.strip()}». Por qué: {motivo} "
+                 "— Quedó registrada (30 días) para evaluar si amerita una métrica nueva. "
+                 "Toca 📖 CATÁLOGO para ver lo que hoy se puede preguntar.")
+        return {"texto": texto, "metrica": None, "datos": None,
+                "grafica_png_base64": None, "error": "SIN_METRICA"}
 
     try:
         # portfolio_id viene del backend (selector/sesión) — no de la elección.
         resultado = ejecutar_metrica(eleccion["metrica"], eleccion.get("params"),
                                      portfolio_id=portfolio_id)
     except ValueError as e:
-        return {"texto": f"No pude calcularlo: {e}", "metrica": eleccion.get("metrica"),
-                "datos": None, "grafica_png_base64": None}
+        registrar_pregunta(pregunta, "ERROR_CALCULO", str(e),
+                           metrica=eleccion.get("metrica"), portfolio_id=portfolio_id)
+        texto = (f"Entendí la pregunta como la métrica «{eleccion['metrica']}», pero el "
+                 f"catálogo rechazó los parámetros: {e} La pregunta quedó registrada.")
+        return {"texto": texto, "metrica": eleccion.get("metrica"), "datos": None,
+                "grafica_png_base64": None, "error": "ERROR_CALCULO"}
 
     return {
         "texto": _texto_respuesta(resultado),

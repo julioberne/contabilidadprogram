@@ -17,6 +17,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fin_sys_core"))
 
 import ai_engine  # noqa: E402
+import analytics_log  # noqa: E402
 import analytics_qa  # noqa: E402
 import metrics_catalog  # noqa: E402
 from analytics_qa import _fmt_cop, _generar_grafica, _texto_respuesta, responder_pregunta  # noqa: E402
@@ -163,10 +164,15 @@ class TestResponderPregunta(unittest.TestCase):
     def setUp(self):
         self._structure = ai_engine.structure_analytics_question
         self._ejecutar = metrics_catalog.ejecutar_metrica
+        self._registrar = analytics_log.registrar_pregunta
+        self.registradas = []
+        analytics_log.registrar_pregunta = (
+            lambda *a, **kw: self.registradas.append((a, kw)) or True)
 
     def tearDown(self):
         ai_engine.structure_analytics_question = self._structure
         metrics_catalog.ejecutar_metrica = self._ejecutar
+        analytics_log.registrar_pregunta = self._registrar
 
     def test_cadena_completa_con_empresa_del_backend(self):
         llamadas = {}
@@ -186,15 +192,36 @@ class TestResponderPregunta(unittest.TestCase):
         self.assertIsNotNone(res["grafica_png_base64"])
         self.assertEqual(res["datos"]["valor"], 7000000.0)
 
-    def test_no_entiendo_devuelve_motivo_sin_datos(self):
+    def test_no_entiendo_dice_que_y_por_que_y_registra(self):
         ai_engine.structure_analytics_question = lambda p, c: {
-            "metrica": None, "params": {}, "motivo": "Esa pregunta no está en el catálogo."}
-        res = responder_pregunta("¿lloverá mañana?")
-        self.assertEqual(res["texto"], "Esa pregunta no está en el catálogo.")
+            "metrica": None, "params": {},
+            "motivo": "El catálogo no tiene métricas de inventario."}
+        res = responder_pregunta("¿cuántos tornillos hay en bodega?", portfolio_id=3)
+        # El texto dice QUÉ no se encontró y POR QUÉ (pedido 16-sep)
+        self.assertIn("¿cuántos tornillos hay en bodega?", res["texto"])
+        self.assertIn("El catálogo no tiene métricas de inventario.", res["texto"])
+        self.assertIn("registrada", res["texto"])
+        self.assertEqual(res["error"], "SIN_METRICA")
         self.assertIsNone(res["datos"])
-        self.assertIsNone(res["grafica_png_base64"])
+        # Y quedó en la bitácora con su motivo y la empresa
+        (args, kw), = self.registradas
+        self.assertEqual(args[:2], ("¿cuántos tornillos hay en bodega?", "SIN_METRICA"))
+        self.assertIn("inventario", args[2])
+        self.assertEqual(kw.get("portfolio_id"), 3)
 
-    def test_error_de_catalogo_es_honesto(self):
+    def test_sin_red_es_claro_y_registra(self):
+        def revienta(p, c):
+            raise RuntimeError("❌ Error en Groq: [Errno 11001] getaddrinfo failed")
+        ai_engine.structure_analytics_question = revienta
+        res = responder_pregunta("¿cuánto gasté?")
+        self.assertEqual(res["error"], "SIN_RED")
+        self.assertIn("internet", res["texto"])
+        self.assertIn("getaddrinfo", res["texto"])       # el error concreto, resumido
+        self.assertNotIn("Traceback", res["texto"])
+        (args, _kw), = self.registradas
+        self.assertEqual(args[1], "SIN_RED")
+
+    def test_error_de_catalogo_es_honesto_y_registra(self):
         ai_engine.structure_analytics_question = lambda p, c: {
             "metrica": "gasto_mes", "params": {"mes": "mal-formado"}, "motivo": ""}
 
@@ -203,9 +230,84 @@ class TestResponderPregunta(unittest.TestCase):
 
         metrics_catalog.ejecutar_metrica = fake_ejecutar
         res = responder_pregunta("gasto del mes trece")
-        self.assertIn("No pude calcularlo", res["texto"])
-        self.assertIn("YYYY-MM", res["texto"])
+        self.assertIn("gasto_mes", res["texto"])          # qué entendió
+        self.assertIn("YYYY-MM", res["texto"])            # por qué falló
+        self.assertEqual(res["error"], "ERROR_CALCULO")
         self.assertIsNone(res["datos"])
+        (args, kw), = self.registradas
+        self.assertEqual(args[1], "ERROR_CALCULO")
+        self.assertEqual(kw.get("metrica"), "gasto_mes")
+
+    def test_respuesta_buena_no_registra_nada(self):
+        ai_engine.structure_analytics_question = lambda p, c: {
+            "metrica": "gasto_mes", "params": {}, "motivo": ""}
+        metrics_catalog.ejecutar_metrica = lambda *a, **kw: dict(RESULTADO_GASTO)
+        res = responder_pregunta("¿cuánto gasté?")
+        self.assertNotIn("error", res)
+        self.assertEqual(self.registradas, [])
+
+
+class FakeConnLog:
+    def __init__(self, cur, commit_falla=False):
+        self._cur = cur
+        self.commits = 0
+        self.rollbacks = 0
+        self._falla = commit_falla
+
+    def cursor(self):
+        return self._cur
+
+    def commit(self):
+        if self._falla:
+            raise RuntimeError("commit caído")
+        self.commits += 1
+
+    def rollback(self):
+        self.rollbacks += 1
+
+
+class CursorLog:
+    def __init__(self):
+        self.ejecutadas = []
+
+    def execute(self, sql, params=None):
+        self.ejecutadas.append((" ".join(sql.split()), list(params) if params else []))
+
+    def fetchall(self):
+        return []
+
+    def close(self):
+        pass
+
+
+class TestBitacoraSQL(unittest.TestCase):
+
+    def test_registrar_purga_e_inserta(self):
+        cur = CursorLog()
+        conn = FakeConnLog(cur)
+        ok = analytics_log.registrar_pregunta(
+            "total de terceros", "SIN_METRICA", "no hay métrica de terceros",
+            portfolio_id=2, conn=conn)
+        self.assertTrue(ok)
+        self.assertEqual(conn.commits, 1)
+        sql_purga, _ = cur.ejecutadas[0]
+        self.assertIn("DELETE FROM analytics_question_log", sql_purga)
+        self.assertIn("INTERVAL '30 days'", sql_purga)     # retención pactada
+        sql_insert, params = cur.ejecutadas[1]
+        self.assertIn("INSERT INTO analytics_question_log", sql_insert)
+        self.assertEqual(params[0], "total de terceros")
+        self.assertEqual(params[1], "SIN_METRICA")
+        self.assertEqual(params[4], 2)
+
+    def test_registrar_jamas_lanza(self):
+        conn = FakeConnLog(CursorLog(), commit_falla=True)
+        self.assertFalse(analytics_log.registrar_pregunta("x", "SIN_RED", conn=conn))
+        self.assertEqual(conn.rollbacks, 1)
+
+    def test_init_crea_tabla(self):
+        cur = CursorLog()
+        analytics_log.init_analytics_log_table(conn=FakeConnLog(cur))
+        self.assertIn("CREATE TABLE IF NOT EXISTS analytics_question_log", cur.ejecutadas[0][0])
 
 
 if __name__ == "__main__":

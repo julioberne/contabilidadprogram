@@ -156,6 +156,14 @@ def _startup():
     else:
         init_control_tower_db()
 
+    # ── Análisis Inteligente: bitácora de preguntas sin responder ──
+    try:
+        from fin_sys_core.analytics_log import init_analytics_log_table
+        init_analytics_log_table()
+        print("✅ Analytics: bitácora de preguntas sin responder lista (retención 30 días)")
+    except Exception as e:
+        print(f"⚠️ Analytics log init: {e}")
+
     # ── Zero-COA: Registrar listener de partida doble ──
     try:
         from kernel.kernel_event_bus import on, off

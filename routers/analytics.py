@@ -121,6 +121,19 @@ def get_dataset(_user: dict = Depends(require_auth)):
     }
 
 
+# ── GET /api/analytics/preguntas-log ─────────────────────────
+# Bitácora de preguntas sin responder (retención 30 días): el insumo para
+# decidir qué métricas nuevas amerita el catálogo.
+
+@router.get("/api/analytics/preguntas-log")
+def get_preguntas_log(_user: dict = Depends(require_auth)):
+    from analytics_log import RETENCION_DIAS, preguntas_recientes
+    try:
+        return {"preguntas": preguntas_recientes(), "retencion_dias": RETENCION_DIAS}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"No pude leer la bitácora: {e}")
+
+
 # ── POST /api/analytics/ask ──────────────────────────────────
 
 @router.post("/api/analytics/ask")
