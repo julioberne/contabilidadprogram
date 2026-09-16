@@ -364,6 +364,75 @@ _P_MES = {"tipo": "mes", "descripcion": "Mes en formato YYYY-MM (por defecto: el
 _P_AGRUPAR = {"tipo": "opcion", "opciones": ["categoria", "tercero", "cuenta", "ninguno"],
               "descripcion": "Cómo desglosar el total (por defecto: categoria)", "requerido": False}
 
+# Plantillas SQL "para humanos" (pedido de Andrés 16-sep): la consulta real de
+# cada métrica, condensada y con {parámetros} marcados, para mostrarla en el
+# módulo — la auditabilidad visible. [..] = solo si el usuario filtró empresa.
+# "cop" abrevia: t.transaction_currency IS DISTINCT FROM 'USD' (el USD se
+# cuenta aparte, jamás se suma al COP).
+
+_SQL_RESUMEN = """\
+SELECT COUNT(*)              FILTER (WHERE cop),
+       SUM(t.net_value)      FILTER (WHERE upper(t.type)='INGRESO' AND cop),
+       SUM(t.net_value)      FILTER (WHERE upper(t.type)='GASTO'   AND cop),
+       MIN(t.transaction_date), MAX(t.transaction_date)
+  FROM transactions t
+ WHERE t.transaction_date BETWEEN {desde} AND {hasta}
+   [AND t.portfolio_id = {empresa}]"""
+
+_SQL_MOVIMIENTO = """\
+SELECT {agrupar_por},                       -- categoría | tercero | cuenta
+       SUM(t.net_value) FILTER (WHERE cop),
+       COUNT(*)         FILTER (WHERE cop)
+  FROM transactions t
+  [LEFT JOIN third_parties / user_accounts según agrupar_por]
+ WHERE upper(t.type) = '{TIPO}'
+   AND t.transaction_date BETWEEN {mes}-01 AND fin de {mes}
+   [AND t.portfolio_id = {empresa}]
+ GROUP BY 1  ORDER BY 2 DESC"""
+
+_SQL_VARIACION = """\
+-- la misma consulta corre 2 veces: {mes} y el mes anterior
+SELECT COUNT(*) FILTER (WHERE cop), SUM(t.net_value) FILTER (WHERE cop)
+  FROM transactions t
+ WHERE upper(t.type) = {tipo}
+   AND t.transaction_date BETWEEN inicio AND fin del mes
+   [AND t.portfolio_id = {empresa}]
+-- delta y % en Python; sin mes base => % = null (no se inventa)"""
+
+_SQL_FLUJO = """\
+SELECT to_char(t.transaction_date, 'YYYY-MM'),
+       SUM(t.net_value) FILTER (WHERE upper(t.type)='INGRESO' AND cop),
+       SUM(t.net_value) FILTER (WHERE upper(t.type)='GASTO'   AND cop),
+       COUNT(*)         FILTER (WHERE cop)
+  FROM transactions t
+ WHERE t.transaction_date BETWEEN hace {meses} meses AND hoy
+   [AND t.portfolio_id = {empresa}]
+ GROUP BY 1  ORDER BY 1"""
+
+_SQL_BALANCE = """\
+SELECT name, current_balance, currency, type
+  FROM user_accounts
+ ORDER BY current_balance DESC
+-- las cuentas son globales: no existe filtro de empresa (se avisa en la nota)"""
+
+_SQL_CARTERA = """\
+SELECT COUNT(*)                 FILTER (WHERE l.due_date < CURRENT_DATE),
+       SUM(l.remaining_balance) FILTER (WHERE l.due_date < CURRENT_DATE),
+       COUNT(*), SUM(l.remaining_balance)
+  FROM cxp_cxc_ledger l
+  LEFT JOIN transactions t ON t.id = l.transaction_id
+ WHERE l.type = 'CXC' AND l.status NOT IN ('PAGADO', 'CANCELADO')
+   [AND t.portfolio_id = {empresa}]
+-- + top 10 clientes: mismo WHERE + JOIN third_parties, GROUP BY nombre"""
+
+_SQL_CALIDAD = """\
+SELECT COUNT(*),
+       COUNT(*) FILTER (WHERE btrim(t.category) = '' OR t.category IS NULL),
+       COUNT(*) FILTER (WHERE sin archivo NI evidencias adjuntas)
+  FROM transactions t
+ WHERE TRUE [AND t.portfolio_id = {empresa}]
+-- + terceros (global): número provisional 'SN-%' y nombres duplicados"""
+
 CATALOGO: Dict[str, Dict[str, Any]] = {
     "resumen_periodo": {
         "etiqueta": "Resumen del periodo",
@@ -373,18 +442,21 @@ CATALOGO: Dict[str, Dict[str, Any]] = {
             "hasta": {"tipo": "fecha", "descripcion": "Fecha final YYYY-MM-DD", "requerido": False},
         },
         "fn": _resumen_periodo,
+        "sql": _SQL_RESUMEN,
     },
     "gasto_mes": {
         "etiqueta": "Gasto del mes",
         "descripcion": "Total gastado en un mes, desglosado por categoría, tercero o cuenta.",
         "params": {"mes": _P_MES, "agrupar_por": _P_AGRUPAR},
         "fn": _gasto_mes,
+        "sql": _SQL_MOVIMIENTO,
     },
     "ingreso_mes": {
         "etiqueta": "Ingreso del mes",
         "descripcion": "Total de ingresos de un mes, desglosado por categoría, tercero o cuenta.",
         "params": {"mes": _P_MES, "agrupar_por": _P_AGRUPAR},
         "fn": _ingreso_mes,
+        "sql": _SQL_MOVIMIENTO,
     },
     "variacion_mensual": {
         "etiqueta": "Variación mes a mes",
@@ -395,6 +467,7 @@ CATALOGO: Dict[str, Dict[str, Any]] = {
             "mes": _P_MES,
         },
         "fn": _variacion_mensual,
+        "sql": _SQL_VARIACION,
     },
     "flujo_mensual": {
         "etiqueta": "Flujo mensual",
@@ -404,24 +477,28 @@ CATALOGO: Dict[str, Dict[str, Any]] = {
                       "descripcion": "Cuántos meses hacia atrás (1-36)", "requerido": False},
         },
         "fn": _flujo_mensual,
+        "sql": _SQL_FLUJO,
     },
     "balance_cuentas": {
         "etiqueta": "Balance por cuenta",
         "descripcion": "Saldo actual de cada cuenta (bancos, efectivo, tarjetas) y total en COP.",
         "params": {},
         "fn": _balance_cuentas,
+        "sql": _SQL_BALANCE,
     },
     "cartera_vencida": {
         "etiqueta": "Cartera vencida",
         "descripcion": "Cuentas por cobrar vencidas: monto, % sobre lo pendiente y top clientes.",
         "params": {},
         "fn": _cartera_vencida,
+        "sql": _SQL_CARTERA,
     },
     "calidad_datos": {
         "etiqueta": "Calidad de datos",
         "descripcion": "TXs sin categoría o sin evidencia y terceros provisionales o duplicados.",
         "params": {},
         "fn": _calidad_datos,
+        "sql": _SQL_CALIDAD,
     },
 }
 
@@ -430,7 +507,7 @@ def catalogo_publico() -> List[Dict[str, Any]]:
     """El catálogo sin las funciones (para GET /api/analytics/catalog y el prompt)."""
     return [
         {"id": mid, "etiqueta": m["etiqueta"], "descripcion": m["descripcion"],
-         "params": m["params"]}
+         "params": m["params"], "sql": m.get("sql", "")}
         for mid, m in CATALOGO.items()
     ]
 

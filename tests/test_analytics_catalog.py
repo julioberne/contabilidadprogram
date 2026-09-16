@@ -65,6 +65,9 @@ class TestCatalogo(unittest.TestCase):
         for m in publico:
             self.assertNotIn("fn", m)          # la función jamás viaja al cliente
             self.assertTrue(m["descripcion"])
+            # Auditabilidad visible (16-sep): cada métrica publica su SQL
+            self.assertIn("SELECT", m["sql"])
+            self.assertIn("FROM", m["sql"])
 
     def test_prompt_incluye_todas_las_metricas(self):
         prompt = catalogo_para_prompt()

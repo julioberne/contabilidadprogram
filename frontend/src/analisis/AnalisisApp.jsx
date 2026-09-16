@@ -202,14 +202,17 @@ export default function AnalisisApp({ user }) {
             {Array.isArray(catalogo) && (
               <div className="grid gap-1 sm:grid-cols-2">
                 {catalogo.map((m) => (
-                  <button key={m.id} type="button"
-                    onClick={() => setPregunta(m.etiqueta)}
-                    className="text-left bg-white border-2 border-black p-2 hover:bg-brutalNeutral">
-                    <div className="flex flex-wrap items-baseline gap-1">
-                      <span className="font-bold text-[11px]">{m.etiqueta}</span>
-                      <span className="text-[9px] bg-black text-white px-1">{m.id}</span>
-                    </div>
-                    <div className="text-[10px] text-gray-700 mt-0.5">{m.descripcion}</div>
+                  <div key={m.id} className="bg-white border-2 border-black p-2">
+                    <button type="button"
+                      onClick={() => setPregunta(m.etiqueta)}
+                      title="Clic para poner esta métrica en el cuadro de pregunta"
+                      className="text-left w-full hover:bg-brutalNeutral">
+                      <div className="flex flex-wrap items-baseline gap-1">
+                        <span className="font-bold text-[11px]">{m.etiqueta}</span>
+                        <span className="text-[9px] bg-black text-white px-1">{m.id}</span>
+                      </div>
+                      <div className="text-[10px] text-gray-700 mt-0.5">{m.descripcion}</div>
+                    </button>
                     {Object.keys(m.params || {}).length > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">
                         {Object.entries(m.params).map(([nombre, p]) => (
@@ -221,7 +224,17 @@ export default function AnalisisApp({ user }) {
                         ))}
                       </div>
                     )}
-                  </button>
+                    {m.sql && (
+                      <details className="mt-1">
+                        <summary className="text-[9px] font-bold cursor-pointer select-none hover:bg-brutalAmber inline-block px-1 border border-black">
+                          ⌕ VER SQL AUDITABLE
+                        </summary>
+                        {/* La consulta real condensada: {param} = parámetro; [..] = solo con empresa filtrada;
+                            "cop" = transaction_currency IS DISTINCT FROM 'USD' */}
+                        <pre className="mt-1 bg-black text-green-400 text-[9px] leading-snug p-1.5 overflow-x-auto">{m.sql}</pre>
+                      </details>
+                    )}
+                  </div>
                 ))}
               </div>
             )}
