@@ -39,6 +39,10 @@ export default function AnalisisApp({ user }) {
   const [respuesta, setRespuesta] = useState(null);
   const [errorPregunta, setErrorPregunta] = useState('');
 
+  // ── Catálogo de métricas (el menú completo de lo que se puede preguntar) ──
+  const [catalogo, setCatalogo] = useState(null);       // null = aún no cargado
+  const [verCatalogo, setVerCatalogo] = useState(false);
+
   // Carga del explorador: WASM + dataset → tabla → viewer → vista inicial.
   useEffect(() => {
     let cancelado = false;
@@ -107,6 +111,15 @@ export default function AnalisisApp({ user }) {
     }
   }, [nombreNuevo]);
 
+  const onVerCatalogo = useCallback(() => {
+    setVerCatalogo((v) => !v);
+    if (catalogo === null) {
+      api.get('/analytics/catalog')
+        .then((d) => setCatalogo(Array.isArray(d?.metricas) ? d.metricas : []))
+        .catch((e) => setCatalogo({ error: e.message || 'No se pudo cargar el catálogo.' }));
+    }
+  }, [catalogo]);
+
   const onPreguntar = useCallback(async (ev) => {
     ev?.preventDefault?.();
     const q = pregunta.trim();
@@ -169,7 +182,51 @@ export default function AnalisisApp({ user }) {
             className={`${btn} ${preguntando ? 'bg-brutalNeutral' : 'bg-black text-white hover:bg-brutalAmber hover:text-black'}`}>
             {preguntando ? 'CALCULANDO…' : 'PREGUNTAR'}
           </button>
+          <button type="button" onClick={onVerCatalogo}
+            title="Qué se puede preguntar: el menú completo de métricas del backend"
+            className={`${btn} ${verCatalogo ? 'bg-brutalAmber' : 'bg-white hover:bg-brutalNeutral'}`}>
+            📖 CATÁLOGO
+          </button>
         </div>
+        {verCatalogo && (
+          <div className="border-2 border-black p-2 bg-brutalBg space-y-1">
+            <div className="text-[10px]">
+              <b>El menú de métricas.</b> La IA solo puede ELEGIR de esta lista (jamás calcula por
+              su cuenta) — si tu pregunta no cae en ninguna, te lo dice honestamente. Clic en una
+              para ponerla en el cuadro.
+            </div>
+            {catalogo === null && <div className="text-[10px]">Cargando catálogo…</div>}
+            {catalogo?.error && (
+              <div className="bg-brutalCrimson text-white border-2 border-black p-1 text-[10px]">{catalogo.error}</div>
+            )}
+            {Array.isArray(catalogo) && (
+              <div className="grid gap-1 sm:grid-cols-2">
+                {catalogo.map((m) => (
+                  <button key={m.id} type="button"
+                    onClick={() => setPregunta(m.etiqueta)}
+                    className="text-left bg-white border-2 border-black p-2 hover:bg-brutalNeutral">
+                    <div className="flex flex-wrap items-baseline gap-1">
+                      <span className="font-bold text-[11px]">{m.etiqueta}</span>
+                      <span className="text-[9px] bg-black text-white px-1">{m.id}</span>
+                    </div>
+                    <div className="text-[10px] text-gray-700 mt-0.5">{m.descripcion}</div>
+                    {Object.keys(m.params || {}).length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {Object.entries(m.params).map(([nombre, p]) => (
+                          <span key={nombre} title={p.descripcion}
+                            className="text-[9px] border border-black px-1 bg-brutalBg">
+                            {nombre}: {p.opciones ? p.opciones.join('|') : p.tipo}
+                            {p.requerido ? '' : ' (opcional)'}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {errorPregunta && (
           <div className="bg-brutalCrimson text-white border-2 border-black p-1 text-[10px]">{errorPregunta}</div>
         )}
