@@ -63,11 +63,43 @@ def run_metric(req: MetricRequest, _user: dict = Depends(require_auth)):
 # Reusa obtener_transacciones(None) — la MISMA verdad que contabilidad.
 
 _ESQUEMA_DATASET = {
-    "empresa": "string", "fecha": "date", "tipo": "string", "categoria": "string",
-    "tercero": "string", "cuenta": "string", "metodo_pago": "string",
+    "empresa": "string", "portafolio": "string", "fecha": "date", "tipo": "string",
+    "categoria": "string", "tercero": "string", "cuenta": "string", "metodo_pago": "string",
     "concepto": "string", "etiquetas": "string", "moneda": "string",
     "monto": "float", "neto": "float", "iva": "float", "gmf": "float",
 }
+
+
+def _nombres_de_empresa() -> Dict[str, str]:
+    """portafolio contable → nombre de empresa del Control Tower.
+
+    El caso real (18-sep): las TXs viven en el portafolio interno "Negocio A"
+    (default histórico, no renombrable), pero Andrés lo conoce como
+    "Finanzas Personales Julian". El módulo debe hablar SU idioma; el nombre
+    interno queda visible en la columna `portafolio` (nada se esconde)."""
+    conn = None
+    try:
+        from database_driver import get_db_connection, release_db_connection
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT p.name, e.name
+              FROM entities e
+              JOIN portfolios p ON p.id = e.portfolio_id
+             WHERE e.portfolio_id IS NOT NULL;
+        """)
+        alias = {r[0]: (r[1] or "").strip() for r in cur.fetchall() if (r[1] or "").strip()}
+        cur.close()
+        return alias
+    except Exception:
+        return {}   # sin vínculo CT no se cae el dataset: queda el nombre interno
+    finally:
+        if conn is not None:
+            try:
+                from database_driver import release_db_connection
+                release_db_connection(conn)
+            except Exception:
+                pass
 
 
 def _num(x) -> float:
@@ -93,11 +125,14 @@ def get_dataset(_user: dict = Depends(require_auth)):
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"No pude leer las transacciones: {e}")
 
+    alias = _nombres_de_empresa()
     filas = []
     for t in txs:
         fecha = t.get("transaction_date")
+        portafolio = _texto(t.get("portfolio_name")) or "(sin portafolio)"
         filas.append({
-            "empresa": _texto(t.get("portfolio_name")) or "(sin empresa)",
+            "empresa": alias.get(portafolio, portafolio),
+            "portafolio": portafolio,
             "fecha": fecha.isoformat() if hasattr(fecha, "isoformat") else _texto(fecha),
             "tipo": _texto(t.get("type")),
             "categoria": _texto(t.get("category")).strip() or "(sin categoría)",

@@ -85,11 +85,23 @@ export default function AnalisisApp({ user }) {
     };
   }, []);
 
-  // Empresas para amarrar la pregunta (selector del usuario, no de la IA)
+  // Empresas para amarrar la pregunta (selector del usuario, no de la IA).
+  // Se muestran con el nombre del Control Tower cuando el portafolio está
+  // vinculado (ej: "Negocio A" → "Finanzas Personales Julian") — el mismo
+  // idioma que Contabilidad; el id sigue siendo el del portafolio contable.
   useEffect(() => {
-    api.get('/portfolios')
-      .then((p) => setPortfolios(Array.isArray(p) ? p : []))
-      .catch(() => {});
+    Promise.all([
+      api.get('/portfolios').catch(() => []),
+      api.get('/org/entities').catch(() => []),
+    ]).then(([ports, ents]) => {
+      const alias = {};
+      (Array.isArray(ents) ? ents : []).forEach((e) => {
+        if (e?.portfolio_id != null && e?.name) alias[e.portfolio_id] = e.name.trim();
+      });
+      setPortfolios((Array.isArray(ports) ? ports : []).map((p) => ({
+        ...p, etiqueta: alias[p.id] || p.name,
+      })));
+    });
   }, []);
 
   const aplicarVista = useCallback(async (nombre, config) => {
@@ -169,7 +181,7 @@ export default function AnalisisApp({ user }) {
           >
             <option value="">Todas las empresas</option>
             {portfolios.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
+              <option key={p.id} value={p.id}>{p.etiqueta || p.name}</option>
             ))}
           </select>
           <input
