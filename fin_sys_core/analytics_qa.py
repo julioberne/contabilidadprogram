@@ -81,6 +81,13 @@ def _texto_respuesta(r: Dict[str, Any]) -> str:
         if clientes:
             top = ", ".join(f"{c['etiqueta']} ({_fmt_cop(c['valor'])})" for c in clientes[:3])
             partes.append(f"Mayores deudores: {top}.")
+    elif m == "conteo_terceros" and isinstance(v, dict):
+        mes_txt = f" en {v['mes']}" if v.get("mes") else ""
+        partes.append(
+            f"Terceros registrados: {v.get('total_terceros')} "
+            f"({v.get('provisionales')} con número provisional). "
+            f"Con movimiento{mes_txt}: {v.get('con_movimiento')}."
+        )
     elif m == "calidad_datos" and isinstance(v, dict):
         partes.append(
             f"De {v.get('txs_total')} transacciones: {v.get('txs_sin_categoria')} sin categoría "

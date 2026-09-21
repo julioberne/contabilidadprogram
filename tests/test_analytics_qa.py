@@ -137,6 +137,20 @@ class TestTextoRespuesta(unittest.TestCase):
              "origen": {"sello": "según 2 TXs de 2026-08-01 a 2026-09-30"}}
         self.assertIn("sin base de comparación", _texto_respuesta(r))
 
+    def test_conteo_terceros(self):
+        r = {"metrica": "conteo_terceros", "etiqueta": "Conteo de terceros", "unidad": "terceros",
+             "valor": 12,
+             "valores": {"total_terceros": 12, "provisionales": 3, "con_movimiento": 8,
+                         "mes": "2026-09"},
+             "nota": "El total de terceros es global (los terceros no tienen empresa).",
+             "origen": {"sello": "según 40 TXs de 2026-01-05 a 2026-09-14"}}
+        texto = _texto_respuesta(r)
+        self.assertIn("Terceros registrados: 12", texto)
+        self.assertIn("3 con número provisional", texto)
+        self.assertIn("Con movimiento en 2026-09: 8", texto)
+        self.assertNotIn("$", texto.split("—")[0])           # conteo, jamás dinero
+        self.assertIn("según 40 TXs", texto)
+
 
 class TestGrafica(unittest.TestCase):
 

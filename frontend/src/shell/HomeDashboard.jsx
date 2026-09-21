@@ -54,9 +54,10 @@ function ModuleCard({ mod, onNavigate }) {
 
 /* ── Componente principal ────────────────────────────────── */
 export default function HomeDashboard({ user, onNavigate, enabledIds }) {
-  const [kpis,    setKpis]    = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [clock,   setClock]   = useState(new Date());
+  const [kpis,     setKpis]     = useState(null);
+  const [insights, setInsights] = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [clock,    setClock]    = useState(new Date());
 
   // Reloj
   useEffect(() => {
@@ -71,9 +72,12 @@ export default function HomeDashboard({ user, onNavigate, enabledIds }) {
         // 2026-09-15: KPIs consolidados (todos los portafolios) con la misma
         // matemática del dashboard, en un viaje a la BD. Antes: "Negocio A"
         // hardcodeado y /portfolios/balance con patrimonio sin filtrar (DT-32).
-        const [balRes, hrRes] = await Promise.allSettled([
+        const [balRes, hrRes, insRes] = await Promise.allSettled([
           fetch(`${API}/dashboard-data/balance`),
           fetch(`${API}/hr/employees/summary`),
+          // Hito 2 (Análisis Inteligente): tarjetas automáticas del catálogo.
+          // Si el endpoint falla o no existe, la Home sigue igual que antes.
+          fetch(`${API}/analytics/insights`),
         ]);
 
         const balData = balRes.status === 'fulfilled' && balRes.value.ok
@@ -85,7 +89,12 @@ export default function HomeDashboard({ user, onNavigate, enabledIds }) {
           ? await hrRes.value.json()
           : null;
 
+        const ins = insRes.status === 'fulfilled' && insRes.value.ok
+          ? await insRes.value.json()
+          : null;
+
         setKpis({ bal, hr });
+        setInsights(Array.isArray(ins?.insights) ? ins.insights : []);
       } catch (e) {
         setKpis({});
       } finally {
@@ -176,6 +185,31 @@ export default function HomeDashboard({ user, onNavigate, enabledIds }) {
           />
         </div>
       </div>
+
+      {/* ── Insights automáticos (Análisis Inteligente, hito 2) ── */}
+      {insights.length > 0 && (
+        <div>
+          <div className="home-section-header">
+            <span className="home-section-title">INSIGHTS AUTOMÁTICOS</span>
+            <div className="home-section-line" />
+            <span style={{ fontSize: 9, color: 'var(--shell-dim)', whiteSpace: 'nowrap' }}>
+              ∑ ANÁLISIS · CIFRAS DEL CATÁLOGO
+            </span>
+          </div>
+          <div className="home-kpis">
+            {insights.map(i => (
+              <KpiCard
+                key={i.id}
+                id={`insight-${i.id}`}
+                label={(i.titulo || '').toUpperCase()}
+                value={i.cifra ?? '—'}
+                sub={i.sello ? `${i.texto} — ${i.sello}` : i.texto}
+                color={i.nivel === 'alerta' ? 'amber' : i.nivel === 'ok' ? 'green' : 'white'}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Módulos Launchpad ────────────────────── */}
       <div>

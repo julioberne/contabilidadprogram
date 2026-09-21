@@ -58,7 +58,8 @@ class TestCatalogo(unittest.TestCase):
 
     def test_catalogo_completo_y_publico_sin_funciones(self):
         esperadas = {"resumen_periodo", "gasto_mes", "ingreso_mes", "variacion_mensual",
-                     "flujo_mensual", "balance_cuentas", "cartera_vencida", "calidad_datos"}
+                     "flujo_mensual", "balance_cuentas", "cartera_vencida", "calidad_datos",
+                     "conteo_terceros"}
         self.assertEqual(set(CATALOGO), esperadas)
         publico = catalogo_publico()
         self.assertEqual({m["id"] for m in publico}, esperadas)
@@ -234,6 +235,35 @@ class TestBalanceYCalidad(unittest.TestCase):
         self.assertEqual(v["terceros_numero_provisional"], 4)
         self.assertEqual(v["terceros_nombres_duplicados"], 2)
         self.assertEqual(res["origen"]["sello"], "según 120 TXs de 2026-01-05 a 2026-09-14")
+
+
+class TestConteoTerceros(unittest.TestCase):
+    """Primera métrica nacida de la bitácora (hito 2)."""
+
+    def test_totales_y_sello(self):
+        cur = FakeCursor(fetchones=[
+            (12, 3),                                        # total, provisionales (global)
+            (8, 40, datetime.date(2026, 1, 5), datetime.date(2026, 9, 14)),
+        ])
+        res, cur = correr("conteo_terceros", cur=cur)
+        v = res["valores"]
+        self.assertEqual(v["total_terceros"], 12)
+        self.assertEqual(v["provisionales"], 3)
+        self.assertEqual(v["con_movimiento"], 8)
+        self.assertEqual(res["valor"], 12)
+        self.assertEqual(res["unidad"], "terceros")         # jamás se disfraza de COP
+        self.assertEqual(res["origen"]["sello"], "según 40 TXs de 2026-01-05 a 2026-09-14")
+        self.assertIn("global", res["nota"])
+
+    def test_mes_y_empresa_solo_afectan_con_movimiento(self):
+        cur = FakeCursor(fetchones=[(12, 3), (2, 5, datetime.date(2026, 9, 1), datetime.date(2026, 9, 10))])
+        res, cur = correr("conteo_terceros", {"mes": "2026-09"}, portfolio_id=7, cur=cur)
+        sql_global, params_global = cur.ejecutadas[0]
+        self.assertNotIn("portfolio_id", sql_global)        # el total es global
+        sql_mov, params_mov = cur.ejecutadas[1]
+        self.assertIn("t.portfolio_id = %s", sql_mov)
+        self.assertEqual(params_mov, ["2026-09-01", "2026-09-30", 7])
+        self.assertIn("con movimiento", res["nota"].lower())
 
 
 class TestFlujoMensual(unittest.TestCase):

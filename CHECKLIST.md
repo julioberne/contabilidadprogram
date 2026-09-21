@@ -10,7 +10,7 @@
 
 | Dónde | Estado |
 |---|---|
-| rama `claude/intelligent-ellis-79a132` (worktree) | **Análisis Inteligente hito 1 (B0+B2+B3) SIN push** (15-sep): catálogo whitelisted de 8 métricas + módulo web 13 "Análisis" (Perspective WASM) + preguntas en español con gráfica del backend. Verificado e2e en :8001 contra Supabase real. Push: `git push origin claude/intelligent-ellis-79a132:master` → deploy `scratch/deploy_prod.py` (pip instala matplotlib/pillow nuevos en la imagen) |
+| rama `claude/intelligent-ellis-79a132` (worktree) | **Análisis Inteligente hito 2 (B1) SIN push** (21-sep): insights automáticos (`insight_engine.py` + tarjetas en la Home) · resumen periódico por Telegram (tick en el poller, `ANALYTICS_RESUMEN_HORAS`, default 24h) · pestaña 🗒 BITÁCORA en el módulo · métrica 9 `conteo_terceros` (nacida de la bitácora). Verificado e2e en :8000 contra Supabase real. Push: `git push origin claude/intelligent-ellis-79a132:master` → deploy `scratch/deploy_prod.py` |
 | `origin/master` = producción :8080 | desplegado y verificado 15 sep (`b4e7379`): cimientos (un solo pool, dashboard 1 viaje, TX+asiento atómicos, contra-asiento, auth en GETs) + módulo 12 Contadores. Deploy: `scratch/deploy_prod.py` (agente, tras cada push); push: Andrés |
 | BD Supabase | compartida local↔prod · **reiniciada con `feat(reset)`: 0 TXs** · 6 entidades CT (2 vinculadas) · 5 cuentas · 4 portafolios · patrimonio $1.000.000 (verificado 26 ago) |
 
@@ -26,7 +26,7 @@
 | 10 | Trading NASDAQ | 🔵 PLANIFICADO | — |
 | 11 | Reportes PDF/Excel · Facturación B2B | 🔵 PLANIFICADO | — |
 | 12 | Contadores (bandeja de asientos BORRADOR→CONTABILIZADO, diario, plan de cuentas, reglas, reportes, cierres) | ✅ v1 (15-sep) — rol `contador` | `frontend/src/contadores/`, `routers/contadores.py`, `kernel/kernel_journal_workflow.py`, `kernel/kernel_periods.py`, `kernel/kernel_reports.py`, `fin_sys_core/coa_admin_driver.py` |
-| 13 | Análisis Inteligente (catálogo de métricas whitelisted · explorador Perspective WASM · preguntas en español con sello de origen y gráfica matplotlib del backend) | ✅ hito 1 = web punto-a-punto (15-sep) · hito 2: insights+Telegram · hito 3: bot pregunta/foto | `fin_sys_core/metrics_catalog.py`, `fin_sys_core/analytics_qa.py`, `routers/analytics.py`, `frontend/src/analisis/` |
+| 13 | Análisis Inteligente (catálogo de 9 métricas whitelisted · explorador Perspective WASM · preguntas en español con sello de origen y gráfica matplotlib · insights automáticos en la Home · resumen por Telegram · bitácora de preguntas 30 días) | ✅ hito 1 web (15-sep) · ✅ hito 2 insights+Telegram (21-sep) · hito 3: bot pregunta/foto | `fin_sys_core/metrics_catalog.py`, `fin_sys_core/analytics_qa.py`, `fin_sys_core/insight_engine.py`, `routers/analytics.py`, `frontend/src/analisis/` |
 
 ---
 
@@ -125,7 +125,7 @@ python -m kernel.test_kernel                                                   #
 python tests/test_core.py                                                      # 5/5 motor matemático
 python -m unittest tests.test_single_module_identity tests.test_tx_atomica tests.test_dashboard_snapshot tests.test_db_pool_fallback   # un solo pool, TX+asiento atómicos, snapshot
 python -m unittest tests.test_bot_driver tests.test_bot_confirmation tests.test_bot_resolvers
-python -m unittest tests.test_analytics_catalog tests.test_analytics_qa               # 36/36 Análisis: catálogo + traductor (LLM mockeado) + gráfica
+python -m unittest tests.test_analytics_catalog tests.test_analytics_qa tests.test_insight_engine   # 55/55 Análisis: catálogo + traductor (LLM mockeado) + gráfica + insights/tick Telegram
 python tests/test_contadores.py                                                # 15/15 módulo Contadores (BD real, limpia sus filas)
 python scripts/verify_dashboard_parity.py                                      # 0 diffs legacy vs rápido
 python tests/test_e2e.py                                                       # ⚠️ crea y BORRA una TX real — FINSYS_BASE=http://127.0.0.1:8001 y FINSYS_ADMIN_PASSWORD=... para probar el borrado por API

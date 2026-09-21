@@ -43,6 +43,10 @@ export default function AnalisisApp({ user }) {
   const [catalogo, setCatalogo] = useState(null);       // null = aún no cargado
   const [verCatalogo, setVerCatalogo] = useState(false);
 
+  // ── Bitácora de preguntas sin responder (hito 2: retención 30 días) ──
+  const [bitacora, setBitacora] = useState(null);       // null = aún no cargada
+  const [verBitacora, setVerBitacora] = useState(false);
+
   // Carga del explorador: WASM + dataset → tabla → viewer → vista inicial.
   useEffect(() => {
     let cancelado = false;
@@ -132,6 +136,16 @@ export default function AnalisisApp({ user }) {
     }
   }, [catalogo]);
 
+  const onVerBitacora = useCallback(() => {
+    setVerBitacora((v) => !v);
+    if (!verBitacora) {
+      // Siempre fresca al abrir: es la lista de trabajo para métricas nuevas.
+      api.get('/analytics/preguntas-log')
+        .then((d) => setBitacora(d))
+        .catch((e) => setBitacora({ error: e.message || 'No se pudo cargar la bitácora.' }));
+    }
+  }, [verBitacora]);
+
   const onPreguntar = useCallback(async (ev) => {
     ev?.preventDefault?.();
     const q = pregunta.trim();
@@ -199,7 +213,55 @@ export default function AnalisisApp({ user }) {
             className={`${btn} ${verCatalogo ? 'bg-brutalAmber' : 'bg-white hover:bg-brutalNeutral'}`}>
             📖 CATÁLOGO
           </button>
+          <button type="button" onClick={onVerBitacora}
+            title="Preguntas que no se pudieron responder (retención 30 días): el insumo para métricas nuevas"
+            className={`${btn} ${verBitacora ? 'bg-brutalAmber' : 'bg-white hover:bg-brutalNeutral'}`}>
+            🗒 BITÁCORA
+          </button>
         </div>
+        {verBitacora && (
+          <div className="border-2 border-black p-2 bg-brutalBg space-y-1">
+            <div className="text-[10px]">
+              <b>Preguntas sin responder.</b> Se guardan {bitacora?.retencion_dias ?? 30} días y
+              luego se purgan solas. Esta lista decide qué métricas nuevas amerita el catálogo.
+            </div>
+            {bitacora === null && <div className="text-[10px]">Cargando bitácora…</div>}
+            {bitacora?.error && (
+              <div className="bg-brutalCrimson text-white border-2 border-black p-1 text-[10px]">{bitacora.error}</div>
+            )}
+            {Array.isArray(bitacora?.preguntas) && (bitacora.preguntas.length === 0 ? (
+              <div className="text-[10px]">✔ Sin preguntas fallidas registradas — todo lo preguntado se pudo responder.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="text-[10px] border-collapse w-full bg-white">
+                  <thead>
+                    <tr className="bg-black text-white">
+                      <th className="border border-black px-1 text-left">FECHA</th>
+                      <th className="border border-black px-1 text-left">PREGUNTA</th>
+                      <th className="border border-black px-1 text-left">RESULTADO</th>
+                      <th className="border border-black px-1 text-left">DETALLE</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bitacora.preguntas.map((q) => (
+                      <tr key={q.id}>
+                        <td className="border border-black px-1 whitespace-nowrap">{(q.fecha || '').slice(0, 16)}</td>
+                        <td className="border border-black px-1 font-bold">{q.pregunta}</td>
+                        <td className="border border-black px-1 whitespace-nowrap">
+                          <span className={`px-1 ${q.resultado === 'SIN_METRICA' ? 'bg-brutalAmber' : 'bg-black text-white'}`}>
+                            {q.resultado}
+                          </span>
+                          {q.metrica ? <span className="ml-1 text-gray-600">({q.metrica})</span> : null}
+                        </td>
+                        <td className="border border-black px-1 text-gray-700">{q.detalle}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
+        )}
         {verCatalogo && (
           <div className="border-2 border-black p-2 bg-brutalBg space-y-1">
             <div className="text-[10px]">

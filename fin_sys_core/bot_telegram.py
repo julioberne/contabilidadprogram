@@ -253,8 +253,23 @@ def main():
 
     offset = None
     backoff = 1
+    proximo_tick = 0.0   # monotonic: throttle local del tick (la verdad vive en BD)
     while True:
         try:
+            # ── Resumen analítico periódico (hito 2, B1) ─────────────────
+            # Cada 15 min se consulta a la BD si ya tocan las
+            # ANALYTICS_RESUMEN_HORAS (default 24; 0 = apagado) desde el
+            # último envío — el tick es el "scheduler" del sistema y queda
+            # listo para los recordatorios de cartera de la Fase 2.
+            if time.monotonic() >= proximo_tick:
+                proximo_tick = time.monotonic() + 900
+                try:
+                    from insight_engine import tick_resumen_telegram
+                    if tick_resumen_telegram(send_message):
+                        print("📊 [TG] Resumen analítico enviado a los chats vinculados.")
+                except Exception as e:
+                    print(f"⚠️ [TG] tick del resumen falló (se reintenta): {e}")
+
             params = {"timeout": POLL_TIMEOUT}
             if offset is not None:
                 params["offset"] = offset

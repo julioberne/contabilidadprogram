@@ -156,6 +156,19 @@ def get_dataset(_user: dict = Depends(require_auth)):
     }
 
 
+# ── GET /api/analytics/insights ──────────────────────────────
+# Hito 2 (B1): tarjetas automáticas para el HomeDashboard. Las cifras salen
+# SOLO del catálogo (insight_engine no calcula nada por su cuenta).
+
+@router.get("/api/analytics/insights")
+def get_insights(portfolio_id: Optional[int] = None, _user: dict = Depends(require_auth)):
+    from insight_engine import generar_insights
+    try:
+        return generar_insights(portfolio_id=portfolio_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Los insights fallaron: {e}")
+
+
 # ── GET /api/analytics/preguntas-log ─────────────────────────
 # Bitácora de preguntas sin responder (retención 30 días): el insumo para
 # decidir qué métricas nuevas amerita el catálogo.

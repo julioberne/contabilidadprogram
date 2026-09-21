@@ -318,6 +318,49 @@ def _cartera_vencida(cur, portfolio_id, params):
     return res
 
 
+def _conteo_terceros(cur, portfolio_id, params):
+    # Primera métrica nacida de la BITÁCORA (pregunta sin responder del 16-sep):
+    # "total de terceros". El conteo de terceros es GLOBAL (no tienen empresa);
+    # el filtro de empresa/mes solo aplica a "con movimiento" (vía transactions).
+    mes = params.get("mes")
+    cur.execute("""
+        SELECT COUNT(*),
+               COUNT(*) FILTER (WHERE identification_number LIKE 'SN-%')
+          FROM third_parties;
+    """)
+    total, provisionales = cur.fetchone()
+
+    where_mes, mes_params = "", []
+    if mes:
+        desde, hasta = _rango_mes(mes)
+        where_mes = " AND t.transaction_date BETWEEN %s AND %s"
+        mes_params = [desde.isoformat(), hasta.isoformat()]
+    extra, extra_params = _where_portafolio(portfolio_id)
+    cur.execute(f"""
+        SELECT COUNT(DISTINCT t.third_party_id), COUNT(*),
+               MIN(t.transaction_date), MAX(t.transaction_date)
+          FROM transactions t
+         WHERE t.third_party_id IS NOT NULL{where_mes}{extra};
+    """, mes_params + extra_params)
+    con_mov, n_txs, d_min, d_max = cur.fetchone()
+
+    valores = {
+        "total_terceros": int(total or 0),
+        "provisionales": int(provisionales or 0),
+        "con_movimiento": int(con_mov or 0),
+        "mes": mes,
+    }
+    res = {"valor": int(total or 0), "unidad": "terceros", "valores": valores,
+           "origen": _sello(int(n_txs or 0), d_min, d_max)}
+    notas = ["El total de terceros es global (los terceros no tienen empresa)."]
+    if portfolio_id is not None:
+        notas.append("El filtro de empresa solo aplica a 'con movimiento'.")
+    if not valores["total_terceros"]:
+        notas = ["No hay terceros registrados."]
+    res["nota"] = " ".join(notas)
+    return res
+
+
 def _calidad_datos(cur, portfolio_id, params):
     extra, extra_params = _where_portafolio(portfolio_id)
     cur.execute(f"""
@@ -425,6 +468,16 @@ SELECT COUNT(*)                 FILTER (WHERE l.due_date < CURRENT_DATE),
    [AND t.portfolio_id = {empresa}]
 -- + top 10 clientes: mismo WHERE + JOIN third_parties, GROUP BY nombre"""
 
+_SQL_TERCEROS = """\
+SELECT COUNT(*),                    -- total global: los terceros no tienen empresa
+       COUNT(*) FILTER (WHERE identification_number LIKE 'SN-%')
+  FROM third_parties;
+SELECT COUNT(DISTINCT t.third_party_id)   -- cuántos se movieron
+  FROM transactions t
+ WHERE t.third_party_id IS NOT NULL
+   [AND t.transaction_date dentro de {mes}]
+   [AND t.portfolio_id = {empresa}]"""
+
 _SQL_CALIDAD = """\
 SELECT COUNT(*),
        COUNT(*) FILTER (WHERE btrim(t.category) = '' OR t.category IS NULL),
@@ -492,6 +545,13 @@ CATALOGO: Dict[str, Dict[str, Any]] = {
         "params": {},
         "fn": _cartera_vencida,
         "sql": _SQL_CARTERA,
+    },
+    "conteo_terceros": {
+        "etiqueta": "Conteo de terceros",
+        "descripcion": "Cuántos terceros (clientes/proveedores) hay registrados y cuántos tuvieron movimiento (opcionalmente en un mes).",
+        "params": {"mes": _P_MES},
+        "fn": _conteo_terceros,
+        "sql": _SQL_TERCEROS,
     },
     "calidad_datos": {
         "etiqueta": "Calidad de datos",
