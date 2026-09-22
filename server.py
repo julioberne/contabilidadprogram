@@ -93,6 +93,7 @@ from routers.module_flags import router as flags_router
 from routers.bot import router as bot_router
 from routers.contadores import router as contadores_router
 from routers.analytics import router as analytics_router
+from routers.webhooks_sms import router as webhooks_sms_router
 
 app.include_router(portfolios_router)
 app.include_router(transactions_router)
@@ -112,6 +113,7 @@ app.include_router(flags_router)
 app.include_router(bot_router)
 app.include_router(contadores_router)   # módulo 12: Contadores (B2)
 app.include_router(analytics_router)    # Análisis Inteligente (B0+B2+B3)
+app.include_router(webhooks_sms_router) # Bot IA 09.F: webhook SMS + tokens
 
 
 # ==============================================================================
@@ -163,6 +165,15 @@ def _startup():
         print("✅ Analytics: bitácora de preguntas sin responder lista (retención 30 días)")
     except Exception as e:
         print(f"⚠️ Analytics log init: {e}")
+
+    # ── Bot IA 09.F: tokens de SMS + columnas last4 de cuentas (self-heal;
+    #    el backfill lo hace scripts/migrate_sms_bancolombia.py) ──
+    try:
+        from fin_sys_core.bot_sms import init_sms_tables
+        init_sms_tables()
+        print("✅ Bot SMS: sms_ingest_tokens y user_accounts.last4_* listas")
+    except Exception as e:
+        print(f"⚠️ Bot SMS init: {e}")
 
     # ── Zero-COA: Registrar listener de partida doble ──
     try:

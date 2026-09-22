@@ -906,14 +906,19 @@ def _ejecutar_confirmacion(conn, cur, draft_id, payload, media_path,
     if not re.match(r"^\d{4}-\d{2}-\d{2}$", str(payload.get("transaction_date") or "")):
         return _revertir(conn, cur, draft_id, "Fecha inválida en el borrador (se espera YYYY-MM-DD).")
 
-    # 4. Cuenta desde payment_method (nunca confirmar sin cuenta → deuda DT-01).
-    #    Se re-resuelve al confirmar: las cuentas pueden haber cambiado desde
-    #    que se creó el borrador.
-    account_id, err = _resolver_cuenta(cur, payload.get("payment_method"))
-    if err:
-        return _revertir(conn, cur, draft_id,
-                         err + " Descarta el borrador y reenvía la operación "
-                               "nombrando una de tus cuentas.")
+    # 4. Cuenta (nunca confirmar sin cuenta → deuda DT-01).
+    #    Primero POR ID si el borrador la trae resuelta (etapa 09.F, D-09-03:
+    #    la cuenta se identifica por id y su nombre puede cambiar libremente;
+    #    editar_draft borra account_id cuando el humano cambia payment_method).
+    #    Si no, por payment_method como siempre — re-resuelto al confirmar
+    #    porque las cuentas pueden haber cambiado desde que nació el borrador.
+    account_id = _cuenta_existente(cur, payload.get("account_id"))
+    if account_id is None:
+        account_id, err = _resolver_cuenta(cur, payload.get("payment_method"))
+        if err:
+            return _revertir(conn, cur, draft_id,
+                             err + " Descarta el borrador y reenvía la operación "
+                                   "nombrando una de tus cuentas.")
 
     # 5. Contrato oficial + pipeline oficial (el mismo de la web)
     from routers.schemas import TransactionInput
@@ -930,6 +935,9 @@ def _ejecutar_confirmacion(conn, cur, draft_id, payload, media_path,
         apply_iva=bool(payload.get("apply_iva")),
         apply_gmf=bool(payload.get("apply_gmf")),
         account_id=account_id,
+        # Transferencia entre cuentas propias detectada por SMS (etapa 09.F)
+        dest_account_id=_cuenta_existente(cur, payload.get("dest_account_id")),
+        transaction_currency=payload.get("transaction_currency") or "COP",
         evidence_file_path=media_path,
         evidence_files=media_paths or None,   # Etapa E.3: TODAS las evidencias
         # Etapa E.2 (2026-09-08): sin esto, las etiquetas puestas por botón o
@@ -1044,6 +1052,10 @@ def editar_draft(draft_id: int, cambios: dict, hub_user_id=None) -> dict:
         payload = row[0] if isinstance(row[0], dict) else json.loads(row[0])
         editados = set(campos.keys())
         payload.update(campos)
+        if "payment_method" in campos:
+            # El humano cambió la cuenta por nombre: el id resuelto antes (SMS,
+            # etapa 09.F) deja de valer y se re-resuelve por nombre al confirmar.
+            payload["account_id"] = None
         if tercero:
             tp = payload.get("third_party") or {}
             tp.update({k: v for k, v in tercero.items()
@@ -1072,6 +1084,18 @@ def editar_draft(draft_id: int, cambios: dict, hub_user_id=None) -> dict:
         }
     finally:
         put_conn(conn)
+
+
+def _cuenta_existente(cur, account_id):
+    """→ el id si esa cuenta sigue existiendo en user_accounts; None si no
+    (cuenta borrada, id vacío o basura en el payload)."""
+    try:
+        account_id = int(account_id)
+    except (TypeError, ValueError):
+        return None
+    cur.execute("SELECT id FROM user_accounts WHERE id = %s", (account_id,))
+    row = cur.fetchone()
+    return row[0] if row else None
 
 
 def _revertir(conn, cur, draft_id, motivo: str) -> str:

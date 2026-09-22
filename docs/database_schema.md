@@ -400,3 +400,34 @@ CREATE TABLE hr_documents (
 - `hr_documents.file_url` puede ser:
   - URL pública del bucket `hr-docs` para archivos subidos por el usuario
   - `data:text/html;base64,...` para comprobantes HTML generados por el sistema
+
+---
+
+## MÓDULO BOT IA — Etapa 09.F (Tablas y columnas nuevas — Zero-Impact)
+
+> Spec: `docs/specs/09-bot-ia/09.F-sms-bancolombia.md` · Migración: `scripts/migrate_sms_bancolombia.py` (el server también auto-cura en `_startup()` vía `fin_sys_core/bot_sms.init_sms_tables`).
+
+### T. `sms_ingest_tokens` — Tokens del webhook de SMS (uno por teléfono)
+```sql
+CREATE TABLE IF NOT EXISTS sms_ingest_tokens (
+    id SERIAL PRIMARY KEY,
+    hub_user_id UUID NOT NULL REFERENCES hub_users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,                 -- sha256 hex; el token plano se muestra UNA vez
+    label TEXT,
+    sender_allowlist TEXT[] NOT NULL DEFAULT '{85540}',   -- remitentes permitidos (Bancolombia = 85540)
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    last_seen_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ                           -- NULL = vigente
+);
+```
+
+### Columnas nuevas en `user_accounts` (cuentas POR ID, D-09F-03)
+```sql
+ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS last4_cuenta  VARCHAR(4);  -- últimos 4 del número de cuenta
+ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS last4_tarjeta VARCHAR(4);  -- últimos 4 de la tarjeta asociada
+```
+El bot cruza el `*3037` del SMS con `last4_cuenta` y resuelve `account_id`; el nombre de la cuenta queda libre. Editables en 💳 Cuentas.
+
+### Uso de tablas existentes (sin cambios de esquema)
+- `bot_messages`: `channel='sms'`, `kind` ∈ `sms` (pendiente) · `sms_sin_chat` (sin link Telegram activo) · `sms_error` (falló al convertir) · `retencion_aviso` (salida de la purga); `raw_chat_id` = `hub_user_id`; `external_message_id` = sha256(remitente|texto|sentStamp)[:32] (dedupe por el índice único existente); `content` = JSON `{from, text, sentStamp}`.
+- `transaction_drafts`: `channel='sms'`, `raw_text` = SMS completo, `payload.sms = {familia, remitente, origen_last4, destino, hora}`, `payload.account_id` / `payload.dest_account_id` resueltos por id.

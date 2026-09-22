@@ -532,3 +532,25 @@ Vincula un documento existente como comprobante de un pago.
 **Response `200`**: `{ "status": "OK", "voucher_doc_id": 5 }`
 
 > Este endpoint es el paso final del flujo de generación de comprobantes en `HistorialTab.jsx`.
+
+---
+
+## 5. Bot IA (09) — Webhook de SMS bancarios (`/api/webhooks/sms*`)
+
+> Etapa 09.F · Spec: `docs/specs/09-bot-ia/09.F-sms-bancolombia.md` · Router: `routers/webhooks_sms.py`.
+> El webhook solo **encola** (bot_messages, channel `sms`); el poller de Telegram convierte y envía (≤ 45 s).
+
+### `POST /api/webhooks/sms`
+- **Auth**: header `X-SMS-Token` (token por teléfono, tabla `sms_ingest_tokens`).
+- **Body** (≤ 4096 bytes): `application/json` `{ "from": "85540", "text": "<SMS>", "sentStamp"?: "…" }` o `application/x-www-form-urlencoded` `from=…&text=…` (recomendado desde MacroDroid; también acepta `sms_number` / `sms_message`).
+- **Respuestas**: `202 {"status":"ACEPTADO","id":n,"chat_vinculado":bool}` · `202 {"status":"DUPLICADO"}` · `400` JSON inválido · `401` sin token / token inválido o revocado · `403` remitente fuera del allowlist · `413` cuerpo > 4 KB · `415` Content-Type no soportado · `422` texto vacío · `429` ≥ 60 SMS/min.
+
+### `POST /api/webhooks/sms/token` (sesión `Bearer`)
+- Body opcional `{ "label": "Moto", "remitentes": ["85540"] }` → `201 { id, token, label, remitentes, instrucciones }`. **El token plano solo se devuelve aquí.**
+
+### `GET /api/webhooks/sms/tokens` (sesión) → `[ { id, label, remitentes, created_at, last_seen_at, revoked_at } ]`
+
+### `DELETE /api/webhooks/sms/tokens/{id}` (sesión) → `{"status":"REVOCADO","id"}` · `404` si no existe o ya estaba revocado.
+
+### Cambios en `POST/PUT /api/accounts`
+`AccountInput` / `AccountUpdateInput` aceptan `last4_cuenta` y `last4_tarjeta` (4 dígitos; en PUT `""` borra, ausente no toca). `GET /api/accounts` devuelve ambos campos.

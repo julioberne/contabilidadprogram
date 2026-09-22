@@ -843,3 +843,54 @@ EXACTO (la reversa del 🗑 funciona). El único descuadre es la cuenta 2
 respaldo del 09-sep ($99.77M sin ninguna TX ≥$50M) — herencia vieja, no
 del eliminar. Decisión de Andrés pendiente (¿inicial=100M o reconciliar?);
 es el PRIMER punto de la próxima sesión (detalle en CHECKLIST §2).
+
+---
+
+## Checkpoint 2026-09-22 — Specs internos + Bot 09.F: SMS de Bancolombia → borradores automáticos
+
+Sesión de diseño + implementación. Investigación previa (deep research, 21-sep): no hay API
+bancaria para personas naturales, agregadores desde USD 1.000/mes, Google Pay sin API de
+historial → canal elegido: **solo SMS** (remitente 85540). Regla nueva **6b "El bot no adivina"**
+(dato estructurado en la web o se pide a mano; regex por familia; nada se descarta en silencio).
+
+### Sistema de specs internos (bd52f4c)
+`docs/specs/` con jerarquía 0-reglas / 1-módulo / 2-etapa, plantilla obligatoria, IDs `R-`/`D-`/`CA-`
+trazables; `09-bot-ia/SPEC.md` + specs 09.F (EN CURSO), 09.G y 09.H (planificadas: tercero/concepto
+por Telegram con `third_party_accounts`; OCR con botón, límites 5 MB / 50 por día, trabajo lento
+fuera del poller). Enlaces en WORKFLOW, CHECKLIST y `docs/bot_ia.md`.
+
+### Etapa 09.F implementada
+- `fin_sys_core/sms_bancolombia.py`: parser puro por familias (regex); familia `Transferiste`
+  confirmada con 3 SMS reales (año de 2 y 4 dígitos, montos `11,900.00` / `4,530,000`).
+- `fin_sys_core/bot_sms.py`: cuenta origen **por id** (`user_accounts.last4_cuenta`/`last4_tarjeta`,
+  D-09F-03), tercero por `third_parties.phone` (celular destino), transferencia entre cuentas propias
+  determinista, no reconocido → borrador sin monto/concepto, `procesar_pendientes(send_fn)` como tick
+  del poller (cada vuelta ≤ 45 s), fila envenenada → `sms_error` sin tumbar nada.
+- `routers/webhooks_sms.py`: `POST /api/webhooks/sms` (X-SMS-Token, JSON o form, ≤ 4 KB, allowlist,
+  429) + gestión de tokens; `server.py` registra el router y auto-cura tablas/columnas.
+- `bot_driver._ejecutar_confirmacion`: confirma por `payload.account_id` cuando existe (nombre libre);
+  `editar_draft` borra `account_id` si el humano cambia `payment_method`; `dest_account_id` y moneda
+  pasan al pipeline.
+- `fin_sys_core/bot_retencion.py`: 30/60/90 (ERROR = BORRADOR), aviso 💤 por chat, kill-switch
+  `BOT_RETENCION_ACTIVA`; `storage_media.eliminar_evidencia` best-effort.
+- Web: `last4_cuenta`/`last4_tarjeta` en `AccountInput`/`AccountUpdateInput`, escritas desde
+  `routers/profile_accounts.py` (driver 🔴 intacto), anotadas en `GET /api/accounts` sin tocar la
+  paridad del dashboard; inputs y chips en `CuentasTab.jsx`.
+- Scripts: `migrate_sms_bancolombia.py` (--dry-run; **aplicada**: backfill 3037 y 6552 desde el
+  nombre), `sms_token.py` (token #1 creado para andres@finsys.os), `sms_simular.py`.
+- CI: `test_sms_bancolombia`, `test_bot_sms`, `test_webhooks_sms` añadidos.
+
+### Verificación
+199 unittest (60 nuevos: 11 parser + 16 mapeo + 15 webhook + 13 tick/confirmación por id con BD +
+5 retención con BD) + compileall + `import server` + 61 vitest + build. E2E local en :8001:
+simulador → 4× 202 (+ DUPLICADO, 401, 403, 413) → poller convirtió los 4 en borradores #98–#101 y
+los envió al chat real (message_id 626–629); #101 (SMS inventado) descartado; #98–#100 son
+transferencias reales de Andrés del 21-sep y quedan en su bandeja para completar tercero/concepto.
+Confirmación por id verificada con doble de `create_transaction` (sin transacción real).
+Hallazgo operativo: al lanzar el poller en segundo plano desde la herramienta aparecieron DOS
+procesos con el mismo token (409); quedaron detenidos — Andrés arranca el suyo cuando lo necesite.
+
+### Pendiente para cerrar 09.F (CA-09F-10)
+Teléfono: `cloudflared tunnel --url http://localhost:8000` + macro de MacroDroid (SMS de 85540 →
+POST form-urlencoded con `X-SMS-Token`) + un SMS real. Producción solo con dominio + HTTPS en Dokploy.
+Muestras pendientes de Andrés: un SMS de **retiro** y uno de **compra con tarjeta** (nuevas familias).

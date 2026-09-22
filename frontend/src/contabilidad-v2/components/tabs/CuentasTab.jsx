@@ -173,7 +173,9 @@ export default function CuentasTab({
   const startEdit = (acc) => {
     setEditingId(acc.id);
     setDraft({ name: acc.name, type: acc.type, current_balance: acc.current_balance,
-               initial_balance: acc.initial_balance });
+               initial_balance: acc.initial_balance,
+               // Etapa 09.F: últimos 4 dígitos (el bot cruza los SMS del banco por aquí)
+               last4_cuenta: acc.last4_cuenta || '', last4_tarjeta: acc.last4_tarjeta || '' });
   };
 
   const saveEdit = async (id) => {
@@ -185,6 +187,9 @@ export default function CuentasTab({
       // Saldo INICIAL = el punto de partida del cálculo esperado.
       initial_balance: draft.initial_balance === '' || draft.initial_balance === undefined
         ? null : Number(draft.initial_balance),
+      // "" = borrar el dato; 4 dígitos = fijar (el backend valida)
+      last4_cuenta: (draft.last4_cuenta ?? '').trim(),
+      last4_tarjeta: (draft.last4_tarjeta ?? '').trim(),
     });
     if (ok) setEditingId(null);
   };
@@ -333,6 +338,18 @@ export default function CuentasTab({
                   <td className="p-1 border-r border-black">
                     <input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
                       className="w-full border border-black px-1 text-[10px] font-mono outline-none" />
+                    <div className="flex gap-1 mt-0.5">
+                      <input value={draft.last4_cuenta} maxLength={4} inputMode="numeric"
+                        onChange={e => setDraft(d => ({ ...d, last4_cuenta: e.target.value.replace(/\D/g, '') }))}
+                        title="Últimos 4 dígitos del NÚMERO DE CUENTA. El bot cruza los SMS del banco por aquí (cuenta por id: el nombre puede cambiar). Vacío = sin dato."
+                        placeholder="🏦 ····cuenta"
+                        className="w-1/2 border border-dashed border-black px-1 text-[9px] font-mono outline-none bg-yellow-50" />
+                      <input value={draft.last4_tarjeta} maxLength={4} inputMode="numeric"
+                        onChange={e => setDraft(d => ({ ...d, last4_tarjeta: e.target.value.replace(/\D/g, '') }))}
+                        title="Últimos 4 dígitos de la TARJETA asociada (débito o crédito). Vacío = sin dato."
+                        placeholder="💳 ····tarjeta"
+                        className="w-1/2 border border-dashed border-black px-1 text-[9px] font-mono outline-none bg-yellow-50" />
+                    </div>
                   </td>
                   <td className="p-1 border-r border-black">
                     <select value={draft.type} onChange={e => setDraft(d => ({ ...d, type: e.target.value }))}
@@ -365,6 +382,12 @@ export default function CuentasTab({
               <tr key={acc.id} className={alerta ? 'bg-red-50' : cuadra ? 'hover:bg-brutalBg' : 'bg-amber-50'}>
                 <td className="p-1 border-r border-black">
                   <div className="font-bold">{alerta && <span title="Sobregirada">⚠ </span>}{acc.name}</div>
+                  {(acc.last4_cuenta || acc.last4_tarjeta) && (
+                    <div className="text-[8px] text-gray-600 font-mono">
+                      {acc.last4_cuenta && <span title="Últimos 4 dígitos de la cuenta (los SMS del banco se cruzan por aquí)" className="mr-1">🏦 ····{acc.last4_cuenta}</span>}
+                      {acc.last4_tarjeta && <span title="Últimos 4 dígitos de la tarjeta asociada">💳 ····{acc.last4_tarjeta}</span>}
+                    </div>
+                  )}
                   <div className="mt-0.5">
                     {links.length === 0 && (
                       <span className="text-[8px] px-1 border border-dashed border-gray-400 text-gray-500"

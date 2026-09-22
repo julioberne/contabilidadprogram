@@ -51,3 +51,28 @@ def subir_evidencia(nombre: str, contenido: bytes, mime: str) -> str | None:
     except Exception as e:
         print(f"⚠️ [storage_media] Subida falló ({seguro}): {e}")
     return None
+
+
+def eliminar_evidencia(url: str) -> bool:
+    """Borra un objeto del bucket a partir de su URL pública (retención de
+    borradores, etapa 09.F). Best-effort: si la policy del bucket no permite
+    DELETE con la llave anon, deja log y devuelve False — nada se rompe.
+    URLs ajenas al bucket (rutas /uploads locales) se ignoran."""
+    marca = f"/storage/v1/object/public/{BUCKET}/"
+    if not url or marca not in url:
+        return False
+    destino = url.split(marca, 1)[1].split("?", 1)[0]
+    if not destino:
+        return False
+    try:
+        r = httpx.delete(
+            f"{SUPABASE_URL}/storage/v1/object/{BUCKET}/{destino}",
+            headers={"apikey": SUPABASE_ANON, "Authorization": f"Bearer {SUPABASE_ANON}"},
+            timeout=30,
+        )
+        if r.status_code in (200, 204):
+            return True
+        print(f"⚠️ [storage_media] No se pudo borrar {destino}: {r.status_code} {r.text[:120]}")
+    except Exception as e:
+        print(f"⚠️ [storage_media] Borrado falló ({destino}): {e}")
+    return False

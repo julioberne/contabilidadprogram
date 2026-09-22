@@ -101,6 +101,9 @@ services:
       - DB_POOL_MAX=${DB_POOL_MAX:-10}
       - DB_FALLBACK_MAX=${DB_FALLBACK_MAX:-5}
       - FINSYS_ALLOW_5432=${FINSYS_ALLOW_5432:-0}
+      # Etapa 09.F: purga de retención de borradores/mensajes del bot
+      # (30/60/90 días, Regla 6b). 0 = apagada (kill-switch).
+      - BOT_RETENCION_ACTIVA=${BOT_RETENCION_ACTIVA:-1}
     volumes:
       # El MISMO volumen del backend: las notas de voz que guarda el bot
       # deben existir para la web (evidencias servidas en /uploads).

@@ -125,6 +125,7 @@ python -m kernel.test_kernel                                                   #
 python tests/test_core.py                                                      # 5/5 motor matemático
 python -m unittest tests.test_single_module_identity tests.test_tx_atomica tests.test_dashboard_snapshot tests.test_db_pool_fallback   # un solo pool, TX+asiento atómicos, snapshot
 python -m unittest tests.test_bot_driver tests.test_bot_confirmation tests.test_bot_resolvers
+python -m unittest tests.test_sms_bancolombia tests.test_bot_sms tests.test_webhooks_sms tests.test_bot_sms_db tests.test_bot_retencion   # 09.F SMS Bancolombia: parser, mapeo por id, webhook, tick (BD) y retención 30/60/90 (BD)
 python -m unittest tests.test_analytics_catalog tests.test_analytics_qa tests.test_insight_engine   # 55/55 Análisis: catálogo + traductor (LLM mockeado) + gráfica + insights/tick Telegram
 python tests/test_contadores.py                                                # 15/15 módulo Contadores (BD real, limpia sus filas)
 python scripts/verify_dashboard_parity.py                                      # 0 diffs legacy vs rápido

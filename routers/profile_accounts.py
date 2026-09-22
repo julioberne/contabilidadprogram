@@ -12,6 +12,66 @@ from routers.schemas import ProfileInput, AccountInput, AccountUpdateInput
 router = APIRouter(tags=["Perfil & Cuentas"])
 
 
+# ── Etapa 09.F: cuentas POR ID — últimos 4 dígitos como campo estructurado ──
+# database_driver.py es 🔴 (no se toca): las columnas last4_* se escriben aquí
+# con un UPDATE adicional, igual que ya se hace con initial_balance.
+
+def _normalizar_last4(valor, campo):
+    """None = no tocar · "" = borrar · 4 dígitos = fijar. Otra cosa → 422."""
+    if valor is None:
+        return None
+    digitos = "".join(ch for ch in str(valor) if ch.isdigit())
+    if digitos == "" and str(valor).strip() == "":
+        return ""
+    if len(digitos) != 4:
+        raise HTTPException(status_code=422,
+                            detail=f"{campo}: se esperan exactamente 4 dígitos (o vacío para borrar).")
+    return digitos
+
+
+def _guardar_last4(account_id, last4_cuenta, last4_tarjeta):
+    """UPDATE solo de los campos presentes (None = no tocar)."""
+    sets, params = [], []
+    for col, val in (("last4_cuenta", last4_cuenta), ("last4_tarjeta", last4_tarjeta)):
+        if val is None:
+            continue
+        sets.append(f"{col} = %s")
+        params.append(val or None)          # "" → NULL
+    if not sets:
+        return
+    from db_pool import get_conn, put_conn
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(f"UPDATE user_accounts SET {', '.join(sets)} WHERE id = %s", (*params, account_id))
+        conn.commit()
+        cur.close()
+    finally:
+        put_conn(conn)
+
+
+def _anotar_last4(accounts):
+    """Añade last4_cuenta / last4_tarjeta a cada cuenta (una sola consulta).
+    Se hace aquí y no en dashboard_query para no alterar la paridad
+    legacy↔rápido que vigila scripts/verify_dashboard_parity.py."""
+    try:
+        from db_pool import get_conn, put_conn
+        conn = get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT id, last4_cuenta, last4_tarjeta FROM user_accounts")
+            mapa = {r[0]: (r[1], r[2]) for r in cur.fetchall()}
+            cur.close()
+        finally:
+            put_conn(conn)
+    except Exception:
+        mapa = {}                            # columnas aún no migradas: sin dato
+    for a in accounts:
+        c, t = mapa.get(a.get("id"), (None, None))
+        a["last4_cuenta"], a["last4_tarjeta"] = c, t
+    return accounts
+
+
 def anotar_portafolio_cuentas(accounts):
     """Anota los vínculos cuenta ↔ EMPRESA (entities del árbol Control Tower).
 
@@ -150,21 +210,27 @@ def list_accounts(portfolio: Optional[str] = None, _u: dict = Depends(require_au
         # 3 conexiones, cargando TODAS las TXs). DASHBOARD_FAST=0 = ruta legacy.
         if os.environ.get("DASHBOARD_FAST", "1") != "0":
             from fin_sys_core.dashboard_query import obtener_cuentas_con_delta
-            return obtener_cuentas_con_delta(portfolio)
+            return _anotar_last4(obtener_cuentas_con_delta(portfolio))
         from database_driver import obtener_cuentas, obtener_transacciones
         from routers.dashboard_data import _agregar_tx_delta
         accounts = anotar_portafolio_cuentas(obtener_cuentas())
         _agregar_tx_delta(accounts, obtener_transacciones(None))
-        return filtrar_cuentas_por_portafolio(accounts, portfolio)
+        return _anotar_last4(filtrar_cuentas_por_portafolio(accounts, portfolio))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/api/accounts", status_code=201)
 def add_account(acc: AccountInput, _admin: dict = Depends(require_admin)):
+    l4c = _normalizar_last4(acc.last4_cuenta, "last4_cuenta")
+    l4t = _normalizar_last4(acc.last4_tarjeta, "last4_tarjeta")
     try:
         from database_driver import crear_cuenta
         new_id = crear_cuenta(acc.dict())
+        try:
+            _guardar_last4(new_id, l4c, l4t)
+        except Exception as e:
+            print(f"⚠️ Cuenta {new_id} creada pero sin últimos 4 dígitos: {e}")
         # La cuenta nace vinculada a la EMPRESA activa si el form la manda
         # (entity_id, 2026-09-07). Fallback: resolver por portafolio — solo
         # funciona si alguna empresa tiene ese presupuesto. Sin empresa
@@ -200,10 +266,14 @@ def add_account(acc: AccountInput, _admin: dict = Depends(require_admin)):
 
 @router.put("/api/accounts/{account_id}")
 def update_account(account_id: int, acc: AccountUpdateInput, _admin: dict = Depends(require_admin)):
+    l4c = _normalizar_last4(acc.last4_cuenta, "last4_cuenta")
+    l4t = _normalizar_last4(acc.last4_tarjeta, "last4_tarjeta")
     try:
         from database_driver import actualizar_cuenta
         if not actualizar_cuenta(account_id, acc.dict()):
             raise HTTPException(status_code=404, detail="Cuenta no encontrada.")
+        # Últimos 4 dígitos (etapa 09.F): None = no tocar, "" = borrar
+        _guardar_last4(account_id, l4c, l4t)
         # Saldo inicial: actualizar_cuenta (driver estable) no lo cubre — se
         # maneja aquí. Editarlo NO recalcula current_balance automáticamente:
         # para eso está ⟳ Reconciliar (inicial + transacciones reales).

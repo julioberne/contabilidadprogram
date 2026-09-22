@@ -254,6 +254,7 @@ def main():
     offset = None
     backoff = 1
     proximo_tick = 0.0   # monotonic: throttle local del tick (la verdad vive en BD)
+    proximo_purga = 0.0  # retención de borradores/mensajes (etapa 09.F): una vez por hora
     while True:
         try:
             # ── Resumen analítico periódico (hito 2, B1) ─────────────────
@@ -269,6 +270,30 @@ def main():
                         print("📊 [TG] Resumen analítico enviado a los chats vinculados.")
                 except Exception as e:
                     print(f"⚠️ [TG] tick del resumen falló (se reintenta): {e}")
+
+            # ── SMS de Bancolombia → borradores (etapa 09.F) ──────────────
+            # Cada vuelta (≤ POLL_TIMEOUT s de latencia): los SMS que encoló
+            # el webhook en bot_messages se convierten en borradores y se
+            # envían con botones. Un SMS malo marca SU fila; el tick nunca
+            # tumba el poller (D-09F-01: el único que habla con Telegram).
+            try:
+                from bot_sms import procesar_pendientes
+                n_sms = procesar_pendientes(send_message)
+                if n_sms:
+                    print(f"📲 [TG] {n_sms} SMS convertido(s) en borrador.")
+            except Exception as e:
+                print(f"⚠️ [TG] tick SMS falló (se reintenta): {e}")
+
+            # ── Retención 30/60/90 (Regla 6b): una vez por hora ───────────
+            if time.monotonic() >= proximo_purga:
+                proximo_purga = time.monotonic() + 3600
+                try:
+                    from bot_retencion import purgar
+                    res = purgar(send_message)
+                    if any(res.values()):
+                        print(f"🧹 [TG] retención: {res}")
+                except Exception as e:
+                    print(f"⚠️ [TG] purga de retención falló (se reintenta): {e}")
 
             params = {"timeout": POLL_TIMEOUT}
             if offset is not None:

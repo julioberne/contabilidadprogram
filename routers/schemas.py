@@ -45,6 +45,11 @@ class AccountInput(BaseModel):
     # prioridad sobre portfolio: la mayoría de empresas no tienen portafolio
     # propio y la resolución por nombre dejaba la cuenta compartida.
     entity_id: Optional[int] = None
+    # Etapa 09.F (cuentas POR ID): últimos 4 dígitos del número de cuenta y de
+    # la tarjeta asociada. Es lo que cruza el bot con los SMS del banco; el
+    # nombre de la cuenta queda libre. None = sin dato.
+    last4_cuenta: Optional[str] = None
+    last4_tarjeta: Optional[str] = None
 
 
 class AccountUpdateInput(BaseModel):
@@ -56,6 +61,9 @@ class AccountUpdateInput(BaseModel):
     initial_balance: Optional[float] = None
     # None = no tocar; "" = volver COMPARTIDA; nombre = asignar a ese portafolio
     portfolio_name: Optional[str] = None
+    # None = no tocar; "" = borrar; "3037" = fijar (etapa 09.F)
+    last4_cuenta: Optional[str] = None
+    last4_tarjeta: Optional[str] = None
 
 
 class CxcCxpInput(BaseModel):
