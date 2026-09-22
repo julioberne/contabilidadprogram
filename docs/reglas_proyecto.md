@@ -78,6 +78,16 @@ El Control Tower tiene su propia identidad visual independiente:
 - Los borradores se muestran con indicador ámbar `[BORRADOR: FALTA NIT]` en la interfaz.
 - El usuario puede: confirmar con 1 click (si está completo) o abrir el formulario auto-llenado para corregir.
 
+## 🧱 Regla 6b: El bot no adivina — "Dato estructurado o pregunta"
+
+> Acordada el 22 Sep 2026 al diseñar la captura automática de SMS de Bancolombia.
+
+- **Cualquier dato que el bot necesite debe existir como campo estructurado en la web** (tabla o columna que el usuario llena desde la interfaz: cuentas, terceros, etiquetas, conceptos).
+- Si el dato no existe, el bot **lo pide a mano** en el borrador o **informa** al usuario para ajustar el proyecto o corregir el código.
+- **Prohibido**: heurísticas de "pistas", scoring, memoria que crece sola, aprendizaje implícito o IA que rellena campos por inferencia. La IA solo traduce texto/voz/imagen a campos; nunca calcula ni decide.
+- Parsers de fuentes externas (SMS, correo, OCR): reglas simples (regex por familia de plantilla). Lo que no se reconoce se conserva como borrador con el texto crudo marcado "no reconocido", nunca se descarta en silencio.
+- Retención de datos temporales del bot (patrón `analytics_log`: purga en la misma pasada, sin scheduler): `CONFIRMADO` se conserva siempre; `DESCARTADO` se borra a 30 días; `BORRADOR` sin tocar pasa a `DESCARTADO` a 60 días con aviso; `bot_messages` sin borrador asociado se borra a 90 días. Las evidencias en Storage siguen la suerte de su borrador.
+
 ---
 
 ## 🔐 Regla 7: Seguridad y Credenciales
@@ -135,3 +145,4 @@ Cada vez que se completa un hito significativo, actualizar:
 3. `docs/database_schema.md` — si se crearon tablas nuevas
 4. `docs/api_spec.md` — si se crearon endpoints nuevos
 5. `CHECKLIST.md` — mover módulo de PLANIFICADO a COMPLETO en la tabla de módulos
+6. `docs/specs/<módulo>/<etapa>.md` — marcar los `CA-` cumplidos y `Estado: HECHO (fecha)` (convención en `docs/specs/README.md`)

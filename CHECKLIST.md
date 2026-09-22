@@ -22,7 +22,7 @@
 | 07 | Control Tower | ✅ COMPLETO | `frontend/src/control-tower/` |
 | 08 / 08c | Project Hub · RRHH/Empresas | ✅ EN USO | `frontend/src/project-hub/` |
 | — | Zero-COA Kernel | ✅ Fase 1+2 | `kernel/` |
-| 09 | Bot IA (Telegram + Groq) | ✅ MVP en producción · faltan etapas C, B.5, D–F | `fin_sys_core/bot_*.py`, `routers/bot.py` |
+| 09 | Bot IA (Telegram + Groq) | ✅ Etapas A–E en producción · 🔵 **09.F SMS Bancolombia → borradores** en curso (22-sep) · 09.G completar tercero/concepto · 09.H OCR — specs en `docs/specs/09-bot-ia/` | `fin_sys_core/bot_*.py`, `fin_sys_core/sms_bancolombia.py`, `routers/bot.py`, `routers/webhooks_sms.py` |
 | 10 | Trading NASDAQ | 🔵 PLANIFICADO | — |
 | 11 | Reportes PDF/Excel · Facturación B2B | 🔵 PLANIFICADO | — |
 | 12 | Contadores (bandeja de asientos BORRADOR→CONTABILIZADO, diario, plan de cuentas, reglas, reportes, cierres) | ✅ v1 (15-sep) — rol `contador` | `frontend/src/contadores/`, `routers/contadores.py`, `kernel/kernel_journal_workflow.py`, `kernel/kernel_periods.py`, `kernel/kernel_reports.py`, `fin_sys_core/coa_admin_driver.py` |

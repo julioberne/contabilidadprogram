@@ -1,8 +1,8 @@
 # Bot IA (Módulo 09) — Funcionamiento, reglas e integración
 
 > Documento de referencia. El estado vivo (pendientes, etapas) está en `CHECKLIST.md`;
-> la bitácora en `docs/checkpoints.md`. Plan maestro de etapas:
-> `~/.claude/plans/empezamos-a-evaluar-la-generic-squirrel.md`.
+> la bitácora en `docs/checkpoints.md`. Specs del módulo (requisitos, decisiones,
+> criterios de aceptación por etapa): `docs/specs/09-bot-ia/SPEC.md`.
 
 ## 1. Qué hace
 
@@ -106,8 +106,12 @@ y poner el nuevo modelo en `GROQ_MODEL` **sin tocar código**.
 ## 9. Etapas
 
 - ✅ A/B — MVP Telegram (texto+voz, borradores, confirmación) — **en producción**
-- ⏳ C — Bandeja web de borradores (`BotApp.jsx` en el slot del registry)
+- ✅ C — Bandeja web de borradores (`BotApp.jsx` en el slot del registry)
 - ⏳ B.5 — RAG semántico (pgvector instalado; requiere aprobación para tocar `get_rag_context`)
 - ⏳ D — WhatsApp (Meta Cloud API; necesita dominio+TLS)
-- ⏳ E — Fotos de facturas y ubicación
-- ⏳ F — Consultas/comandos de lectura ("¿cuánto gasté este mes?")
+- ✅ E / E.2 / E.3 — Fotos de facturas (cero inferencia), ubicación, múltiples evidencias, botones (09-sep-2026)
+- 🔵 F — SMS de Bancolombia → borradores automáticos — `docs/specs/09-bot-ia/09.F-sms-bancolombia.md`
+- ⏳ G — Completar tercero y concepto desde Telegram — `docs/specs/09-bot-ia/09.G-completar-borrador.md`
+- ⏳ H — OCR de comprobantes con botón dedicado — `docs/specs/09-bot-ia/09.H-ocr-comprobantes.md`
+
+> Las consultas de lectura ("¿cuánto gasté este mes?") las cubre el módulo 13 (Análisis Inteligente), no una etapa del bot.

@@ -377,6 +377,7 @@ mock_db.json
 | `docs/checkpoints.md` | Historial de sesiones (bitácora) | Al buscar qué se hizo antes |
 | `docs/PRD.md` | Intención de negocio (fuente de verdad) | Al planificar |
 | `docs/system_patterns.md` | Decisiones de arquitectura | Al tocar diseño |
+| `docs/specs/README.md` | Specs internos por módulo y etapa (requisitos, decisiones, criterios de aceptación) | Al diseñar o implementar una etapa |
 
 ---
 
