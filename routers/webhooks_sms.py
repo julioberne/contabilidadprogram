@@ -153,8 +153,8 @@ def crear_token(body: TokenInput = None, user: dict = Depends(require_auth)):
         "id": token_id, "token": token, "label": body.label, "remitentes": remitentes,
         "instrucciones": ("En MacroDroid: trigger 'SMS recibido' del remitente → acción "
                           "'HTTP Request' POST a https://<tu-dominio>/api/webhooks/sms con el "
-                          "header X-SMS-Token y el cuerpo form-urlencoded from={sms_number}, "
-                          "text={sms_message}. Guarda el token: no se vuelve a mostrar."),
+                          "header X-SMS-Token y el cuerpo form-urlencoded from=[sms_number], "
+                          "text=[sms_message]. Guarda el token: no se vuelve a mostrar."),
     }
 
 
