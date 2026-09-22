@@ -52,7 +52,7 @@ Fuentes externas (SMS) ──POST /api/webhooks/sms──▶ FastAPI (routers/we
 | B.5 | RAG semántico (pgvector) | ⏳ requiere aprobación | — |
 | D | WhatsApp (Meta Cloud API) | ⏳ requiere dominio + TLS | — |
 | **F** | **SMS de Bancolombia → borradores automáticos** | 🔵 EN CURSO (22-sep-2026) | [09.F-sms-bancolombia.md](09.F-sms-bancolombia.md) |
-| G | Completar tercero y concepto desde Telegram; cuentas bancarias de terceros | PLANIFICADO | [09.G-completar-borrador.md](09.G-completar-borrador.md) |
+| G | Completar tercero y concepto desde Telegram; cuentas bancarias de terceros | 🔵 EN CURSO — parte chat ✅ (22-sep-2026); falta `third_party_accounts` | [09.G-completar-borrador.md](09.G-completar-borrador.md) |
 | H | OCR de comprobantes con botón dedicado (Gemini Flash) + trabajo lento fuera del poller | PLANIFICADO | [09.H-ocr-comprobantes.md](09.H-ocr-comprobantes.md) |
 
 > La antigua "F — Consultas/comandos de lectura" de `docs/bot_ia.md` §9 la cubre el módulo 13 (Análisis Inteligente, hito 3). Se reasigna la letra para no dejar huecos.

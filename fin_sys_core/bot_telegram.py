@@ -72,6 +72,24 @@ def send_message(chat_id: str, text: str, buttons=None):
         return None
 
 
+def send_photo(chat_id: str, png_bytes: bytes, caption: str = None):
+    """Envía una foto (la gráfica PNG que dibuja el backend — hito 3 de
+    Análisis Inteligente). → message_id o None si falló."""
+    try:
+        data = {"chat_id": chat_id}
+        if caption:
+            data["caption"] = str(caption)[:1024]
+        r = _client.post(f"{API}/sendPhoto", data=data,
+                         files={"photo": ("grafica.png", png_bytes, "image/png")})
+        if r.status_code == 200:
+            return r.json().get("result", {}).get("message_id")
+        print(f"⚠️ [TG] sendPhoto {r.status_code}: {r.text[:120]}")
+        return None
+    except Exception as e:
+        print(f"⚠️ [TG] sendPhoto falló: {e}")
+        return None
+
+
 def answer_callback(callback_id: str, texto=None):
     """Obligatorio tras cada callback_query — sin esto el botón queda girando."""
     try:
@@ -178,6 +196,11 @@ def normalize(update: dict):
     if m.get("text") is not None:
         base["kind"] = "text"
         base["text"] = m["text"]
+        # Etapa 09.G: texto RESPONDIENDO al resumen de un borrador = completar
+        # ese borrador (Concepto: … / Tercero: …), no crear uno nuevo.
+        reply = m.get("reply_to_message") or {}
+        if reply.get("message_id"):
+            base["reply_to_message_id"] = str(reply["message_id"])
         return base
     voz = m.get("voice") or m.get("audio")
     if voz and voz.get("file_id"):
@@ -323,6 +346,14 @@ def main():
                                        buttons=reply.get("buttons"))
                     if mid and reply.get("draft_id"):
                         bot_driver.guardar_summary_message_id(reply["draft_id"], mid)
+                    # 📊 Hito 3: la gráfica del análisis viaja como foto aparte
+                    if reply.get("photo_png_base64"):
+                        import base64
+                        try:
+                            send_photo(msg["chat_id"],
+                                       base64.b64decode(reply["photo_png_base64"]))
+                        except Exception as e:
+                            print(f"⚠️ [TG] la foto del análisis falló (el texto ya salió): {e}")
                     bot_driver.log_outbound("telegram", msg["chat_id"], reply["text"],
                                             draft_id=reply.get("draft_id"))
                 else:

@@ -894,3 +894,19 @@ procesos con el mismo token (409); quedaron detenidos — Andrés arranca el suy
 Teléfono: `cloudflared tunnel --url http://localhost:8000` + macro de MacroDroid (SMS de 85540 →
 POST form-urlencoded con `X-SMS-Token`) + un SMS real. Producción solo con dominio + HTTPS en Dokploy.
 Muestras pendientes de Andrés: un SMS de **retiro** y uno de **compra con tarjeta** (nuevas familias).
+
+### Adenda 2026-09-22 (misma sesión): integración con origin/master + 09.G parte chat
+- Otra instancia había subido a `origin/master` el hito 3 de Análisis (`6468d8d`, `bb7f4d6`:
+  `/analisis` con foto, `/resumen`). Integrado con `git apply --3way` (el clasificador bloquea
+  `git merge`): `bot_driver.py` y `bot_telegram.py` limpios; conflictos solo en `ci.yml` y
+  `CHECKLIST.md` (listas de tests, unidas). Ojo operativo: **el token de Telegram es hoy el MISMO
+  en producción y en local** (decisión de Andrés) → un poller local compite con el contenedor
+  `bot` de prod (409); los cambios del bot solo se ven cuando se despliega o se apaga el de prod.
+- **09.G (parte chat)**, pedido de Andrés al ver los borradores de SMS sin forma de completarlos:
+  `normalize` pasa `reply_to_message_id` en textos; `handle_message` → `_flujo_reply` (Regla 6b):
+  `Concepto: …` o texto sin prefijo = concepto literal; `Tercero: nombre|NIT|celular` busca en
+  `third_parties` (1 → asigna, varios → botones, 0 → explica); `Tercero nuevo: Nombre[, CC n]`
+  crea por `database_driver._asegurar_tercero` (provisional `SN-…` sin documento) y asigna.
+  Botones nuevos 👤 Tercero (8 recientes por transacciones) y 📝 Concepto. Todo vía `editar_draft`.
+  Tests: `test_bot_completar` (14 puros) + `test_bot_completar_db` (4 con BD, limpian su tercero).
+  Pendiente de 09.G: `third_party_accounts` (cuentas bancarias de terceros).

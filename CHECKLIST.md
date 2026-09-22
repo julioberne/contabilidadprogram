@@ -10,7 +10,7 @@
 
 | Dónde | Estado |
 |---|---|
-| rama `claude/intelligent-ellis-79a132` (worktree) | **Análisis Inteligente hito 2 (B1) SIN push** (21-sep): insights automáticos (`insight_engine.py` + tarjetas en la Home) · resumen periódico por Telegram (tick en el poller, `ANALYTICS_RESUMEN_HORAS`, default 24h) · pestaña 🗒 BITÁCORA en el módulo · métrica 9 `conteo_terceros` (nacida de la bitácora). Verificado e2e en :8000 contra Supabase real. Push: `git push origin claude/intelligent-ellis-79a132:master` → deploy `scratch/deploy_prod.py` |
+| rama `claude/intelligent-ellis-79a132` (worktree) | **Análisis Inteligente hito 3 (B4) SIN push** (22-sep): bot informativo — `/analisis <pregunta>` responde texto + foto de la gráfica (send_photo multipart; misma maquinaria analytics_qa de la web; empresa = la del chat, mostrada con nombre CT) · `/resumen` a demanda (consolidado). Comando EXPLÍCITO (regla 6b: el bot no adivina). Verificado: handle_message directo contra Supabase real → dict con PNG 18KB. Push: `git push origin claude/intelligent-ellis-79a132:master` → deploy `scratch/deploy_prod.py` |
 | `origin/master` = producción :8080 | desplegado y verificado 15 sep (`b4e7379`): cimientos (un solo pool, dashboard 1 viaje, TX+asiento atómicos, contra-asiento, auth en GETs) + módulo 12 Contadores. Deploy: `scratch/deploy_prod.py` (agente, tras cada push); push: Andrés |
 | BD Supabase | compartida local↔prod · **reiniciada con `feat(reset)`: 0 TXs** · 6 entidades CT (2 vinculadas) · 5 cuentas · 4 portafolios · patrimonio $1.000.000 (verificado 26 ago) |
 
@@ -22,11 +22,11 @@
 | 07 | Control Tower | ✅ COMPLETO | `frontend/src/control-tower/` |
 | 08 / 08c | Project Hub · RRHH/Empresas | ✅ EN USO | `frontend/src/project-hub/` |
 | — | Zero-COA Kernel | ✅ Fase 1+2 | `kernel/` |
-| 09 | Bot IA (Telegram + Groq) | ✅ Etapas A–E en producción · 🔵 **09.F SMS Bancolombia → borradores** en curso (22-sep) · 09.G completar tercero/concepto · 09.H OCR — specs en `docs/specs/09-bot-ia/` | `fin_sys_core/bot_*.py`, `fin_sys_core/sms_bancolombia.py`, `routers/bot.py`, `routers/webhooks_sms.py` |
+| 09 | Bot IA (Telegram + Groq) | ✅ Etapas A–E en producción · ✅ **09.F SMS Bancolombia → borradores** implementada (22-sep; falta prueba en el teléfono vía túnel + deploy) · ✅ **09.G** parte chat: reply `Concepto:` / `Tercero:` / `Tercero nuevo:` + botón 👤 (22-sep; falta `third_party_accounts`) · 09.H OCR planificada — specs en `docs/specs/09-bot-ia/` | `fin_sys_core/bot_*.py`, `fin_sys_core/sms_bancolombia.py`, `routers/bot.py`, `routers/webhooks_sms.py` |
 | 10 | Trading NASDAQ | 🔵 PLANIFICADO | — |
 | 11 | Reportes PDF/Excel · Facturación B2B | 🔵 PLANIFICADO | — |
 | 12 | Contadores (bandeja de asientos BORRADOR→CONTABILIZADO, diario, plan de cuentas, reglas, reportes, cierres) | ✅ v1 (15-sep) — rol `contador` | `frontend/src/contadores/`, `routers/contadores.py`, `kernel/kernel_journal_workflow.py`, `kernel/kernel_periods.py`, `kernel/kernel_reports.py`, `fin_sys_core/coa_admin_driver.py` |
-| 13 | Análisis Inteligente (catálogo de 9 métricas whitelisted · explorador Perspective WASM · preguntas en español con sello de origen y gráfica matplotlib · insights automáticos en la Home · resumen por Telegram · bitácora de preguntas 30 días) | ✅ hito 1 web (15-sep) · ✅ hito 2 insights+Telegram (21-sep) · hito 3: bot pregunta/foto | `fin_sys_core/metrics_catalog.py`, `fin_sys_core/analytics_qa.py`, `fin_sys_core/insight_engine.py`, `routers/analytics.py`, `frontend/src/analisis/` |
+| 13 | Análisis Inteligente (catálogo de 9 métricas whitelisted · explorador Perspective WASM · preguntas en español con sello de origen y gráfica matplotlib · insights automáticos en la Home · resumen por Telegram · bitácora de preguntas 30 días) | ✅ hito 1 web (15-sep) · ✅ hito 2 insights+Telegram (21-sep) · ✅ hito 3 bot /analisis + /resumen con foto (22-sep) · B5: export .xlsx | `fin_sys_core/metrics_catalog.py`, `fin_sys_core/analytics_qa.py`, `fin_sys_core/insight_engine.py`, `routers/analytics.py`, `frontend/src/analisis/` |
 
 ---
 
@@ -125,8 +125,8 @@ python -m kernel.test_kernel                                                   #
 python tests/test_core.py                                                      # 5/5 motor matemático
 python -m unittest tests.test_single_module_identity tests.test_tx_atomica tests.test_dashboard_snapshot tests.test_db_pool_fallback   # un solo pool, TX+asiento atómicos, snapshot
 python -m unittest tests.test_bot_driver tests.test_bot_confirmation tests.test_bot_resolvers
-python -m unittest tests.test_sms_bancolombia tests.test_bot_sms tests.test_webhooks_sms tests.test_bot_sms_db tests.test_bot_retencion   # 09.F SMS Bancolombia: parser, mapeo por id, webhook, tick (BD) y retención 30/60/90 (BD)
-python -m unittest tests.test_analytics_catalog tests.test_analytics_qa tests.test_insight_engine   # 55/55 Análisis: catálogo + traductor (LLM mockeado) + gráfica + insights/tick Telegram
+python -m unittest tests.test_sms_bancolombia tests.test_bot_sms tests.test_webhooks_sms tests.test_bot_sms_db tests.test_bot_retencion tests.test_bot_completar tests.test_bot_completar_db   # 09.F SMS + 09.G completar (reply tercero/concepto): parser, mapeo por id, webhook, tick, retención (BD), reply (BD)
+python -m unittest tests.test_analytics_catalog tests.test_analytics_qa tests.test_insight_engine tests.test_bot_analisis   # 68/68 Análisis: catálogo + traductor + gráfica + insights/tick + bot /analisis
 python tests/test_contadores.py                                                # 15/15 módulo Contadores (BD real, limpia sus filas)
 python scripts/verify_dashboard_parity.py                                      # 0 diffs legacy vs rápido
 python tests/test_e2e.py                                                       # ⚠️ crea y BORRA una TX real — FINSYS_BASE=http://127.0.0.1:8001 y FINSYS_ADMIN_PASSWORD=... para probar el borrado por API

@@ -60,9 +60,17 @@ AYUDA = (
     "  Descartar #N — elimina el borrador\n"
     "  /empresa — muestra o cambia la empresa donde registro por defecto\n"
     "  /borradores — lista tus borradores pendientes\n"
+    "  /analisis <pregunta> — cifras del catálogo con gráfica, sobre la\n"
+    "    empresa por defecto del chat (ej: /analisis cuánto gasté este mes)\n"
+    "  /resumen — el resumen automático consolidado, ya mismo\n"
     "  /ayuda — este mensaje\n\n"
-    "Para corregir un borrador: usa 🏢 Cambiar empresa, o descártalo y envía\n"
-    "la operación de nuevo (o edítalo desde la Bandeja en la web)."
+    "Para completar un borrador (también los que llegan por SMS 📲):\n"
+    "  · botón 👤 Tercero → elige uno reciente, o RESPONDE al borrador con\n"
+    "    \"Tercero: Juan Pérez\" (nombre, NIT o celular)\n"
+    "  · RESPONDE al borrador con \"Concepto: arriendo septiembre\"\n"
+    "  · \"Tercero nuevo: Nombre, CC 123456\" → lo crea (provisional si no\n"
+    "    das documento) y lo asigna\n"
+    "Para corregir lo demás: 🏢 Cambiar empresa, o edítalo en la Bandeja web."
 )
 
 NO_VINCULADO = (
@@ -83,6 +91,14 @@ _RE_LINK    = re.compile(r"^\s*/?vincular\s+([A-Za-z0-9]{4,12})\s*$", re.IGNOREC
 _RE_AYUDA   = re.compile(r"^\s*/(start|ayuda|help)\s*$", re.IGNORECASE)
 _RE_DRAFTS  = re.compile(r"^\s*/?borradores\s*$", re.IGNORECASE)
 _RE_EMPRESA = re.compile(r"^\s*/empresa\s*(.*)$", re.IGNORECASE)
+# Hito 3 Análisis Inteligente: comando EXPLÍCITO (regla 6b: el bot no
+# adivina — una pregunta jamás se confunde con un registro de gasto).
+# El comando PELADO también matchea (arg None): responde el ejemplo de uso
+# en vez de caer al registrador y fabricar un borrador basura de $0
+# (visto en prod el 22-sep con "/pregunta" suelto).
+_RE_ANALISIS = re.compile(r"^\s*/(?:analisis|análisis|pregunta)\b\s*(.*)$",
+                          re.IGNORECASE | re.DOTALL)
+_RE_RESUMEN  = re.compile(r"^\s*/resumen\s*$", re.IGNORECASE)
 
 
 def parse_command(text: str):
@@ -104,6 +120,11 @@ def parse_command(text: str):
     m = _RE_EMPRESA.match(t)
     if m:
         return "empresa", (m.group(1) or "").strip() or None
+    m = _RE_ANALISIS.match(t)
+    if m:
+        return "analisis", m.group(1).strip() or None
+    if _RE_RESUMEN.match(t):
+        return "resumen", None
     return None, None
 
 
@@ -155,7 +176,9 @@ def handle_message(msg: dict):
       · None — duplicado ya procesado
       · str — respuesta de texto plano
       · dict {"text", "draft_id", "buttons"} — resumen de borrador con botones
-        inline (Etapa E); el adaptador del canal decide cómo pintarlos."""
+        inline (Etapa E); el adaptador del canal decide cómo pintarlos.
+        Puede traer "photo_png_base64" (hito 3: gráfica del análisis) — el
+        adaptador la envía como foto después del texto."""
     from db_pool import get_conn, put_conn
     conn = get_conn()
     try:
@@ -200,6 +223,18 @@ def handle_message(msg: dict):
             conn.commit()
             return reply
 
+        # ── Hito 3 Análisis Inteligente: pregunta con cifras del catálogo ──
+        # El dedupe se persiste ANTES de llamar al traductor (puede tardar).
+        if cmd == "analisis":
+            pid, nombre = _portafolio_del_chat(cur, link)
+            conn.commit()
+            return _responder_analisis(arg, pid, nombre)
+        if cmd == "resumen":
+            conn.commit()
+            # El MISMO texto del envío periódico (consolidado), a demanda.
+            from insight_engine import resumen_texto
+            return resumen_texto(None)
+
         # ── 📸 Foto (Etapa E): evidencia de un borrador o borrador nuevo ──
         if msg.get("kind") == "photo":
             reply = _flujo_foto(cur, link, msg, msg_row_id)
@@ -211,6 +246,16 @@ def handle_message(msg: dict):
             reply = _flujo_ubicacion(cur, link, msg)
             conn.commit()
             return reply
+
+        # ── 📝 Texto RESPONDIENDO a un borrador (Etapa 09.G): completar
+        #    tercero / concepto de ESE borrador, jamás crear otro ──
+        if msg.get("kind") == "text" and msg.get("reply_to_message_id"):
+            draft_id = _draft_por_reply(cur, link, msg)
+            if draft_id is not None:
+                reply = _flujo_reply(cur, link, draft_id, msg.get("text") or "")
+                conn.commit()
+                if reply is not None:
+                    return reply
 
         # ── Entrada no soportada en el MVP ──
         if msg.get("kind") == "unsupported":
@@ -236,6 +281,44 @@ def handle_message(msg: dict):
         return f"⚠ Error procesando el mensaje: {e}"
     finally:
         put_conn(conn)
+
+
+def _portafolio_del_chat(cur, link):
+    """Empresa amarrada del chat para /analisis (criterio inmutable 2: la
+    decide la vinculación, jamás el LLM). → (portfolio_id, nombre_visible)
+    o (None, None) si el default no resuelve (se responde consolidado).
+    El nombre visible prefiere el del Control Tower (idioma de Andrés)."""
+    try:
+        cur.execute("""
+            SELECT p.id, COALESCE(NULLIF(btrim(e.name), ''), p.name)
+              FROM portfolios p
+              LEFT JOIN entities e ON e.portfolio_id = p.id
+             WHERE p.name = %s
+             LIMIT 1;
+        """, (link.get("default_portfolio"),))
+        fila = cur.fetchone()
+        return (fila[0], fila[1]) if fila else (None, None)
+    except Exception:
+        return (None, None)
+
+
+def _responder_analisis(pregunta: str, portfolio_id, nombre_portafolio):
+    """Pregunta en español → la MISMA maquinaria de la web (analytics_qa).
+    → dict {"text", "photo_png_base64"?} — el adaptador manda la foto aparte."""
+    if not (pregunta or "").strip():
+        return ("Dime la pregunta después del comando, por ejemplo:\n"
+                "/analisis cuánto gasté este mes por categoría")
+    try:
+        from analytics_qa import responder_pregunta
+        r = responder_pregunta(pregunta.strip(), portfolio_id=portfolio_id)
+    except Exception as e:
+        return f"⚠ El análisis falló: {e}"
+    encabezado = (f"🏢 {nombre_portafolio}\n" if nombre_portafolio
+                  else "🏢 Todas las empresas (consolidado)\n")
+    out = {"text": encabezado + (r.get("texto") or "Sin respuesta.")}
+    if r.get("grafica_png_base64"):
+        out["photo_png_base64"] = r["grafica_png_base64"]
+    return out
 
 
 def log_outbound(channel: str, chat_id: str, content: str, chat_link_id=None, draft_id=None):
@@ -391,6 +474,9 @@ def _botones_borrador(draft_id: int):
     return [
         [("✅ Confirmar", f"ok:{draft_id}"), ("❌ Descartar", f"no:{draft_id}")],
         [("🏢 Cambiar empresa", f"emp:{draft_id}"), ("🏷️ Etiquetas", f"tags:{draft_id}")],
+        # Etapa 09.G: completar el borrador sin salir del chat (Regla 6b: el
+        # tercero sale de third_parties o lo crea el humano; nada se adivina)
+        [("👤 Tercero", f"tp:{draft_id}"), ("📝 Concepto", f"cpt:{draft_id}")],
         [("💤 Dejar en borrador", f"hold:{draft_id}")],
     ]
 
@@ -516,6 +602,160 @@ def _flujo_ubicacion(cur, link, msg):
     """, (json.dumps(payload), draft_id))
     return {"text": f"📍 Ubicación adjuntada al borrador #{draft_id}.",
             "draft_id": draft_id, "buttons": _botones_borrador(draft_id)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Etapa 09.G — completar tercero y concepto desde el chat (Regla 6b: el
+# tercero sale de third_parties o lo dicta el humano; el concepto es literal)
+# ══════════════════════════════════════════════════════════════════════════════
+
+_TERCERO_GENERICO = "999999999"
+_RE_REPLY_CONCEPTO = re.compile(r"^\s*(?:concepto|c)\s*:\s*(.+)$", re.IGNORECASE | re.DOTALL)
+_RE_REPLY_TERCERO_NUEVO = re.compile(
+    r"^\s*tercero\s+nuevo\s*:\s*(?P<nombre>[^,]+?)\s*"
+    r"(?:,\s*(?P<tipo>NIT|CC)?\s*(?P<num>[\d.\-]{4,20}))?\s*$", re.IGNORECASE)
+_RE_REPLY_TERCERO = re.compile(r"^\s*(?:tercero|t)\s*:\s*(.+)$", re.IGNORECASE | re.DOTALL)
+
+
+def _parse_reply(texto):
+    """Reply al resumen de un borrador → ("concepto", str) | ("tercero", str)
+    | ("tercero_nuevo", {nombre, tipo, num}) | (None, None).
+    Sin prefijo, el texto ES el concepto (traducción literal, no adivinanza)."""
+    t = (texto or "").strip()
+    if not t:
+        return None, None
+    m = _RE_REPLY_TERCERO_NUEVO.match(t)
+    if m:
+        return "tercero_nuevo", {"nombre": m.group("nombre").strip(),
+                                 "tipo": (m.group("tipo") or "").upper() or None,
+                                 "num": re.sub(r"[.\-]", "", m.group("num") or "") or None}
+    m = _RE_REPLY_TERCERO.match(t)
+    if m:
+        return "tercero", m.group(1).strip()
+    m = _RE_REPLY_CONCEPTO.match(t)
+    if m:
+        return "concepto", m.group(1).strip()
+    return "concepto", t
+
+
+def _tercero_dict(row):
+    """Fila (id, tipo, número, nombre[, phone]) → dict para el payload."""
+    d = {"id": row[0], "identification_type": row[1] or "NIT",
+         "identification_number": str(row[2]), "name": str(row[3]).strip()}
+    if len(row) > 4 and row[4]:
+        d["phone"] = str(row[4]).strip()
+    return d
+
+
+def _buscar_terceros(cur, q, limite=8):
+    """Búsqueda DETERMINISTA en third_parties: dígitos → NIT/CC exacto o celular;
+    texto → nombre (ILIKE). → 0, 1 o varios dicts (si son varios, el humano elige)."""
+    q = (q or "").strip()
+    if not q:
+        return []
+    digitos = re.sub(r"\D", "", q)
+    if len(digitos) >= 5 and len(digitos) >= len(q) - 4:    # "10.203.040", "+57 319…"
+        cur.execute("""
+            SELECT id, identification_type, identification_number, name, phone
+              FROM third_parties
+             WHERE regexp_replace(identification_number, '\\D', '', 'g') = %s
+                OR regexp_replace(COALESCE(phone, ''), '\\D', '', 'g') LIKE %s
+             ORDER BY id LIMIT %s
+        """, (digitos, "%" + digitos, int(limite)))
+    else:
+        cur.execute("""
+            SELECT id, identification_type, identification_number, name, phone
+              FROM third_parties
+             WHERE name ILIKE %s AND identification_number <> %s
+             ORDER BY (lower(name) = lower(%s)) DESC, name LIMIT %s
+        """, ("%" + q + "%", _TERCERO_GENERICO, q, int(limite)))
+    return [_tercero_dict(r) for r in cur.fetchall()]
+
+
+def _terceros_recientes(cur, limite=8):
+    """Últimos terceros usados en transacciones (sin el genérico)."""
+    cur.execute("""
+        SELECT tp.id, tp.identification_type, tp.identification_number, tp.name, tp.phone
+          FROM third_parties tp
+          JOIN (SELECT third_party_id, MAX(id) AS ultimo FROM transactions
+                 GROUP BY third_party_id) u ON u.third_party_id = tp.id
+         WHERE tp.identification_number <> %s
+         ORDER BY u.ultimo DESC LIMIT %s
+    """, (_TERCERO_GENERICO, int(limite)))
+    return [_tercero_dict(r) for r in cur.fetchall()]
+
+
+def _botones_terceros(draft_id, terceros):
+    filas = [[(t["name"][:40], f"tpset:{draft_id}:{t['id']}")] for t in terceros]
+    filas.append([("« Volver", f"tpback:{draft_id}")])
+    return filas
+
+
+def _asignar_tercero(link, draft_id, tercero):
+    """Escribe el tercero en el borrador (editar_draft, determinista).
+    → dict resumen+botones, o str con el error."""
+    editado = editar_draft(draft_id, {"third_party": {
+        "identification_type": tercero["identification_type"],
+        "identification_number": tercero["identification_number"],
+        "name": tercero["name"]}}, hub_user_id=link["hub_user_id"])
+    if editado.get("error"):
+        return editado["error"]
+    return {"text": f"👤 Tercero → {tercero['name']}\n\n"
+                    + render_summary(draft_id, editado["payload"]),
+            "draft_id": draft_id, "buttons": _botones_borrador(draft_id)}
+
+
+def _crear_tercero(cur, datos):
+    """Alta desde el chat con lo que el humano dictó: con documento queda
+    completo; sin documento nace provisional SN-… — el MISMO camino que la
+    web (database_driver._asegurar_tercero). → dict del tercero."""
+    from database_driver import _asegurar_tercero
+    tp_id = _asegurar_tercero(cur, {
+        "identification_type": datos.get("tipo") or "CC",
+        "identification_number": datos.get("num") or "",
+        "name": datos["nombre"],
+    })
+    cur.execute("SELECT id, identification_type, identification_number, name, phone "
+                "FROM third_parties WHERE id = %s", (tp_id,))
+    return _tercero_dict(cur.fetchone())
+
+
+def _draft_por_reply(cur, link, msg):
+    """reply_to_message_id → id de un borrador editable de este chat, o None."""
+    if not msg.get("reply_to_message_id"):
+        return None
+    cur.execute("""
+        SELECT id FROM transaction_drafts
+         WHERE chat_link_id = %s AND bot_summary_message_id = %s
+           AND status IN ('BORRADOR', 'ERROR')
+    """, (link["id"], str(msg["reply_to_message_id"])))
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
+def _flujo_reply(cur, link, draft_id, texto):
+    """Texto respondiendo al resumen de un borrador (Etapa 09.G)."""
+    accion, dato = _parse_reply(texto)
+    if accion == "concepto":
+        editado = editar_draft(draft_id, {"concept": dato[:255]}, hub_user_id=link["hub_user_id"])
+        if editado.get("error"):
+            return editado["error"]
+        return {"text": f"📝 Concepto → «{dato[:255]}»\n\n"
+                        + render_summary(draft_id, editado["payload"]),
+                "draft_id": draft_id, "buttons": _botones_borrador(draft_id)}
+    if accion == "tercero_nuevo":
+        return _asignar_tercero(link, draft_id, _crear_tercero(cur, dato))
+    if accion == "tercero":
+        encontrados = _buscar_terceros(cur, dato)
+        if len(encontrados) == 1:
+            return _asignar_tercero(link, draft_id, encontrados[0])
+        if not encontrados:
+            return (f"No encontré ningún tercero que coincida con «{dato}».\n"
+                    "Créalo en la web (Terceros) o respóndeme al borrador:\n"
+                    f"  Tercero nuevo: {dato}, CC 123456   (sin documento queda provisional)")
+        return {"text": f"Varios terceros coinciden con «{dato}». ¿Cuál es?",
+                "draft_id": draft_id, "buttons": _botones_terceros(draft_id, encontrados)}
+    return None
 
 
 def _tags_reales(cur):
@@ -742,6 +982,54 @@ def handle_callback(channel: str, chat_id: str, data: str):
                 payload = row[0] if isinstance(row[0], dict) else json.loads(row[0])
                 out["edit_text"] = render_summary(draft_id, payload)
             out["edit_buttons"] = _botones_borrador(draft_id)
+            return out
+
+        # ── Etapa 09.G: 👤 Tercero / 📝 Concepto ──
+        if accion == "tp":
+            terceros = _terceros_recientes(cur)
+            conn.commit()
+            if not terceros:
+                out["alert"] = "Sin terceros recientes. Responde al borrador: Tercero: nombre, NIT o celular"
+                return out
+            out["alert"] = "Elige el tercero (o responde al borrador con Tercero: …)"
+            out["edit_buttons"] = _botones_terceros(draft_id, terceros)
+            return out
+
+        if accion == "tpback":
+            conn.commit()
+            out["edit_buttons"] = _botones_borrador(draft_id)
+            return out
+
+        if accion == "tpset":
+            try:
+                tp_id = int(partes[2])
+            except (IndexError, ValueError):
+                out["alert"] = "Botón inválido."
+                return out
+            cur.execute("SELECT id, identification_type, identification_number, name, phone "
+                        "FROM third_parties WHERE id = %s", (tp_id,))
+            row = cur.fetchone()
+            conn.commit()
+            if not row:
+                out["alert"] = "Ese tercero ya no existe."
+                out["edit_buttons"] = _botones_borrador(draft_id)
+                return out
+            res = _asignar_tercero(link, draft_id, _tercero_dict(row))
+            if isinstance(res, str):
+                out["alert"] = res[:190]
+                return out
+            out["alert"] = f"👤 {str(row[3]).strip()}"[:190]
+            out["edit_text"] = res["text"]
+            out["edit_buttons"] = _botones_borrador(draft_id)
+            return out
+
+        if accion == "cpt":
+            conn.commit()
+            out["alert"] = "Responde al mensaje del borrador con: Concepto: …"
+            out["text"] = (f"📝 Para el concepto del borrador #{draft_id}: RESPONDE (reply) al "
+                           "mensaje del borrador con el texto, por ejemplo:\n"
+                           "  Concepto: arriendo septiembre\n"
+                           "También sirven: Tercero: Juan Pérez · Tercero nuevo: Nombre, CC 123456")
             return out
 
         if accion == "emp":

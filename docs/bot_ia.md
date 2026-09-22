@@ -67,6 +67,10 @@ Máquina de estados: `BORRADOR → PROCESANDO → CONFIRMADO | ERROR`, `BORRADOR
 | `/borradores` | lista borradores pendientes |
 | `/vincular CODIGO` | vincula el chat al usuario |
 | `/ayuda`, `/start` | ayuda |
+| **reply** al borrador: `Concepto: …` (o texto sin prefijo) | pone el concepto literal (etapa 09.G) |
+| **reply** al borrador: `Tercero: nombre / NIT / celular` | asigna un tercero existente (varios → botones) |
+| **reply** al borrador: `Tercero nuevo: Nombre, CC 123` | crea el tercero (provisional sin documento) y lo asigna |
+| botón 👤 Tercero / 📝 Concepto | terceros recientes con un toque / instrucciones |
 
 ## 6. Modelos IA y configuración
 
