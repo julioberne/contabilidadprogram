@@ -88,7 +88,10 @@ _RE_DRAFTS  = re.compile(r"^\s*/?borradores\s*$", re.IGNORECASE)
 _RE_EMPRESA = re.compile(r"^\s*/empresa\s*(.*)$", re.IGNORECASE)
 # Hito 3 Análisis Inteligente: comando EXPLÍCITO (regla 6b: el bot no
 # adivina — una pregunta jamás se confunde con un registro de gasto).
-_RE_ANALISIS = re.compile(r"^\s*/(?:analisis|análisis|pregunta)\s+(.+)$",
+# El comando PELADO también matchea (arg None): responde el ejemplo de uso
+# en vez de caer al registrador y fabricar un borrador basura de $0
+# (visto en prod el 22-sep con "/pregunta" suelto).
+_RE_ANALISIS = re.compile(r"^\s*/(?:analisis|análisis|pregunta)\b\s*(.*)$",
                           re.IGNORECASE | re.DOTALL)
 _RE_RESUMEN  = re.compile(r"^\s*/resumen\s*$", re.IGNORECASE)
 
@@ -114,7 +117,7 @@ def parse_command(text: str):
         return "empresa", (m.group(1) or "").strip() or None
     m = _RE_ANALISIS.match(t)
     if m:
-        return "analisis", m.group(1).strip()
+        return "analisis", m.group(1).strip() or None
     if _RE_RESUMEN.match(t):
         return "resumen", None
     return None, None

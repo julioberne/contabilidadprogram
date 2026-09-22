@@ -28,10 +28,12 @@ class TestParseComandoAnalisis(unittest.TestCase):
         self.assertEqual(bot_driver.parse_command("/pregunta flujo de 6 meses"),
                          ("analisis", "flujo de 6 meses"))
 
-    def test_analisis_sin_pregunta_no_es_comando(self):
-        # Sin pregunta no matchea: cae al flujo normal (el LLM del registro
-        # dirá que no entiende) — no hay comando a medias.
-        self.assertEqual(bot_driver.parse_command("/analisis"), (None, None))
+    def test_analisis_sin_pregunta_pide_ejemplo_no_borrador(self):
+        # El comando pelado ES comando (arg None): el flujo responde el
+        # ejemplo de uso — jamás cae al registrador a fabricar un borrador
+        # de $0 (bug visto en prod el 22-sep con "/pregunta" suelto).
+        self.assertEqual(bot_driver.parse_command("/analisis"), ("analisis", None))
+        self.assertEqual(bot_driver.parse_command("/pregunta"), ("analisis", None))
 
     def test_resumen(self):
         self.assertEqual(bot_driver.parse_command("/resumen"), ("resumen", None))
