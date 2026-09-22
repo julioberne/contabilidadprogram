@@ -60,6 +60,9 @@ AYUDA = (
     "  Descartar #N — elimina el borrador\n"
     "  /empresa — muestra o cambia la empresa donde registro por defecto\n"
     "  /borradores — lista tus borradores pendientes\n"
+    "  /analisis <pregunta> — cifras del catálogo con gráfica, sobre la\n"
+    "    empresa por defecto del chat (ej: /analisis cuánto gasté este mes)\n"
+    "  /resumen — el resumen automático consolidado, ya mismo\n"
     "  /ayuda — este mensaje\n\n"
     "Para corregir un borrador: usa 🏢 Cambiar empresa, o descártalo y envía\n"
     "la operación de nuevo (o edítalo desde la Bandeja en la web)."
@@ -83,6 +86,11 @@ _RE_LINK    = re.compile(r"^\s*/?vincular\s+([A-Za-z0-9]{4,12})\s*$", re.IGNOREC
 _RE_AYUDA   = re.compile(r"^\s*/(start|ayuda|help)\s*$", re.IGNORECASE)
 _RE_DRAFTS  = re.compile(r"^\s*/?borradores\s*$", re.IGNORECASE)
 _RE_EMPRESA = re.compile(r"^\s*/empresa\s*(.*)$", re.IGNORECASE)
+# Hito 3 Análisis Inteligente: comando EXPLÍCITO (regla 6b: el bot no
+# adivina — una pregunta jamás se confunde con un registro de gasto).
+_RE_ANALISIS = re.compile(r"^\s*/(?:analisis|análisis|pregunta)\s+(.+)$",
+                          re.IGNORECASE | re.DOTALL)
+_RE_RESUMEN  = re.compile(r"^\s*/resumen\s*$", re.IGNORECASE)
 
 
 def parse_command(text: str):
@@ -104,6 +112,11 @@ def parse_command(text: str):
     m = _RE_EMPRESA.match(t)
     if m:
         return "empresa", (m.group(1) or "").strip() or None
+    m = _RE_ANALISIS.match(t)
+    if m:
+        return "analisis", m.group(1).strip()
+    if _RE_RESUMEN.match(t):
+        return "resumen", None
     return None, None
 
 
@@ -155,7 +168,9 @@ def handle_message(msg: dict):
       · None — duplicado ya procesado
       · str — respuesta de texto plano
       · dict {"text", "draft_id", "buttons"} — resumen de borrador con botones
-        inline (Etapa E); el adaptador del canal decide cómo pintarlos."""
+        inline (Etapa E); el adaptador del canal decide cómo pintarlos.
+        Puede traer "photo_png_base64" (hito 3: gráfica del análisis) — el
+        adaptador la envía como foto después del texto."""
     from db_pool import get_conn, put_conn
     conn = get_conn()
     try:
@@ -200,6 +215,18 @@ def handle_message(msg: dict):
             conn.commit()
             return reply
 
+        # ── Hito 3 Análisis Inteligente: pregunta con cifras del catálogo ──
+        # El dedupe se persiste ANTES de llamar al traductor (puede tardar).
+        if cmd == "analisis":
+            pid, nombre = _portafolio_del_chat(cur, link)
+            conn.commit()
+            return _responder_analisis(arg, pid, nombre)
+        if cmd == "resumen":
+            conn.commit()
+            # El MISMO texto del envío periódico (consolidado), a demanda.
+            from insight_engine import resumen_texto
+            return resumen_texto(None)
+
         # ── 📸 Foto (Etapa E): evidencia de un borrador o borrador nuevo ──
         if msg.get("kind") == "photo":
             reply = _flujo_foto(cur, link, msg, msg_row_id)
@@ -236,6 +263,44 @@ def handle_message(msg: dict):
         return f"⚠ Error procesando el mensaje: {e}"
     finally:
         put_conn(conn)
+
+
+def _portafolio_del_chat(cur, link):
+    """Empresa amarrada del chat para /analisis (criterio inmutable 2: la
+    decide la vinculación, jamás el LLM). → (portfolio_id, nombre_visible)
+    o (None, None) si el default no resuelve (se responde consolidado).
+    El nombre visible prefiere el del Control Tower (idioma de Andrés)."""
+    try:
+        cur.execute("""
+            SELECT p.id, COALESCE(NULLIF(btrim(e.name), ''), p.name)
+              FROM portfolios p
+              LEFT JOIN entities e ON e.portfolio_id = p.id
+             WHERE p.name = %s
+             LIMIT 1;
+        """, (link.get("default_portfolio"),))
+        fila = cur.fetchone()
+        return (fila[0], fila[1]) if fila else (None, None)
+    except Exception:
+        return (None, None)
+
+
+def _responder_analisis(pregunta: str, portfolio_id, nombre_portafolio):
+    """Pregunta en español → la MISMA maquinaria de la web (analytics_qa).
+    → dict {"text", "photo_png_base64"?} — el adaptador manda la foto aparte."""
+    if not (pregunta or "").strip():
+        return ("Dime la pregunta después del comando, por ejemplo:\n"
+                "/analisis cuánto gasté este mes por categoría")
+    try:
+        from analytics_qa import responder_pregunta
+        r = responder_pregunta(pregunta.strip(), portfolio_id=portfolio_id)
+    except Exception as e:
+        return f"⚠ El análisis falló: {e}"
+    encabezado = (f"🏢 {nombre_portafolio}\n" if nombre_portafolio
+                  else "🏢 Todas las empresas (consolidado)\n")
+    out = {"text": encabezado + (r.get("texto") or "Sin respuesta.")}
+    if r.get("grafica_png_base64"):
+        out["photo_png_base64"] = r["grafica_png_base64"]
+    return out
 
 
 def log_outbound(channel: str, chat_id: str, content: str, chat_link_id=None, draft_id=None):
