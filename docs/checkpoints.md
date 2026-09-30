@@ -1123,6 +1123,21 @@ de `764bc3d`; `finsys-backend` recreado (healthy) y `finsys-bot` recreado, ambos
 protegidas → 401. Sin migración. Pendiente de integrar: rama `claude/eager-mcnulty-92ede8` (`a7fa86d`, el
 🗑 de Terceros con `DELETE /api/third-parties/{id}`), aún fuera de `master`.
 
+### HTTPS permanente en producción (30-sep 16:40–17:16)
+Andrés creó `finsys-andres.duckdns.org` en DuckDNS (primero quedó con la IP de su PC; la corrigió a
+`159.223.156.50`) y agregó el dominio en Dokploy (finsys-app → Domains: servicio `frontend`, puerto 80,
+HTTPS, Let's Encrypt; "DNS Valid"). El clasificador me bloqueó `domain.create` por API y hasta `nslookup`
+(cambios de DNS/dominio/certificado): esa parte es siempre de Andrés en el panel. Comprobado antes: Traefik
+3.6.7 de Dokploy escucha en 80/443, resolver `letsencrypt` con reto HTTP ya configurado en `traefik.yml`
+(no se tocó; el correo de relleno no bloqueó la emisión), red `dokploy-network` existente. Deploy por script
+17:14: Dokploy reescribió el compose con las etiquetas `traefik.*` (router `web` con redirect-to-https y
+`websecure` con `certresolver=letsencrypt`) y conectó `finsys-frontend` a `dokploy-network`; solo se recreó
+el frontend. A los 15 s: `https://finsys-andres.duckdns.org/api/health` 200 con certificado válido, `db:
+connected`; `http://` → 301 a `https://`; `POST /api/webhooks/sms` con token falso → 401. URL definitiva
+enviada al chat con `sms_token.py --solo-url`. Pendiente: Andrés la pega en MacroDroid y se apaga el túnel
+(`cloudflared` PID 24916 en el PC). El formulario "Server Domain" de Settings es para el PANEL de Dokploy:
+con un segundo nombre de DuckDNS dejaría el panel en HTTPS y fijaría el correo de Let's Encrypt (opcional).
+
 ### Pendiente al cierre
 Prueba real CA-09G-13 (Andrés, en su chat): responder de nuevo al #237 —su concepto quedó
 contaminado por el defecto ya corregido— con el concepto y `Tercero: … cc …`, tocar 💾 y repetir

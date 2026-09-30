@@ -205,4 +205,4 @@ npm run build                                 # build producción
 > y `docs/checkpoints.md` para lo que pasó en sesiones anteriores.
 > Se actualizan cada sesión — son más frescos que este `AGENTS.md` para conteos y deuda técnica.
 > Para diseñar o continuar una etapa: `docs/specs/README.md` (specs por módulo y etapa).
-> Cómo se trabaja hoy (push de Andrés, deploy por script, sin HTTPS en producción): nota "Estado real" al inicio de `WORKFLOW.md`.
+> Cómo se trabaja hoy (push de Andrés, deploy por script, producción en `https://finsys-andres.duckdns.org` desde el 30-sep-2026): nota "Estado real" al inicio de `WORKFLOW.md`.
