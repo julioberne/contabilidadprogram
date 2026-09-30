@@ -52,7 +52,10 @@ class TestReplyCompletar(unittest.TestCase):
     def setUp(self):
         from db_pool import get_conn, put_conn
         self.get_conn, self.put_conn = get_conn, put_conn
-        self.sufijo = uuid.uuid4().hex[:8]
+        # Empieza por letra NO ambigua: un sufijo hex como "ce1234ab" lo leería
+        # el parser del reply como documento «CE 1234» y el tercero nacería sin
+        # el sufijo → el tearDown no lo encontraría (basura en la BD compartida).
+        self.sufijo = "x" + uuid.uuid4().hex[:7]
         self.ext_ids = []
         conn = self.get_conn()
         try:
@@ -218,6 +221,101 @@ class TestReplyCompletar(unittest.TestCase):
         out2 = bot_driver.handle_callback("telegram", self.chat_id, f"tpnew:{self.draft_id}")
         self.assertIn("Ya no tengo", out2["alert"])
         self.assertEqual(len(self._terceros()), 2)
+
+    def test_pendiente_viejo_no_escribe_su_documento_en_otro_provisional(self):
+        """Dicto «Leidy cc N» (quedan parecidos), NO elijo, y después toco un
+        provisional de OTRO nombre: su ficha sigue sin documento."""
+        nombre = f"Tercero Prueba {self.sufijo}"
+        self._reply(f"Tercero nuevo: {nombre}")                          # provisional 1
+        self._reply(f"Tercero nuevo: Ferreteria Prueba {self.sufijo}")   # provisional 2 (asignado)
+        ids = {fila[3]: fila[0] for fila in self._terceros()}
+        ferreteria = ids[f"Ferreteria Prueba {self.sufijo}"]
+        doc = self._doc()
+        r = self._reply(f"Tercero: tercero prueba {self.sufijo} cc {doc}")
+        self.assertIn("parecidos", r["text"])
+        self.assertIn("tercero_pendiente", self._payload())
+        # botón de la ferretería (p. ej. de un mensaje anterior): NO le corresponde el documento
+        out = bot_driver.handle_callback("telegram", self.chat_id, f"tpset:{self.draft_id}:{ferreteria}")
+        self.assertNotIn("completado", out["edit_text"])
+        filas = {f[0]: f for f in self._terceros()}
+        self.assertTrue(filas[ferreteria][2].startswith("SN-"))         # sigue sin documento
+        self.assertEqual([f for f in filas.values() if f[2] == doc], [])  # el documento no se escribió
+        self.assertNotIn("tercero_pendiente", self._payload())           # y el pendiente se consumió
+
+        # «« Volver» y «👤 Tercero» también caducan lo dictado
+        for boton in (f"tpback:{self.draft_id}", f"tp:{self.draft_id}"):
+            self._reply(f"Tercero: tercero prueba {self.sufijo} cc {doc}")
+            self.assertIn("tercero_pendiente", self._payload())
+            bot_driver.handle_callback("telegram", self.chat_id, boton)
+            self.assertNotIn("tercero_pendiente", self._payload(), boton)
+        # y dictar OTRO tercero por reply lo caduca (rama asignar)
+        self._reply(f"Tercero: tercero prueba {self.sufijo} cc {doc}")
+        self._reply(f"Tercero: Ferreteria Prueba {self.sufijo}")
+        self.assertNotIn("tercero_pendiente", self._payload())
+        self.assertEqual(self._payload()["third_party"]["name"], f"Ferreteria Prueba {self.sufijo}")
+
+    def test_homonimos_sin_documento_crear_nuevo_crea_de_verdad(self):
+        """Dos fichas con el MISMO nombre y documentos distintos; «Tercero nuevo:
+        <nombre> cel …» + «➕ Crear nuevo» crea una tercera y no le pisa el
+        celular a la más antigua (antes _asegurar_tercero la reutilizaba)."""
+        nombre = f"Homonimo Prueba {self.sufijo}"
+        d1, d2 = self._doc(), self._doc()
+        self._reply(f"Tercero: {nombre} cc {d1}")                         # crea la 1.ª
+        self._reply(f"Tercero: {nombre} cc {d2}")                         # parecidos → elegir/crear
+        bot_driver.handle_callback("telegram", self.chat_id, f"tpnew:{self.draft_id}")
+        self.assertEqual(len(self._terceros()), 2)
+        r = self._reply(f"Tercero nuevo: {nombre} cel 300 123 4567")
+        self.assertIn("parecidos", r["text"])
+        out = bot_driver.handle_callback("telegram", self.chat_id, f"tpnew:{self.draft_id}")
+        self.assertIn("CREADO", out["edit_text"])
+        filas = self._terceros()
+        self.assertEqual(len(filas), 3)                                   # ficha nueva de verdad
+        nueva = [f for f in filas if f[2].startswith("SN-")]
+        self.assertEqual(len(nueva), 1)
+        self.assertEqual(nueva[0][4], "3001234567")
+        self.assertEqual([f[4] for f in filas if not f[2].startswith("SN-")], [None, None])
+        self.assertEqual(self._payload()["third_party"]["identification_number"], nueva[0][2])
+
+    def test_cambiar_de_tercero_no_hereda_el_contacto_del_anterior(self):
+        """El borrador llegó con A (y el teléfono de la ficha de A); al corregir a
+        B, ese teléfono NO viaja con B (al confirmar se escribiría en su ficha)."""
+        conn = self.get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                UPDATE transaction_drafts
+                   SET payload = jsonb_set(payload, '{third_party}', %s::jsonb)
+                 WHERE id = %s
+            """, (json.dumps({"identification_type": "CC", "identification_number": "111222333",
+                              "name": "A Prueba", "phone": "3009998877", "email": "a@prueba.com"}),
+                  self.draft_id))
+            conn.commit()
+        finally:
+            self.put_conn(conn)
+        r = bot_driver.editar_draft(self.draft_id, {"third_party": {
+            "identification_type": "CC", "identification_number": "444555666", "name": "B Prueba"}},
+            hub_user_id=self.uid)
+        tp = r["payload"]["third_party"]
+        self.assertEqual((tp["identification_number"], tp["name"]), ("444555666", "B Prueba"))
+        self.assertNotIn("phone", tp)
+        self.assertNotIn("email", tp)
+        # El contacto dictado ANTES de tener ficha (tercero genérico) sí se conserva
+        conn = self.get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                UPDATE transaction_drafts
+                   SET payload = jsonb_set(payload, '{third_party}', %s::jsonb)
+                 WHERE id = %s
+            """, (json.dumps({"identification_type": "NIT", "identification_number": "999999999",
+                              "name": "Sin especificar", "phone": "3001112233"}), self.draft_id))
+            conn.commit()
+        finally:
+            self.put_conn(conn)
+        r = bot_driver.editar_draft(self.draft_id, {"third_party": {
+            "identification_type": "CC", "identification_number": "444555666", "name": "B Prueba"}},
+            hub_user_id=self.uid)
+        self.assertEqual(r["payload"]["third_party"].get("phone"), "3001112233")
 
     def test_reply_a_mensaje_ajeno_cae_al_registrador_normal(self):
         # reply a un message_id que no es de ningún borrador → flujo normal

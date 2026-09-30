@@ -114,7 +114,7 @@ def main():
                 "en MacroDroid.\n\n"
                 "1) URL de la Solicitud HTTP (método POST)\n"
                 "2) Encabezado X-SMS-Token → su valor es el token\n"
-                "3) Encabezado X-SMS-From → valor: 85540\n"
+                f"3) Encabezado X-SMS-From → valor: {remitentes[0]}\n"
                 "4) Cuerpo: tipo text/plain y, como contenido, el texto mágico del "
                 "mensaje SMS (botón …)"))
             if webhook:

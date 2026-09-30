@@ -228,6 +228,32 @@ class TestResolverTerceroDictado(unittest.TestCase):
         self.assertEqual(accion, "nada")
         self.assertIn("nombre", msg.lower())
 
+    def test_solo_celular_con_prefijo_busca_por_celular_y_jamas_crea(self):
+        # "cel 319…" deja el nombre vacío: se busca por igualdad del celular…
+        accion, dato, _ = self._r("Tercero: cel 319 330 1184")
+        self.assertEqual((accion, dato["id"]), ("asignar", 2))
+        # …y sin coincidencia NO se crea nada (ni con «Tercero nuevo»), se pide el nombre
+        for texto in ("Tercero nuevo: cel 3000000000", "Tercero: tel 3000000000",
+                      "Tercero nuevo: alguien@correo.com"):
+            accion, msg, crear = self._r(texto)
+            self.assertEqual((accion, crear), ("nada", False), texto)
+            self.assertNotIn("None", msg)
+            self.assertIn("nombre", msg.lower())
+
+
+class TestPendienteCorresponde(unittest.TestCase):
+    """Un documento dictado solo se le completa a un provisional cuyo nombre
+    coincide con lo dictado (mismo criterio con que se ofrecieron los candidatos)."""
+
+    def test_mismo_criterio_que_los_candidatos(self):
+        p = {"nombre": "leidy molina", "num": "1007289007"}
+        self.assertTrue(bot_driver._pendiente_corresponde(p, "Leidy Daniela Molina Martínez"))
+        self.assertTrue(bot_driver._pendiente_corresponde({"nombre": "LEIDY"}, "leidy daniela"))
+        self.assertFalse(bot_driver._pendiente_corresponde(p, "Ferretería X"))
+        self.assertFalse(bot_driver._pendiente_corresponde(p, "Leidy Rojas"))       # falta «molina»
+        self.assertFalse(bot_driver._pendiente_corresponde({"nombre": None, "num": "1"}, "Leidy"))
+        self.assertFalse(bot_driver._pendiente_corresponde(None, "Leidy"))
+
 
 class TestBotones(unittest.TestCase):
 

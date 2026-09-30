@@ -456,4 +456,5 @@ CREATE INDEX IF NOT EXISTS idx_third_party_accounts_tercero ON third_party_accou
 - Un tercero (una ficha, la manda su documento) tiene **varios** medios: cuentas, celulares, llaves y el nombre con que el banco lo llama en sus SMS.
 - `valor` normalizado (`fin_sys_core/terceros_cuentas.normalizar`): `celular` = 10 dígitos que empiezan por 3 (sin `+57`); `cuenta` = solo dígitos (4–20); `llave` = sin espacios, minúsculas; `nombre_banco` = MAYÚSCULAS sin tildes.
 - Lo escribe una persona: botón 💾 del bot (`origen='bot'`) o la ficha del tercero en la web (`origen='web'`). El bot lo lee por **igualdad** para traer el tercero ya puesto en el borrador de un SMS (Regla 6b: nada se memoriza solo).
+- Un número con forma de celular (`3` + 9 dígitos) es **un solo medio** aunque esté guardado como `celular`, `llave` o `cuenta` (`_equivalentes`): el `UNIQUE` no lo ve, así que `agregar` responde `de_otro` si otra ficha lo tiene en cualquiera de esas formas y `mover` se lleva todas sus filas.
 - El tercero genérico (`999999999`) no puede tener medios. No altera `third_parties`.

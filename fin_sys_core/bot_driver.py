@@ -27,6 +27,7 @@ InboundMessage = {
 """
 import json
 import re
+import time
 
 # Fuente ÚNICA de inferencia — compartida con la Ingestión por Voz de la web
 from draft_builder import (          # noqa: F401  (re-exportadas para tests)
@@ -940,12 +941,17 @@ def _asignar_tercero(link, draft_id, tercero, cur=None):
 
 def _crear_tercero(cur, datos):
     """Alta desde el chat con lo que el humano dictó: con documento queda
-    completo; sin documento nace provisional SN-… — el MISMO camino que la
-    web (database_driver._asegurar_tercero). → dict del tercero."""
+    completo; sin documento nace provisional SN-… (mismo formato que la web).
+    El SN- se genera AQUÍ: con el número vacío, _asegurar_tercero reutilizaría
+    al homónimo más antiguo y le cambiaría el contacto — y a este punto solo
+    se llega cuando no hay parecidos o el humano tocó «➕ Crear nuevo» viendo
+    los que ya existen. → dict del tercero."""
     from database_driver import _asegurar_tercero
+    if not (datos.get("nombre") or "").strip():
+        raise ValueError("No se crea un tercero sin nombre.")
     tp_id = _asegurar_tercero(cur, {
         "identification_type": datos.get("tipo") or "CC",
-        "identification_number": datos.get("num") or "",
+        "identification_number": datos.get("num") or f"SN-{int(time.time() * 1000):x}",
         "name": datos["nombre"],
         "phone": datos.get("phone"),
         "email": datos.get("email"),
@@ -957,7 +963,7 @@ def _crear_tercero(cur, datos):
 
 def _rellenar_contacto(cur, tp_id, datos):
     """Celular / correo dictados junto al tercero: RELLENAN lo vacío, jamás
-    pisan lo que ya está en la ficha (misma regla que _asegurar_tercero)."""
+    pisan lo que ya está en la ficha."""
     if not (datos.get("phone") or datos.get("email")):
         return
     cur.execute("""
@@ -997,6 +1003,16 @@ def _tomar_pendiente(cur, link, draft_id):
              WHERE id = %s AND chat_link_id = %s
         """, (draft_id, link["id"]))
     return pendiente or None
+
+
+def _pendiente_corresponde(pendiente, nombre_ficha) -> bool:
+    """¿El tercero elegido es uno de los candidatos del nombre dictado? Mismo
+    criterio con el que se ofrecieron (_buscar_terceros: todas las palabras).
+    Sin esto, un pendiente viejo le escribiría su documento a CUALQUIER
+    provisional que se elija después (otra persona)."""
+    palabras = [p for p in _norm((pendiente or {}).get("nombre") or "").split() if len(p) >= 2][:6]
+    destino = _norm(nombre_ficha or "")
+    return bool(palabras) and all(p in destino for p in palabras)
 
 
 def _completar_provisional(cur, tp_id, pendiente):
@@ -1039,7 +1055,19 @@ def _resolver_tercero_dictado(cur, t):
         if not nombre:
             return "nada", (f"No existe un tercero con el documento {num}. Dime también "
                             f"el nombre: Tercero: Nombre cc {num}"), False
-    parecidos = _buscar_terceros(cur, nombre) if nombre else []
+    if not nombre:
+        # Solo celular o correo ("Tercero: cel 3001234567"): se busca por el
+        # celular (igualdad); sin nombre jamás se crea nada.
+        if t.get("phone"):
+            encontrados = _buscar_terceros(cur, t["phone"])
+            if len(encontrados) == 1:
+                return "asignar", encontrados[0], False
+            if encontrados:
+                return "elegir", encontrados, False
+        dato = t.get("phone") or t.get("email") or "ese dato"
+        return "nada", (f"No encontré ningún tercero con {dato}. Para crearlo dime el nombre:\n"
+                        f"  Tercero nuevo: Nombre" + (f" cel {t['phone']}" if t.get("phone") else "")), False
+    parecidos = _buscar_terceros(cur, nombre)
     if num:
         # Documento nuevo para el sistema. Si hay nombres parecidos, el humano
         # dice si es uno de ellos (y se le completa el documento) o es otro.
@@ -1111,6 +1139,10 @@ def _flujo_reply(cur, link, draft_id, texto):
                                         crear=(t.get("nombre") if puede_crear else None))
         else:
             notas.append("👤 " + dato)
+        if not (accion == "elegir" and puede_crear):
+            # Se dictó OTRA cosa: lo que quedó pendiente de un reply anterior caduca.
+            # Va DESPUÉS de editar_draft (otra conexión con FOR UPDATE sobre el borrador).
+            _tomar_pendiente(cur, link, draft_id)
 
     if payload is None:
         cur.execute("SELECT payload FROM transaction_drafts WHERE id = %s AND chat_link_id = %s",
@@ -1360,6 +1392,7 @@ def handle_callback(channel: str, chat_id: str, data: str):
         # ── Etapa 09.G: 👤 Tercero / 📝 Concepto ──
         if accion == "tp":
             terceros = _terceros_recientes(cur)
+            _tomar_pendiente(cur, link, draft_id)    # lista nueva: lo dictado antes caduca
             conn.commit()
             if not terceros:
                 out["alert"] = "Sin terceros recientes. Responde al borrador: Tercero: nombre, NIT o celular"
@@ -1369,6 +1402,7 @@ def handle_callback(channel: str, chat_id: str, data: str):
             return out
 
         if accion == "tpback":
+            _tomar_pendiente(cur, link, draft_id)    # se abandona la elección: caduca
             conn.commit()
             out["edit_buttons"] = _botones_borrador(draft_id)
             return out
@@ -1391,7 +1425,8 @@ def handle_callback(channel: str, chat_id: str, data: str):
             # documento, se le completa la ficha (no se crea un duplicado).
             pendiente = _tomar_pendiente(cur, link, draft_id)
             completado = None
-            if pendiente and str(row[2]).startswith("SN-"):
+            if (pendiente and str(row[2]).startswith("SN-")
+                    and _pendiente_corresponde(pendiente, row[3])):
                 completado = _completar_provisional(cur, tp_id, pendiente)
             conn.commit()                 # antes de editar_draft (otra conexión)
             tercero = _tercero_dict(completado or row)
@@ -1803,6 +1838,14 @@ def editar_draft(draft_id: int, cambios: dict, hub_user_id=None) -> dict:
             payload["account_id"] = None
         if tercero:
             tp = payload.get("third_party") or {}
+            nuevo = str(tercero.get("identification_number") or "")
+            viejo = str(tp.get("identification_number") or "")
+            if nuevo and viejo and nuevo != viejo and viejo != _TERCERO_GENERICO:
+                # Se cambia de ficha: el contacto que traía el borrador era del
+                # tercero ANTERIOR. Heredarlo lo escribiría en la ficha del nuevo
+                # al confirmar (_asegurar_tercero actualiza con lo que recibe).
+                for k in ("phone", "email", "address", "website"):
+                    tp.pop(k, None)
             tp.update({k: v for k, v in tercero.items()
                        if k in ("identification_type", "identification_number", "name")})
             payload["third_party"] = tp

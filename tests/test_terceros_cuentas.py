@@ -176,6 +176,19 @@ class TestBuscar(unittest.TestCase):
         cur = _FakeCursor({("celular", "0087671656"): self.LEIDY})
         self.assertIsNone(tc.buscar_tercero(cur, "llave", "0087671656"))
 
+    def test_un_celular_registrado_en_la_web_como_cuenta_tambien_cruza(self):
+        # El SMS dice «a la cuenta *3213795458» y en la ficha lo escribieron como
+        # «Cuenta bancaria»: es el mismo número de celular → mismo medio.
+        cur = _FakeCursor({("cuenta", "3213795458"): self.LEIDY})
+        self.assertEqual(tc.buscar_tercero(cur, "celular", "3213795458")["id"], 77)
+        self.assertEqual(tc.dueno(cur, "llave", "3213795458")["id"], 77)
+        # una cuenta que no tiene forma de celular NO equivale a nada más
+        self.assertEqual(tc._equivalentes("cuenta", "91232656625"), [("cuenta", "91232656625")])
+        self.assertEqual(tc._equivalentes("nombre_banco", "3213795458"), [("nombre_banco", "3213795458")])
+        self.assertEqual(tc._equivalentes("celular", "3213795458")[0], ("celular", "3213795458"))
+        self.assertEqual({t for t, _ in tc._equivalentes("llave", "3213795458")},
+                         {"celular", "llave", "cuenta"})
+
     def test_buscar_seguro_no_lanza_si_la_tabla_no_existe(self):
         class _Roto(_FakeCursor):
             def execute(self, sql, params=None):

@@ -55,7 +55,9 @@ class _Base(_ConChatDePrueba):
 
     def setUp(self):
         super().setUp()
-        self.sufijo = uuid.uuid4().hex[:8]
+        # "x" + hex: un sufijo como "ce1234ab" lo leería el parser del reply como
+        # documento «CE 1234» y el tercero nacería sin sufijo (no se limpiaría)
+        self.sufijo = "x" + uuid.uuid4().hex[:7]
         self._mid = 5000
         self.celular = "3" + str(uuid.uuid4().int)[:9]
         # Cuenta ajena: sus últimos 4 no pueden coincidir con una cuenta MÍA
@@ -179,6 +181,29 @@ class TestNucleo(_Base):
             self.assertFalse(tc.eliminar(cur, medio_id, a))                               # no es de Ana
             self.assertTrue(tc.eliminar(cur, medio_id, b))
             self.assertIsNone(tc.buscar_tercero(cur, "celular", self.celular))
+            conn.commit()
+        finally:
+            self.put_conn(conn)
+
+    def test_el_mismo_celular_como_llave_o_cuenta_es_un_solo_medio(self):
+        """Ana lo tiene como llave Bre-B; nadie más puede registrarlo como celular
+        ni como «cuenta» (así lo llama el SMS), y «Mover» se lleva todas sus formas."""
+        a, _ = self._crear_tercero("Ana Prueba")
+        b, _ = self._crear_tercero("Beto Prueba")
+        conn = self.get_conn()
+        try:
+            cur = conn.cursor()
+            self.assertTrue(tc.agregar(cur, a, "llave", self.celular)["ok"])
+            for tipo in ("celular", "cuenta", "llave"):
+                r = tc.agregar(cur, b, tipo, self.celular)
+                self.assertEqual((r["ok"], r["codigo"], r["dueno"]["id"]), (False, "de_otro", a), tipo)
+            self.assertTrue(tc.agregar(cur, a, "celular", self.celular)["ok"])     # misma ficha: sí
+            self.assertEqual({m["tipo"] for m in tc.listar(cur, a)}, {"llave", "celular"})
+            self.assertEqual(tc.dueno(cur, "cuenta", self.celular)["id"], a)
+            self.assertTrue(tc.mover(cur, "cuenta", self.celular, b))              # por cualquier forma
+            self.assertEqual(tc.listar(cur, a), [])
+            self.assertEqual({m["tipo"] for m in tc.listar(cur, b)}, {"llave", "celular"})
+            self.assertEqual(tc.buscar_tercero(cur, "celular", self.celular)["id"], b)
             conn.commit()
         finally:
             self.put_conn(conn)

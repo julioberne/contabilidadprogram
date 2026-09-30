@@ -139,14 +139,17 @@ def medio_de_payload(sms_meta):
     })
 
 
+_TIPOS_DE_UN_CELULAR = ("celular", "llave", "cuenta")
+
+
 def _equivalentes(tipo, valor):
-    """Un celular puede estar registrado como llave Bre-B y al revés."""
-    pares = [(tipo, valor)]
-    if tipo == "llave" and re.fullmatch(r"3\d{9}", valor or ""):
-        pares.append(("celular", valor))
-    elif tipo == "celular":
-        pares.append(("llave", valor))
-    return pares
+    """Un número de celular es UN solo medio aunque se escriba de tres formas:
+    celular (Nequi/Daviplata), llave Bre-B o «cuenta» (así lo llama el SMS:
+    «a la cuenta *3213795458»). → [(tipo, valor), …] con el exacto primero.
+    Lo que no tiene forma de celular solo equivale a sí mismo."""
+    if tipo in _TIPOS_DE_UN_CELULAR and re.fullmatch(r"3\d{9}", valor or ""):
+        return [(tipo, valor)] + [(t, valor) for t in _TIPOS_DE_UN_CELULAR if t != tipo]
+    return [(tipo, valor)]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -160,18 +163,22 @@ def _fila_a_medio(r):
 
 
 def dueno(cur, tipo, valor):
-    """Dueño EXACTO de (tipo, valor). → {"id", "name"} | None"""
-    cur.execute("""
-        SELECT tp.id, tp.name
-          FROM third_party_accounts a JOIN third_parties tp ON tp.id = a.third_party_id
-         WHERE a.tipo = %s AND a.valor = %s
-    """, (tipo, valor))
-    row = cur.fetchone()
-    return {"id": row[0], "name": str(row[1]).strip()} if row else None
+    """Dueño de (tipo, valor) o de su equivalente (un celular registrado como
+    llave o como cuenta es el mismo medio). → {"id", "name"} | None"""
+    for t, v in _equivalentes(tipo, valor):
+        cur.execute("""
+            SELECT tp.id, tp.name
+              FROM third_party_accounts a JOIN third_parties tp ON tp.id = a.third_party_id
+             WHERE a.tipo = %s AND a.valor = %s
+        """, (t, v))
+        row = cur.fetchone()
+        if row:
+            return {"id": row[0], "name": str(row[1]).strip()}
+    return None
 
 
 def buscar_tercero(cur, tipo, valor):
-    """Tercero dueño de ese medio de pago (o de su equivalente celular↔llave).
+    """Tercero dueño de ese medio de pago (o de su equivalente: _equivalentes).
     → dict listo para el payload del borrador, o None."""
     for t, v in _equivalentes(tipo, valor):
         cur.execute("""
@@ -238,6 +245,12 @@ def agregar(cur, third_party_id, tipo, valor, banco=None, etiqueta=None, origen=
         return {"ok": False, "codigo": "tercero_generico", "dueno": None,
                 "error": "«Sin especificar» es el tercero genérico: no puede tener medios de pago."}
     origen = origen if origen in ("web", "bot") else "web"
+    # Un medio pertenece a UNA sola ficha, también cuando el mismo celular está
+    # escrito con otro tipo (llave / cuenta): el UNIQUE(tipo, valor) no lo ve.
+    actual = dueno(cur, tipo, v)
+    if actual and actual["id"] != third_party_id:
+        return {"ok": False, "codigo": "de_otro", "dueno": actual,
+                "error": f"{describir(tipo, v)} ya está registrado en la ficha de {actual['name']}."}
     cur.execute("""
         INSERT INTO third_party_accounts (third_party_id, tipo, valor, banco, etiqueta, origen)
         VALUES (%s, %s, %s, %s, %s, %s)
@@ -267,12 +280,17 @@ def eliminar(cur, medio_id, third_party_id) -> bool:
 
 
 def mover(cur, tipo, valor, nuevo_third_party_id, origen="bot") -> bool:
-    """Cambia de dueño un medio ya registrado (decisión explícita del humano)."""
+    """Cambia de dueño un medio ya registrado (decisión explícita del humano).
+    Se lleva también sus equivalentes (el mismo celular escrito como llave o
+    como cuenta): un medio no puede quedar repartido entre dos fichas."""
     v = normalizar(tipo, valor)
     if not v:
         return False
-    cur.execute("""
-        UPDATE third_party_accounts SET third_party_id = %s, origen = %s
-         WHERE tipo = %s AND valor = %s
-    """, (nuevo_third_party_id, origen if origen in ("web", "bot") else "bot", tipo, v))
-    return cur.rowcount > 0
+    movidos = 0
+    for t, val in _equivalentes(tipo, v):
+        cur.execute("""
+            UPDATE third_party_accounts SET third_party_id = %s, origen = %s
+             WHERE tipo = %s AND valor = %s
+        """, (nuevo_third_party_id, origen if origen in ("web", "bot") else "bot", t, val))
+        movidos += max(cur.rowcount, 0)
+    return movidos > 0

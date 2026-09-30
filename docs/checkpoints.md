@@ -1038,6 +1038,32 @@ Documentación puesta al día en el mismo cierre: `AGENTS.md` (módulos 09 y 13 
 las reglas del bot), `WORKFLOW.md` (nota de estado real: deploy por script, sin HTTPS, token
 compartido), `docs/user_stories.md` (historias del bot entregadas), CHECKLIST, specs y memoria.
 
+### Revisión adversarial tras el deploy (30-sep 03:11–03:26, 10 agentes en paralelo)
+Cuatro lectores (flujo del bot, núcleo + SMS, API + seguridad + migración, frontend + seguridad
+de los tests) sobre `f809aca..d51afb5` y un escéptico por hallazgo. 12 hallazgos crudos → 6
+verificados (5 confirmados, 1 refutado) + 6 de menor severidad sin verificar; se corrigieron 5
+confirmados y 3 de los menores, con test para cada uno (`CA-09G-15`, decisiones D-09G-05/07/12/16/17):
+- `bot_driver`: el `tercero_pendiente` de un reply viejo le escribía su documento a CUALQUIER
+  provisional que se eligiera después (otra persona) → guarda `_pendiente_corresponde` (mismo criterio
+  que los candidatos) y el pendiente caduca al Volver / 👤 Tercero / dictar otro tercero.
+- `editar_draft`: al cambiar de tercero, el borrador heredaba el teléfono/correo del anterior y
+  `_asegurar_tercero` lo escribía en la ficha del nuevo al confirmar → al cambiar de ficha se descarta
+  el contacto (se conserva solo si venía del genérico: contacto dictado antes de tener ficha).
+- `_crear_tercero` sin documento pasaba `""` a `_asegurar_tercero`, que reutiliza al homónimo más
+  antiguo y le pisa el contacto: «➕ Crear nuevo» decía CREADO sin crear → el SN- lo genera el bot.
+- `Tercero: cel 300…` (sin nombre) llegaba a "crear" → genérico "Sin especificar" con texto "CREADO"
+  → busca por celular y, si no existe, pide el nombre; jamás crea sin nombre.
+- `terceros_cuentas`: la equivalencia celular↔llave solo se aplicaba al leer; al registrar/mover era por
+  tipo exacto → el mismo número podía quedar en dos fichas y un celular escrito en la web como
+  «cuenta» nunca cruzaba con el SMS → `_equivalentes` (celular = llave = cuenta con forma de celular)
+  en `dueno`, `agregar` (→ `de_otro`) y `mover`.
+- `scripts/sms_token.py --telegram`: las instrucciones decían `X-SMS-From: 85540` aunque el token
+  tuviera otro `--remitente`. Tests con BD: el sufijo aleatorio empieza por `x` (un `ce1234…` lo leía
+  el parser como documento y el tercero de prueba quedaba sin sufijo → basura sin limpiar).
+- Refutado: el link `test-…` de un usuario real sin chats no captura SMS reales (no hay tokens de ese
+  usuario). Sin corregir (preexistente, fuera del rango): `tests.test_bot_retencion` corre `purgar()`
+  sobre toda la BD compartida → tarea aparte.
+
 ### Pendiente al cierre
 Prueba real CA-09G-13 (Andrés, en su chat): responder de nuevo al #237 —su concepto quedó
 contaminado por el defecto ya corregido— con el concepto y `Tercero: … cc …`, tocar 💾 y repetir
