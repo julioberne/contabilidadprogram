@@ -1064,6 +1064,15 @@ confirmados y 3 de los menores, con test para cada uno (`CA-09G-15`, decisiones 
   usuario). Sin corregir (preexistente, fuera del rango): `tests.test_bot_retencion` corre `purgar()`
   sobre toda la BD compartida → tarea aparte.
 
+### Deploy de las correcciones (`09325ce`, 30-sep 13:40–13:41)
+Push de Andrés (`origin/master` = `09325ce`), CI en verde (run de 18:38Z), `scratch/deploy_prod.py`
+13:40 → Dokploy `done` a los ~60 s con el título del commit. `finsys-backend` recreado (healthy),
+`finsys-bot` recreado; `finsys-frontend` siguió con "Up 10 hours": el commit no toca `frontend/`,
+la imagen no cambió y compose no recrea contenedores con la misma imagen (normal, no un fallo;
+bundle `index-jk_urIvd.js` igual en prod y en `frontend/dist`). `/api/health` → `db: connected`
+por 6543; rutas protegidas → 401. Sin migración (el commit no cambia el esquema). A los 5 min los
+dos contenedores nuevos seguían arriba (sin bucle de reinicios).
+
 ### Pendiente al cierre
 Prueba real CA-09G-13 (Andrés, en su chat): responder de nuevo al #237 —su concepto quedó
 contaminado por el defecto ya corregido— con el concepto y `Tercero: … cc …`, tocar 💾 y repetir
