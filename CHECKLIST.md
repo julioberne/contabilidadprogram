@@ -2,7 +2,7 @@
 
 > **Único archivo de estado vivo.** Aquí: qué hay, qué falta, cómo arrancar.
 > Lo que ya pasó (con verificación) va a `docs/checkpoints.md` — un checkpoint por sesión.
-> Última actualización: **15 Sep 2026**.
+> Última actualización: **30 Sep 2026**.
 
 ---
 
@@ -22,7 +22,7 @@
 | 07 | Control Tower | ✅ COMPLETO | `frontend/src/control-tower/` |
 | 08 / 08c | Project Hub · RRHH/Empresas | ✅ EN USO | `frontend/src/project-hub/` |
 | — | Zero-COA Kernel | ✅ Fase 1+2 | `kernel/` |
-| 09 | Bot IA (Telegram + Groq) | ✅ Etapas A–E en producción · ✅ **09.F SMS Bancolombia → borradores** implementada (22-sep; falta prueba en el teléfono vía túnel + deploy) · ✅ **09.G** parte chat: reply `Concepto:` / `Tercero:` / `Tercero nuevo:` + botón 👤 (22-sep; falta `third_party_accounts`) · 09.H OCR planificada — specs en `docs/specs/09-bot-ia/` | `fin_sys_core/bot_*.py`, `fin_sys_core/sms_bancolombia.py`, `routers/bot.py`, `routers/webhooks_sms.py` |
+| 09 | Bot IA (Telegram + Groq) | ✅ Etapas A–E en producción · ✅ **09.F SMS Bancolombia → borradores** HECHA y **probada con SMS real el 30-sep** (MacroDroid → túnel cloudflared → borrador #237 en 44 s); pendiente operativo: HTTPS permanente (hoy túnel en el PC) y plantillas sin muestra (retiro, compra por internet) · 🔵 **09.G**: reply con concepto + `Tercero: nombre cc N` en una o varias líneas, sin duplicados (30-sep, **falta push + deploy**); medios de pago del tercero (`third_party_accounts`) en PROPUESTA — §10 del spec · 09.H OCR planificada — specs en `docs/specs/09-bot-ia/` | `fin_sys_core/bot_*.py`, `fin_sys_core/sms_bancolombia.py`, `routers/bot.py`, `routers/webhooks_sms.py` |
 | 10 | Trading NASDAQ | 🔵 PLANIFICADO | — |
 | 11 | Reportes PDF/Excel · Facturación B2B | 🔵 PLANIFICADO | — |
 | 12 | Contadores (bandeja de asientos BORRADOR→CONTABILIZADO, diario, plan de cuentas, reglas, reportes, cierres) | ✅ v1 (15-sep) — rol `contador` | `frontend/src/contadores/`, `routers/contadores.py`, `kernel/kernel_journal_workflow.py`, `kernel/kernel_periods.py`, `kernel/kernel_reports.py`, `fin_sys_core/coa_admin_driver.py` |

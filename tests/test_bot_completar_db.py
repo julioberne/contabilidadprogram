@@ -91,10 +91,27 @@ class TestReplyCompletar(unittest.TestCase):
             cur.execute("DELETE FROM bot_messages WHERE chat_link_id = %s OR external_message_id = ANY(%s)",
                         (self.link_id, self.ext_ids or [""]))
             cur.execute("DELETE FROM bot_chat_links WHERE id = %s", (self.link_id,))
-            cur.execute("DELETE FROM third_parties WHERE name = %s", (f"Tercero Prueba {self.sufijo}",))
+            cur.execute("DELETE FROM third_parties WHERE name ILIKE %s", (f"%{self.sufijo}%",))
             conn.commit()
         finally:
             self.put_conn(conn)
+
+    def _terceros(self):
+        """Terceros de ESTE test (su nombre lleva el sufijo único)."""
+        conn = self.get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT id, identification_type, identification_number, name, phone, email
+                  FROM third_parties WHERE name ILIKE %s ORDER BY id
+            """, (f"%{self.sufijo}%",))
+            return cur.fetchall()
+        finally:
+            self.put_conn(conn)
+
+    @staticmethod
+    def _doc():
+        return "99" + str(uuid.uuid4().int)[:9]
 
     def _reply(self, texto):
         ext = f"t09g-{uuid.uuid4().hex[:12]}"
@@ -133,9 +150,74 @@ class TestReplyCompletar(unittest.TestCase):
 
     def test_reply_tercero_inexistente_explica(self):
         r = self._reply(f"Tercero: nadie-{self.sufijo}")
-        self.assertIsInstance(r, str)
-        self.assertIn("No encontré", r)
+        self.assertIsInstance(r, dict, r)
+        self.assertIn("No encontré", r["text"])
+        self.assertIn("cc", r["text"])                       # le dice cómo crearlo
         self.assertEqual(self._payload()["third_party"]["name"], "Sin especificar")
+        self.assertEqual(self._terceros(), [])               # sin documento NO se crea solo
+
+    def test_caso_real_dos_lineas_concepto_y_tercero_con_cc(self):
+        """El reply de Andrés del 30-sep: concepto + «Tercero : nombre cc N»."""
+        doc = self._doc()
+        r = self._reply(f"abono cuota  1V\nTercero : Prueba {self.sufijo} Molina  cc {doc}")
+        self.assertIsInstance(r, dict, r)
+        self.assertIn("Tercero CREADO", r["text"])
+        p = self._payload()
+        self.assertEqual(p["concept"], "abono cuota 1V")     # la línea del tercero NO entra al concepto
+        self.assertEqual(p["third_party"]["name"], f"Prueba {self.sufijo} Molina")
+        self.assertEqual(p["third_party"]["identification_number"], doc)
+        self.assertEqual(p["third_party"]["identification_type"], "CC")
+        self.assertNotIn("third_party", p["inferred_fields"])
+        self.assertEqual(len(self._terceros()), 1)
+
+        # Otra vez, escrito distinto pero con el MISMO documento → no duplica
+        r2 = self._reply(f"Tercero: PRUEBA {self.sufijo}  c.c. {doc[:2]}.{doc[2:]}")
+        self.assertIn("👤 Tercero →", r2["text"])
+        self.assertNotIn("CREADO", r2["text"])
+        self.assertEqual(len(self._terceros()), 1)
+        self.assertEqual(self._payload()["third_party"]["identification_number"], doc)
+
+    def test_celular_y_correo_dictados_quedan_en_la_ficha(self):
+        doc = self._doc()
+        self._reply(f"Tercero: Prueba {self.sufijo} Ruiz cc {doc} cel 300 123 4567 p{self.sufijo}@correo.com")
+        fila = self._terceros()[0]
+        self.assertEqual((fila[2], fila[4], fila[5]), (doc, "3001234567", f"p{self.sufijo}@correo.com"))
+
+    def test_parecido_sin_documento_se_completa_al_elegirlo(self):
+        nombre = f"Tercero Prueba {self.sufijo}"
+        self._reply(f"Tercero nuevo: {nombre}")                          # nace provisional SN-…
+        tp_id = self._terceros()[0][0]
+        doc = self._doc()
+        r = self._reply(f"Tercero: tercero prueba {self.sufijo} cc {doc}")
+        self.assertIn("parecidos", r["text"])
+        datas = [d for fila in r["buttons"] for _, d in fila]
+        self.assertIn(f"tpset:{self.draft_id}:{tp_id}", datas)
+        self.assertIn(f"tpnew:{self.draft_id}", datas)
+        self.assertIn("tercero_pendiente", self._payload())
+
+        out = bot_driver.handle_callback("telegram", self.chat_id, f"tpset:{self.draft_id}:{tp_id}")
+        self.assertIn("completado", out["edit_text"])
+        filas = self._terceros()
+        self.assertEqual(len(filas), 1)                                  # NO se duplicó
+        self.assertEqual(filas[0][2], doc)                               # la ficha quedó con su cédula
+        p = self._payload()
+        self.assertEqual(p["third_party"]["identification_number"], doc)
+        self.assertNotIn("tercero_pendiente", p)
+
+    def test_parecido_pero_es_otra_persona_crear_nuevo(self):
+        nombre = f"Tercero Prueba {self.sufijo}"
+        self._reply(f"Tercero nuevo: {nombre}")
+        doc = self._doc()
+        self._reply(f"Tercero: {nombre} cc {doc}")
+        out = bot_driver.handle_callback("telegram", self.chat_id, f"tpnew:{self.draft_id}")
+        self.assertIn("CREADO", out["edit_text"])
+        filas = self._terceros()
+        self.assertEqual(len(filas), 2)                                  # decisión explícita del humano
+        self.assertEqual(self._payload()["third_party"]["identification_number"], doc)
+        # el botón ya no sirve dos veces
+        out2 = bot_driver.handle_callback("telegram", self.chat_id, f"tpnew:{self.draft_id}")
+        self.assertIn("Ya no tengo", out2["alert"])
+        self.assertEqual(len(self._terceros()), 2)
 
     def test_reply_a_mensaje_ajeno_cae_al_registrador_normal(self):
         # reply a un message_id que no es de ningún borrador → flujo normal

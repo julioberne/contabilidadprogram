@@ -910,3 +910,70 @@ Muestras pendientes de Andrés: un SMS de **retiro** y uno de **compra con tarje
   Botones nuevos 👤 Tercero (8 recientes por transacciones) y 📝 Concepto. Todo vía `editar_draft`.
   Tests: `test_bot_completar` (14 puros) + `test_bot_completar_db` (4 con BD, limpian su tercero).
   Pendiente de 09.G: `third_party_accounts` (cuentas bancarias de terceros).
+
+---
+
+## Checkpoint 2026-09-30 — Bot 09.F cerrada con SMS real; plantillas nuevas; reply con tercero sin duplicados
+
+Sesión larga sobre `master` (push: Andrés; deploy: `scratch/deploy_prod.py`). Producción quedó en
+`f809aca`; lo posterior (`ad9bb57` y el commit de esta entrada) está en local **sin push**.
+
+### Plantillas reales de SMS (9016c83, f809aca)
+Andrés envió capturas de sus SMS de agosto–septiembre. Familias con muestra real y test fijo:
+`transferencia_enviada` (también "desde tu cuenta 3037" sin asterisco), `compra_tarjeta`
+("Compraste $7.000,00 en Didi con tu T.Deb *1775, el …": monto en formato europeo, cuenta por
+`last4_tarjeta`), `transferencia_recibida` en sus dos variantes ("Recibiste una transferencia por $…
+de NOMBRE" y la de llaves "recibiste una transferencia de NOMBRE por $… conectada a la llave …")
+y `pago_qr` ("… pagaste $… por codigo QR desde tu cuenta *3037 a la llave …"). Solo "Transferiste"
+queda con tipo inferido. Tercero por nombre EXACTO (comercio / remitente); si no hay igualdad el
+encabezado muestra "El banco dice: …".
+
+### Red de seguridad ante plantillas que cambian (f809aca, R-09F-13/14/15)
+- Sin familia y SIN dinero (`$`/`COP`/`USD` + número) = informativo ("Inscribiste la cuenta de un
+  tercero…") → `kind='sms_info'`, sin borrador ni aviso.
+- Sin familia y CON dinero → borrador "PLANTILLA NUEVA": monto y fecha literales, marcados
+  inferidos, cuenta solo si un único `*NNNN` registrado, concepto vacío y el SMS en el mensaje.
+- Plan B sin túnel: un SMS de familia conocida pegado/reenviado al chat usa el mismo parser
+  (`bot_sms.borrador_desde_chat`), sin duplicar lo que ya entró por el webhook.
+- Webhook acepta `text/plain` + cabecera `X-SMS-From` (lo recomendado para MacroDroid).
+
+### Datos y operación
+- Decisión de Andrés: **cada tarjeta débito es su propia cuenta** en Finanzas Personales Julian
+  (entidad 20): creadas `[15] Bancolombia T.Deb 1775` y `[16] Bancolombia T.Deb 5379` con saldo
+  inicial de prueba $10.000.000 y `last4_tarjeta`. Sin cambio de esquema.
+- `scripts/sms_token.py --telegram --url … --revocar-otros` (ad9bb57): manda la URL del webhook y
+  el token al chat propio para pegarlos en MacroDroid. Token vigente: #4 "Mi celular".
+- Deploy del 30-sep verificado con una sonda de versión: `POST /api/webhooks/sms` con
+  `X-SMS-Token: sonda` + `Content-Type: text/plain` → 415 = código anterior, 401 = `f809aca`.
+
+### Prueba real de punta a punta (CA-09F-10 ☑ → 09.F HECHA)
+30-sep 01:37: transferencia real de $50.000 a `*3213795458` → MacroDroid → túnel `cloudflared`
+(`…trycloudflare.com`) → backend local → `bot_messages` #677 (01:37:19) → poller de PRODUCCIÓN →
+borrador #237 en Telegram (01:38:03). cloudflared registró "Incoming request ended abruptly:
+context canceled": el teléfono cerró el primer envío antes de leer la respuesta; el servidor ya lo
+había guardado y un segundo envío 18 s después cayó en la deduplicación (un solo borrador).
+Recomendación anotada: en MacroDroid marcar "Bloquear las siguientes acciones hasta completar".
+
+### 09.G — el reply real de Andrés se tragaba el tercero (corregido, sin push)
+Andrés respondió al #237 con dos líneas ("abono leidy cuota 1V" / "Tercero : leidy daniela Molina
+cc 1007289007") y la primera versión metió TODO en el concepto (igual le había pasado el 22-sep con
+"Concepto dulces en colombina tercero: jorge Aguilar cc 100753782"). Ahora:
+- `_parse_reply` procesa línea por línea con marcadores (`Concepto`, `Tercero`, `Tercero nuevo`;
+  dos puntos opcionales al inicio de línea, obligatorios en medio) y `_parse_tercero` saca nombre,
+  documento (`cc`/`nit`), celular y correo de la misma línea.
+- Anti-duplicados (`_resolver_tercero_dictado`): el documento manda (dígitos exactos, ignora
+  provisionales `SN-…`); documento nuevo + nombres parecidos → botones con los candidatos y
+  `➕ Crear nuevo` (datos en `payload.tercero_pendiente`); elegir un provisional le completa el
+  documento; solo nombre inexistente NO crea nada; búsqueda por nombre sin tildes y por palabras.
+- Callbacks nuevos/ajustados: `tpnew`, `tpset` (commit antes de `editar_draft`: evita el bloqueo
+  entre conexiones).
+
+### Propuesta pendiente de aprobación
+`docs/specs/09-bot-ia/09.G-completar-borrador.md` §10: "medios de pago del tercero" — tabla
+`third_party_accounts` (celular / cuenta / llave / nombre del banco, identificador completo,
+`UNIQUE (tipo, valor)`), botón 💾 para registrar el destino de un SMS en la ficha del tercero,
+cruce automático en los siguientes SMS y ficha completa editable en el módulo Terceros de la web.
+
+### Verificación
+282 unittest (132+ puros, resto con BD real; todos limpian sus filas) + compileall + `import server`.
+Restos de tests en BD: 0 terceros de prueba, 0 chats `test-…`.

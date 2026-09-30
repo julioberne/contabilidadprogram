@@ -1,7 +1,7 @@
 # SPEC 09 — Bot IA (registro contable por chat)
 
-> **Módulo:** 09 Bot IA · **Nivel:** módulo · **Estado:** EN USO (etapas A–E en producción; F en curso)
-> **Versión:** 1.0 — 22 Sep 2026 · **Reglas que aplican:** 2 (Zero-Impact), 5, 6, **6b**, 7
+> **Módulo:** 09 Bot IA · **Nivel:** módulo · **Estado:** EN USO (etapas A–F en producción; G en curso)
+> **Versión:** 1.1 — 30 Sep 2026 · **Reglas que aplican:** 2 (Zero-Impact), 5, 6, **6b**, 7
 > **Qué NO cubre:** la web de la bandeja (`frontend/src/bot/`) más allá de lo que cada etapa toque; las preguntas en español ("¿cuánto gasté?") pertenecen al módulo 13.
 > Referencia operativa (comandos, modelos, diagnóstico): [`docs/bot_ia.md`](../../bot_ia.md). Estado vivo: `CHECKLIST.md` fila 09.
 
@@ -51,8 +51,8 @@ Fuentes externas (SMS) ──POST /api/webhooks/sms──▶ FastAPI (routers/we
 | E / E.2 / E.3 | Fotos como evidencia (cero inferencia), ubicación, múltiples evidencias, botones inline | ✅ 09-sep-2026 | `docs/checkpoints.md` 2026-09-08/09 |
 | B.5 | RAG semántico (pgvector) | ⏳ requiere aprobación | — |
 | D | WhatsApp (Meta Cloud API) | ⏳ requiere dominio + TLS | — |
-| **F** | **SMS de Bancolombia → borradores automáticos** | 🔵 EN CURSO (22-sep-2026) | [09.F-sms-bancolombia.md](09.F-sms-bancolombia.md) |
-| G | Completar tercero y concepto desde Telegram; cuentas bancarias de terceros | 🔵 EN CURSO — parte chat ✅ (22-sep-2026); falta `third_party_accounts` | [09.G-completar-borrador.md](09.G-completar-borrador.md) |
+| **F** | **SMS de Bancolombia → borradores automáticos** (5 plantillas reales, red de seguridad para plantillas nuevas, SMS pegado en el chat) | ✅ HECHO (30-sep-2026) — probado con SMS real; pendiente operativo: HTTPS permanente | [09.F-sms-bancolombia.md](09.F-sms-bancolombia.md) |
+| G | Completar tercero y concepto desde Telegram; medios de pago del tercero | 🔵 EN CURSO — chat ✅ (reply con concepto + tercero + documento, sin duplicados, 30-sep-2026); medios de pago del tercero en PROPUESTA (§10 del spec) | [09.G-completar-borrador.md](09.G-completar-borrador.md) |
 | H | OCR de comprobantes con botón dedicado (Gemini Flash) + trabajo lento fuera del poller | PLANIFICADO | [09.H-ocr-comprobantes.md](09.H-ocr-comprobantes.md) |
 
 > La antigua "F — Consultas/comandos de lectura" de `docs/bot_ia.md` §9 la cubre el módulo 13 (Análisis Inteligente, hito 3). Se reasigna la letra para no dejar huecos.

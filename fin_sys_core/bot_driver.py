@@ -64,12 +64,16 @@ AYUDA = (
     "    empresa por defecto del chat (ej: /analisis cuánto gasté este mes)\n"
     "  /resumen — el resumen automático consolidado, ya mismo\n"
     "  /ayuda — este mensaje\n\n"
-    "Para completar un borrador (también los que llegan por SMS 📲):\n"
-    "  · botón 👤 Tercero → elige uno reciente, o RESPONDE al borrador con\n"
-    "    \"Tercero: Juan Pérez\" (nombre, NIT o celular)\n"
-    "  · RESPONDE al borrador con \"Concepto: arriendo septiembre\"\n"
-    "  · \"Tercero nuevo: Nombre, CC 123456\" → lo crea (provisional si no\n"
-    "    das documento) y lo asigna\n"
+    "Para completar un borrador (también los que llegan por SMS 📲),\n"
+    "RESPONDE (reply) a su mensaje. Puedes mandar todo junto:\n"
+    "    abono cuota 1\n"
+    "    Tercero: Leidy Molina cc 1007289007\n"
+    "  · lo que va sin marca es el concepto\n"
+    "  · \"Tercero: nombre\" busca uno existente (o un número: documento o\n"
+    "    celular); con \"cc\"/\"nit\" y el número lo crea si no existe —\n"
+    "    el documento manda, así que nunca se duplica\n"
+    "  · \"Tercero nuevo: Nombre\" lo crea sin documento (provisional)\n"
+    "  · el botón 👤 Tercero muestra los más recientes\n"
     "Para corregir lo demás: 🏢 Cambiar empresa, o edítalo en la Bandeja web."
 )
 
@@ -619,32 +623,92 @@ def _flujo_ubicacion(cur, link, msg):
 # ══════════════════════════════════════════════════════════════════════════════
 
 _TERCERO_GENERICO = "999999999"
-_RE_REPLY_CONCEPTO = re.compile(r"^\s*(?:concepto|c)\s*:\s*(.+)$", re.IGNORECASE | re.DOTALL)
-_RE_REPLY_TERCERO_NUEVO = re.compile(
-    r"^\s*tercero\s+nuevo\s*:\s*(?P<nombre>[^,]+?)\s*"
-    r"(?:,\s*(?P<tipo>NIT|CC)?\s*(?P<num>[\d.\-]{4,20}))?\s*$", re.IGNORECASE)
-_RE_REPLY_TERCERO = re.compile(r"^\s*(?:tercero|t)\s*:\s*(.+)$", re.IGNORECASE | re.DOTALL)
+
+# Un reply puede traer VARIOS datos, en una o varias líneas. Uso real de
+# Andrés (22 y 30-sep-2026) que la primera versión se tragaba entero como
+# concepto:
+#     abono leidy cuota 1V
+#     Tercero : leidy daniela Molina  cc 1007289007
+# Marcadores: "Concepto", "Tercero", "Tercero nuevo". Al INICIO de una línea
+# los dos puntos son opcionales ("Concepto dulces…"); en medio de la línea
+# son obligatorios ("… tercero: Jorge cc 123"). Lo que no lleva marcador ES
+# el concepto (literal). Nada de esto pasa por el LLM.
+_RE_MARCA_INICIO = re.compile(r"^\s*(tercero\s+nuevo|tercero|concepto)\b\s*:?\s*", re.IGNORECASE)
+_RE_MARCA_MEDIO = re.compile(r"\b(tercero\s+nuevo|tercero|concepto)\s*:\s*", re.IGNORECASE)
+_RE_MARCA_CORTA = re.compile(r"^\s*([ct])\s*:\s*", re.IGNORECASE)
+# Datos del tercero dentro de su línea: documento, celular y correo
+_RE_DOC = re.compile(
+    r"\b(?P<tipo>nit|c\.?\s?c\.?|c\.?\s?e\.?|c[eé]dula)\s*[:.#]?\s*(?:n[o°º]\.?\s*)?"
+    r"(?P<num>\d[\d.\-]{3,19})", re.IGNORECASE)
+_RE_NUM_FINAL = re.compile(r"[,;]\s*(?P<num>\d[\d.\-]{3,19})\s*$")
+_RE_CEL = re.compile(
+    r"\b(?:cel(?:ular)?|tel(?:[eé]fono)?|whatsapp|wpp)\s*[:.]?\s*(?P<cel>\+?\d[\d ]{6,14}\d)",
+    re.IGNORECASE)
+_RE_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+
+
+def _parse_tercero(valor, nuevo=False):
+    """«leidy daniela Molina  cc 1007289007 cel 3001234567» →
+    {nombre, tipo (CC|NIT|None), num, phone, email, buscar_num, nuevo}.
+    `buscar_num` = el humano dio SOLO un número (documento o celular)."""
+    v = " " + (valor or "") + " "
+    email = phone = tipo = num = None
+    m = _RE_EMAIL.search(v)
+    if m:
+        email, v = m.group(0), v[:m.start()] + " " + v[m.end():]
+    m = _RE_CEL.search(v)
+    if m:
+        phone, v = re.sub(r"\D", "", m.group("cel")), v[:m.start()] + " " + v[m.end():]
+    m = _RE_DOC.search(v)
+    if m:
+        tipo = "NIT" if m.group("tipo").lower().startswith("n") else "CC"
+        num, v = m.group("num").strip(".-"), v[:m.start()] + " " + v[m.end():]
+    else:
+        m = _RE_NUM_FINAL.search(v.rstrip())
+        if m:
+            num, v = m.group("num").strip(".-"), v[:m.start()]
+    nombre = re.sub(r"\s+", " ", v).strip(" ,;.-:")
+    buscar_num = None
+    if nombre and re.fullmatch(r"[\d\s.+\-]+", nombre):       # solo un número
+        buscar_num, nombre = re.sub(r"\D", "", nombre), None
+    if num and tipo != "NIT":
+        num = re.sub(r"\D", "", num)                          # cédula: solo dígitos
+    return {"nombre": nombre or None, "tipo": tipo, "num": num or None, "phone": phone,
+            "email": email, "buscar_num": buscar_num, "nuevo": bool(nuevo)}
 
 
 def _parse_reply(texto):
-    """Reply al resumen de un borrador → ("concepto", str) | ("tercero", str)
-    | ("tercero_nuevo", {nombre, tipo, num}) | (None, None).
-    Sin prefijo, el texto ES el concepto (traducción literal, no adivinanza)."""
-    t = (texto or "").strip()
-    if not t:
-        return None, None
-    m = _RE_REPLY_TERCERO_NUEVO.match(t)
-    if m:
-        return "tercero_nuevo", {"nombre": m.group("nombre").strip(),
-                                 "tipo": (m.group("tipo") or "").upper() or None,
-                                 "num": re.sub(r"[.\-]", "", m.group("num") or "") or None}
-    m = _RE_REPLY_TERCERO.match(t)
-    if m:
-        return "tercero", m.group(1).strip()
-    m = _RE_REPLY_CONCEPTO.match(t)
-    if m:
-        return "concepto", m.group(1).strip()
-    return "concepto", t
+    """Reply al resumen de un borrador → {"concepto": str|None, "tercero": dict|None}.
+    Lo que no lleva marcador ES el concepto (traducción literal, no adivinanza);
+    una línea de tercero jamás se mezcla con el concepto."""
+    concepto, tercero = [], None
+    for linea in (texto or "").splitlines():
+        linea = linea.strip()
+        if not linea:
+            continue
+        m = _RE_MARCA_CORTA.match(linea)                      # "c: …" / "t: …"
+        if m:
+            linea = ("concepto: " if m.group(1).lower() == "c" else "tercero: ") + linea[m.end():]
+        clave, pos = None, 0
+        m = _RE_MARCA_INICIO.match(linea)
+        if m:
+            clave, pos = "_".join(m.group(1).lower().split()), m.end()
+        segmentos = []
+        for m in _RE_MARCA_MEDIO.finditer(linea, pos):
+            segmentos.append((clave, linea[pos:m.start()]))
+            clave, pos = "_".join(m.group(1).lower().split()), m.end()
+        segmentos.append((clave, linea[pos:]))
+        for clave, valor in segmentos:
+            valor = valor.strip(" ,;")
+            if not valor:
+                continue
+            if clave in ("tercero", "tercero_nuevo"):
+                if tercero is None:
+                    tercero = _parse_tercero(valor, nuevo=(clave == "tercero_nuevo"))
+            else:
+                concepto.append(valor)
+    texto_concepto = re.sub(r"\s+", " ", " ".join(concepto)).strip()
+    return {"concepto": texto_concepto or None, "tercero": tercero}
 
 
 def _tercero_dict(row):
@@ -656,28 +720,63 @@ def _tercero_dict(row):
     return d
 
 
+def _sql_nombre_sin_tildes(expr="name"):
+    """Expresión SQL que compara nombres como draft_builder.norm (sin tildes
+    ni mayúsculas): 'Pérez' = 'perez'."""
+    return f"translate(lower({expr}), 'áéíóúüñ', 'aeiouun')"
+
+
+def _tercero_por_documento(cur, num):
+    """Igualdad EXACTA de documento comparando solo dígitos (ignora puntos y
+    guiones). Los provisionales SN-… y el genérico no cuentan. → dict | None"""
+    digitos = re.sub(r"\D", "", str(num or ""))
+    if len(digitos) < 4:
+        return None
+    cur.execute("""
+        SELECT id, identification_type, identification_number, name, phone
+          FROM third_parties
+         WHERE identification_number NOT LIKE 'SN-%%'
+           AND identification_number <> %s
+           AND regexp_replace(identification_number, '\\D', '', 'g') = %s
+         ORDER BY id LIMIT 1
+    """, (_TERCERO_GENERICO, digitos))
+    fila = cur.fetchone()
+    return _tercero_dict(fila) if fila else None
+
+
 def _buscar_terceros(cur, q, limite=8):
-    """Búsqueda DETERMINISTA en third_parties: dígitos → NIT/CC exacto o celular;
-    texto → nombre (ILIKE). → 0, 1 o varios dicts (si son varios, el humano elige)."""
+    """Búsqueda DETERMINISTA en third_parties:
+      · solo dígitos → documento exacto, o celular (últimos 10 dígitos)
+      · texto → nombres que contienen TODAS las palabras, sin tildes ni
+        mayúsculas ("leidy molina" encuentra "Leidy Daniela Molina Martínez")
+    → 0, 1 o varios dicts (si son varios, el humano elige)."""
     q = (q or "").strip()
     if not q:
         return []
     digitos = re.sub(r"\D", "", q)
     if len(digitos) >= 5 and len(digitos) >= len(q) - 4:    # "10.203.040", "+57 319…"
+        cel = digitos[-10:] if len(digitos) >= 10 else digitos
         cur.execute("""
             SELECT id, identification_type, identification_number, name, phone
               FROM third_parties
-             WHERE regexp_replace(identification_number, '\\D', '', 'g') = %s
+             WHERE (identification_number NOT LIKE 'SN-%%'
+                    AND regexp_replace(identification_number, '\\D', '', 'g') = %s)
                 OR regexp_replace(COALESCE(phone, ''), '\\D', '', 'g') LIKE %s
              ORDER BY id LIMIT %s
-        """, (digitos, "%" + digitos, int(limite)))
+        """, (digitos, "%" + cel, int(limite)))
     else:
-        cur.execute("""
+        palabras = [p for p in _norm(q).split() if len(p) >= 2][:6]
+        if not palabras:
+            return []
+        col = _sql_nombre_sin_tildes()
+        condiciones = " AND ".join([f"{col} LIKE %s"] * len(palabras))
+        cur.execute(f"""
             SELECT id, identification_type, identification_number, name, phone
               FROM third_parties
-             WHERE name ILIKE %s AND identification_number <> %s
-             ORDER BY (lower(name) = lower(%s)) DESC, name LIMIT %s
-        """, ("%" + q + "%", _TERCERO_GENERICO, q, int(limite)))
+             WHERE {condiciones} AND identification_number <> %s
+             ORDER BY ({_sql_nombre_sin_tildes('btrim(name)')} = %s) DESC, name LIMIT %s
+        """, (*[f"%{p}%" for p in palabras], _TERCERO_GENERICO,
+              " ".join(_norm(q).split()), int(limite)))
     return [_tercero_dict(r) for r in cur.fetchall()]
 
 
@@ -694,24 +793,37 @@ def _terceros_recientes(cur, limite=8):
     return [_tercero_dict(r) for r in cur.fetchall()]
 
 
-def _botones_terceros(draft_id, terceros):
-    filas = [[(t["name"][:40], f"tpset:{draft_id}:{t['id']}")] for t in terceros]
+def _doc_legible(tercero) -> str:
+    doc = str(tercero.get("identification_number") or "")
+    if doc.startswith("SN-"):
+        return "sin documento"
+    return f"{tercero.get('identification_type')} {doc}"
+
+
+def _botones_terceros(draft_id, terceros, crear=None):
+    """Una fila por candidato (con su documento, para distinguir homónimos) y,
+    si hay datos dictados pendientes, «➕ Crear nuevo: <nombre>»."""
+    filas = [[(f"{t['name'][:32]} · {_doc_legible(t)}"[:60], f"tpset:{draft_id}:{t['id']}")]
+             for t in terceros]
+    if crear:
+        filas.append([(f"➕ Crear nuevo: {crear}"[:60], f"tpnew:{draft_id}")])
     filas.append([("« Volver", f"tpback:{draft_id}")])
     return filas
 
 
 def _asignar_tercero(link, draft_id, tercero):
     """Escribe el tercero en el borrador (editar_draft, determinista).
-    → dict resumen+botones, o str con el error."""
+    → dict {text, draft_id, buttons, payload}, o str con el error."""
     editado = editar_draft(draft_id, {"third_party": {
         "identification_type": tercero["identification_type"],
         "identification_number": tercero["identification_number"],
         "name": tercero["name"]}}, hub_user_id=link["hub_user_id"])
     if editado.get("error"):
         return editado["error"]
-    return {"text": f"👤 Tercero → {tercero['name']}\n\n"
+    return {"text": f"👤 Tercero → {tercero['name']} ({_doc_legible(tercero)})\n\n"
                     + render_summary(draft_id, editado["payload"]),
-            "draft_id": draft_id, "buttons": _botones_borrador(draft_id)}
+            "draft_id": draft_id, "buttons": _botones_borrador(draft_id),
+            "payload": editado["payload"]}
 
 
 def _crear_tercero(cur, datos):
@@ -723,10 +835,115 @@ def _crear_tercero(cur, datos):
         "identification_type": datos.get("tipo") or "CC",
         "identification_number": datos.get("num") or "",
         "name": datos["nombre"],
+        "phone": datos.get("phone"),
+        "email": datos.get("email"),
     })
     cur.execute("SELECT id, identification_type, identification_number, name, phone "
                 "FROM third_parties WHERE id = %s", (tp_id,))
     return _tercero_dict(cur.fetchone())
+
+
+def _rellenar_contacto(cur, tp_id, datos):
+    """Celular / correo dictados junto al tercero: RELLENAN lo vacío, jamás
+    pisan lo que ya está en la ficha (misma regla que _asegurar_tercero)."""
+    if not (datos.get("phone") or datos.get("email")):
+        return
+    cur.execute("""
+        UPDATE third_parties
+           SET phone = COALESCE(NULLIF(btrim(phone), ''), %s),
+               email = COALESCE(NULLIF(btrim(email), ''), %s)
+         WHERE id = %s AND identification_number <> %s
+    """, (datos.get("phone"), datos.get("email"), tp_id, _TERCERO_GENERICO))
+
+
+def _guardar_pendiente(cur, link, draft_id, datos):
+    """Deja en el borrador los datos dictados de un tercero que aún no se
+    crea: hay parecidos y el humano debe elegir uno o «➕ Crear nuevo»."""
+    pendiente = {k: datos.get(k) for k in ("nombre", "tipo", "num", "phone", "email")}
+    cur.execute("""
+        UPDATE transaction_drafts
+           SET payload = jsonb_set(payload, '{tercero_pendiente}', %s::jsonb, true)
+         WHERE id = %s AND chat_link_id = %s
+    """, (json.dumps(pendiente), draft_id, link["id"]))
+
+
+def _tomar_pendiente(cur, link, draft_id):
+    """Lee y BORRA los datos pendientes del borrador. → dict | None.
+    OJO: deja un UPDATE sin confirmar sobre el borrador — el llamador debe
+    hacer commit ANTES de llamar a editar_draft (otra conexión, FOR UPDATE)."""
+    cur.execute("""
+        SELECT payload->'tercero_pendiente' FROM transaction_drafts
+         WHERE id = %s AND chat_link_id = %s
+    """, (draft_id, link["id"]))
+    row = cur.fetchone()
+    pendiente = row[0] if row else None
+    if isinstance(pendiente, str):
+        pendiente = json.loads(pendiente)
+    if pendiente:
+        cur.execute("""
+            UPDATE transaction_drafts SET payload = payload - 'tercero_pendiente'
+             WHERE id = %s AND chat_link_id = %s
+        """, (draft_id, link["id"]))
+    return pendiente or None
+
+
+def _completar_provisional(cur, tp_id, pendiente):
+    """El humano eligió un tercero SIN documento (SN-…) y había dictado uno:
+    se le completa la ficha en vez de crear un duplicado. → fila nueva | None"""
+    if not pendiente.get("num") or _tercero_por_documento(cur, pendiente["num"]):
+        return None
+    cur.execute("""
+        UPDATE third_parties
+           SET identification_type = %s, identification_number = %s,
+               phone = COALESCE(NULLIF(btrim(phone), ''), %s),
+               email = COALESCE(NULLIF(btrim(email), ''), %s)
+         WHERE id = %s AND identification_number LIKE 'SN-%%'
+        RETURNING id, identification_type, identification_number, name, phone
+    """, (pendiente.get("tipo") or "CC", pendiente["num"], pendiente.get("phone"),
+          pendiente.get("email"), tp_id))
+    return cur.fetchone()
+
+
+def _resolver_tercero_dictado(cur, t):
+    """Qué hacer con el tercero que el humano dictó (Regla 6b: igualdad o
+    decide el humano; escribirlo distinto jamás crea un duplicado).
+      → ("asignar", tercero, False)   un único candidato seguro
+      → ("crear", None, False)        no existe y hay datos para crearlo
+      → ("elegir", candidatos, crear) hay parecidos: decide el humano
+      → ("nada", mensaje, False)      no existe y faltan datos"""
+    nombre, num = t.get("nombre"), t.get("num")
+    if t.get("buscar_num") and not nombre:                 # "Tercero: 3193301184"
+        encontrados = _buscar_terceros(cur, t["buscar_num"])
+        if len(encontrados) == 1:
+            return "asignar", encontrados[0], False
+        if encontrados:
+            return "elegir", encontrados, False
+        return "nada", (f"No encontré ningún tercero con el número {t['buscar_num']}. "
+                        f"Para crearlo responde: Tercero: Nombre cc {t['buscar_num']}"), False
+    if num:
+        por_documento = _tercero_por_documento(cur, num)
+        if por_documento:                                  # el documento manda
+            return "asignar", por_documento, False
+        if not nombre:
+            return "nada", (f"No existe un tercero con el documento {num}. Dime también "
+                            f"el nombre: Tercero: Nombre cc {num}"), False
+    parecidos = _buscar_terceros(cur, nombre) if nombre else []
+    if num:
+        # Documento nuevo para el sistema. Si hay nombres parecidos, el humano
+        # dice si es uno de ellos (y se le completa el documento) o es otro.
+        return ("elegir", parecidos, True) if parecidos else ("crear", None, False)
+    if t.get("nuevo"):
+        exactos = [p for p in parecidos if _norm(p["name"]) == _norm(nombre)]
+        if len(exactos) == 1:
+            return "asignar", exactos[0], False            # ya existía: no se duplica
+        return ("elegir", parecidos, True) if parecidos else ("crear", None, False)
+    if len(parecidos) == 1:
+        return "asignar", parecidos[0], False
+    if parecidos:
+        return "elegir", parecidos, False
+    return "nada", (f"No encontré ningún tercero que coincida con «{nombre}». Para crearlo "
+                    f"dime su documento:\n  Tercero: {nombre} cc 123456\n"
+                    f"(o \"Tercero nuevo: {nombre}\" para crearlo sin documento)"), False
 
 
 def _draft_por_reply(cur, link, msg):
@@ -743,28 +960,53 @@ def _draft_por_reply(cur, link, msg):
 
 
 def _flujo_reply(cur, link, draft_id, texto):
-    """Texto respondiendo al resumen de un borrador (Etapa 09.G)."""
-    accion, dato = _parse_reply(texto)
-    if accion == "concepto":
-        editado = editar_draft(draft_id, {"concept": dato[:255]}, hub_user_id=link["hub_user_id"])
+    """Texto respondiendo al resumen de un borrador (Etapa 09.G). Puede traer
+    concepto y tercero a la vez, en una o varias líneas."""
+    datos = _parse_reply(texto)
+    concepto, t = datos["concepto"], datos["tercero"]
+    if not concepto and not t:
+        return None
+    notas, payload, botones = [], None, None
+
+    if concepto:
+        editado = editar_draft(draft_id, {"concept": concepto[:255]},
+                               hub_user_id=link["hub_user_id"])
         if editado.get("error"):
             return editado["error"]
-        return {"text": f"📝 Concepto → «{dato[:255]}»\n\n"
-                        + render_summary(draft_id, editado["payload"]),
-                "draft_id": draft_id, "buttons": _botones_borrador(draft_id)}
-    if accion == "tercero_nuevo":
-        return _asignar_tercero(link, draft_id, _crear_tercero(cur, dato))
-    if accion == "tercero":
-        encontrados = _buscar_terceros(cur, dato)
-        if len(encontrados) == 1:
-            return _asignar_tercero(link, draft_id, encontrados[0])
-        if not encontrados:
-            return (f"No encontré ningún tercero que coincida con «{dato}».\n"
-                    "Créalo en la web (Terceros) o respóndeme al borrador:\n"
-                    f"  Tercero nuevo: {dato}, CC 123456   (sin documento queda provisional)")
-        return {"text": f"Varios terceros coinciden con «{dato}». ¿Cuál es?",
-                "draft_id": draft_id, "buttons": _botones_terceros(draft_id, encontrados)}
-    return None
+        payload = editado["payload"]
+        notas.append(f"📝 Concepto → «{concepto[:255]}»")
+
+    if t:
+        accion, dato, puede_crear = _resolver_tercero_dictado(cur, t)
+        creado = False
+        if accion == "crear":
+            dato, accion, creado = _crear_tercero(cur, t), "asignar", True
+        if accion == "asignar":
+            _rellenar_contacto(cur, dato["id"], t)
+            res = _asignar_tercero(link, draft_id, dato)
+            if isinstance(res, str):
+                return res
+            payload = res["payload"]
+            notas.append(("👤 Tercero CREADO → " if creado else "👤 Tercero → ")
+                         + f"{dato['name']} ({_doc_legible(dato)})")
+        elif accion == "elegir":
+            if puede_crear:
+                _guardar_pendiente(cur, link, draft_id, t)
+            notas.append(f"👤 «{t.get('nombre') or t.get('buscar_num')}»: hay terceros parecidos. "
+                         + ("Toca el que es, o crea uno nuevo (así no quedan duplicados)."
+                            if puede_crear else "Toca el que es."))
+            botones = _botones_terceros(draft_id, dato,
+                                        crear=(t.get("nombre") if puede_crear else None))
+        else:
+            notas.append("👤 " + dato)
+
+    if payload is None:
+        cur.execute("SELECT payload FROM transaction_drafts WHERE id = %s AND chat_link_id = %s",
+                    (draft_id, link["id"]))
+        row = cur.fetchone()
+        payload = (row[0] if isinstance(row[0], dict) else json.loads(row[0])) if row else {}
+    return {"text": "\n".join(notas) + "\n\n" + render_summary(draft_id, payload),
+            "draft_id": draft_id, "buttons": botones or _botones_borrador(draft_id)}
 
 
 def _tags_reales(cur):
@@ -1018,27 +1260,58 @@ def handle_callback(channel: str, chat_id: str, data: str):
             cur.execute("SELECT id, identification_type, identification_number, name, phone "
                         "FROM third_parties WHERE id = %s", (tp_id,))
             row = cur.fetchone()
-            conn.commit()
             if not row:
+                conn.commit()
                 out["alert"] = "Ese tercero ya no existe."
                 out["edit_buttons"] = _botones_borrador(draft_id)
                 return out
-            res = _asignar_tercero(link, draft_id, _tercero_dict(row))
+            # Si el humano había dictado un documento y eligió un tercero SIN
+            # documento, se le completa la ficha (no se crea un duplicado).
+            pendiente = _tomar_pendiente(cur, link, draft_id)
+            completado = None
+            if pendiente and str(row[2]).startswith("SN-"):
+                completado = _completar_provisional(cur, tp_id, pendiente)
+            conn.commit()                 # antes de editar_draft (otra conexión)
+            tercero = _tercero_dict(completado or row)
+            res = _asignar_tercero(link, draft_id, tercero)
             if isinstance(res, str):
                 out["alert"] = res[:190]
                 return out
-            out["alert"] = f"👤 {str(row[3]).strip()}"[:190]
-            out["edit_text"] = res["text"]
+            out["alert"] = f"👤 {tercero['name']}"[:190]
+            out["edit_text"] = (("📇 Documento completado en la ficha.\n" if completado else "")
+                                + res["text"])
+            out["edit_buttons"] = _botones_borrador(draft_id)
+            return out
+
+        if accion == "tpnew":
+            pendiente = _tomar_pendiente(cur, link, draft_id)
+            if not pendiente or not pendiente.get("nombre"):
+                conn.commit()
+                out["alert"] = "Ya no tengo esos datos. Responde de nuevo: Tercero: Nombre cc 123"
+                out["edit_buttons"] = _botones_borrador(draft_id)
+                return out
+            tercero = (_tercero_por_documento(cur, pendiente["num"]) if pendiente.get("num") else None) \
+                or _crear_tercero(cur, pendiente)
+            conn.commit()                 # antes de editar_draft (otra conexión)
+            res = _asignar_tercero(link, draft_id, tercero)
+            if isinstance(res, str):
+                out["alert"] = res[:190]
+                return out
+            out["alert"] = f"👤 Creado: {tercero['name']}"[:190]
+            out["edit_text"] = "👤 Tercero CREADO.\n" + res["text"]
             out["edit_buttons"] = _botones_borrador(draft_id)
             return out
 
         if accion == "cpt":
             conn.commit()
-            out["alert"] = "Responde al mensaje del borrador con: Concepto: …"
-            out["text"] = (f"📝 Para el concepto del borrador #{draft_id}: RESPONDE (reply) al "
-                           "mensaje del borrador con el texto, por ejemplo:\n"
-                           "  Concepto: arriendo septiembre\n"
-                           "También sirven: Tercero: Juan Pérez · Tercero nuevo: Nombre, CC 123456")
+            out["alert"] = "Responde al mensaje del borrador con el concepto"
+            out["text"] = (f"📝 Para completar el borrador #{draft_id}: RESPONDE (reply) al "
+                           "mensaje del borrador. Puedes mandar todo junto:\n\n"
+                           "  abono cuota 1\n"
+                           "  Tercero: Leidy Molina cc 1007289007\n\n"
+                           "· Lo que escribas sin marca es el concepto.\n"
+                           "· \"Tercero: nombre\" busca uno existente; con \"cc\" o \"nit\" y el "
+                           "número lo crea si no existe (nunca duplica: el documento manda).")
             return out
 
         if accion == "emp":

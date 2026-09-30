@@ -67,9 +67,12 @@ Máquina de estados: `BORRADOR → PROCESANDO → CONFIRMADO | ERROR`, `BORRADOR
 | `/borradores` | lista borradores pendientes |
 | `/vincular CODIGO` | vincula el chat al usuario |
 | `/ayuda`, `/start` | ayuda |
-| **reply** al borrador: `Concepto: …` (o texto sin prefijo) | pone el concepto literal (etapa 09.G) |
-| **reply** al borrador: `Tercero: nombre / NIT / celular` | asigna un tercero existente (varios → botones) |
-| **reply** al borrador: `Tercero nuevo: Nombre, CC 123` | crea el tercero (provisional sin documento) y lo asigna |
+| **reply** al borrador con texto libre, o `Concepto: …` | pone el concepto literal (etapa 09.G) |
+| **reply** al borrador: `Tercero: nombre` (o un número: documento o celular) | asigna un tercero existente (varios → botones; ninguno → explica cómo crearlo) |
+| **reply** al borrador: `Tercero: Nombre cc 123456` (o `nit …`, opcional `cel …` y correo) | el documento manda: si existe lo asigna, si no existe lo crea; con nombres parecidos pregunta con botones (nunca duplica) |
+| **reply** con varias líneas (`abono cuota 1` + `Tercero: Leidy Molina cc 1007…`) | concepto y tercero en un solo mensaje |
+| **reply** al borrador: `Tercero nuevo: Nombre` | crea el tercero sin documento (provisional `SN-…`) y lo asigna |
+| SMS de Bancolombia pegado o reenviado al chat | lo convierte con el mismo lector del webhook (plan B si el teléfono no pudo enviarlo) |
 | botón 👤 Tercero / 📝 Concepto | terceros recientes con un toque / instrucciones |
 
 ## 6. Modelos IA y configuración
