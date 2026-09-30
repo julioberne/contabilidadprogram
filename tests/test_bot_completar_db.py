@@ -116,6 +116,13 @@ class TestReplyCompletar(unittest.TestCase):
     def _doc():
         return "99" + str(uuid.uuid4().int)[:9]
 
+    @staticmethod
+    def _crear_nuevo(r):
+        """El callback real del botón «➕ Crear nuevo» de una respuesta del bot
+        (lleva la huella de lo dictado)."""
+        datas = [d for fila in (r.get("buttons") or []) for _, d in fila]
+        return next(d for d in datas if d.startswith("tpnew:"))
+
     def _reply(self, texto):
         ext = f"t09g-{uuid.uuid4().hex[:12]}"
         self.ext_ids.append(ext)
@@ -195,7 +202,7 @@ class TestReplyCompletar(unittest.TestCase):
         self.assertIn("parecidos", r["text"])
         datas = [d for fila in r["buttons"] for _, d in fila]
         self.assertIn(f"tpset:{self.draft_id}:{tp_id}", datas)
-        self.assertIn(f"tpnew:{self.draft_id}", datas)
+        self.assertTrue(any(d.startswith(f"tpnew:{self.draft_id}:") for d in datas), datas)
         self.assertIn("tercero_pendiente", self._payload())
 
         out = bot_driver.handle_callback("telegram", self.chat_id, f"tpset:{self.draft_id}:{tp_id}")
@@ -211,16 +218,84 @@ class TestReplyCompletar(unittest.TestCase):
         nombre = f"Tercero Prueba {self.sufijo}"
         self._reply(f"Tercero nuevo: {nombre}")
         doc = self._doc()
-        self._reply(f"Tercero: {nombre} cc {doc}")
-        out = bot_driver.handle_callback("telegram", self.chat_id, f"tpnew:{self.draft_id}")
+        boton = self._crear_nuevo(self._reply(f"Tercero: {nombre} cc {doc}"))
+        out = bot_driver.handle_callback("telegram", self.chat_id, boton)
         self.assertIn("CREADO", out["edit_text"])
         filas = self._terceros()
         self.assertEqual(len(filas), 2)                                  # decisión explícita del humano
         self.assertEqual(self._payload()["third_party"]["identification_number"], doc)
         # el botón ya no sirve dos veces
-        out2 = bot_driver.handle_callback("telegram", self.chat_id, f"tpnew:{self.draft_id}")
+        out2 = bot_driver.handle_callback("telegram", self.chat_id, boton)
         self.assertIn("Ya no tengo", out2["alert"])
         self.assertEqual(len(self._terceros()), 2)
+
+    def test_boton_crear_nuevo_viejo_no_crea_lo_dictado_despues(self):
+        """Dicto «Leidy cc 1» (mensaje M1 con ➕), luego «Pedro cc 2» (M2).
+        Tocar el ➕ de M1 NO crea a Pedro: avisa y deja lo dictado intacto."""
+        self._reply(f"Tercero nuevo: Leidy Prueba {self.sufijo}")        # provisional (parecido)
+        self._reply(f"Tercero nuevo: Pedro Prueba {self.sufijo}")        # provisional (parecido)
+        d1, d2 = self._doc(), self._doc()
+        m1 = self._crear_nuevo(self._reply(f"Tercero: Leidy Prueba {self.sufijo} cc {d1}"))
+        m2 = self._crear_nuevo(self._reply(f"Tercero: Pedro Prueba {self.sufijo} cc {d2}"))
+        self.assertNotEqual(m1, m2)
+        out = bot_driver.handle_callback("telegram", self.chat_id, m1)
+        self.assertIn("mensaje anterior", out["alert"])
+        self.assertEqual(len(self._terceros()), 2)                       # nada creado
+        self.assertEqual(self._payload()["tercero_pendiente"]["num"], d2)  # lo dictado sigue ahí
+        out = bot_driver.handle_callback("telegram", self.chat_id, m2)   # el botón vigente sí
+        self.assertIn("CREADO", out["edit_text"])
+        self.assertEqual(self._payload()["third_party"]["identification_number"], d2)
+        self.assertEqual(len(self._terceros()), 3)
+        # un botón sin huella (versión anterior) tampoco crea nada
+        self._reply(f"Tercero: Leidy Prueba {self.sufijo} cc {d1}")
+        out = bot_driver.handle_callback("telegram", self.chat_id, f"tpnew:{self.draft_id}")
+        self.assertIn("mensaje anterior", out["alert"])
+        self.assertEqual(len(self._terceros()), 3)
+
+    def test_formalizar_el_mismo_provisional_conserva_el_contacto_dictado(self):
+        """Voz: «pagué a Leidy cel 300…» (genérico + celular) → «Tercero nuevo:
+        Leidy» (provisional) → «Tercero: Leidy cc N» + botón del provisional:
+        misma ficha con documento → el celular dictado sigue en el borrador."""
+        conn = self.get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                UPDATE transaction_drafts SET payload = jsonb_set(payload, '{third_party}', %s::jsonb)
+                 WHERE id = %s
+            """, (json.dumps({"identification_type": "NIT", "identification_number": "999999999",
+                              "name": "Sin especificar", "phone": "3001234567"}), self.draft_id))
+            conn.commit()
+        finally:
+            self.put_conn(conn)
+        nombre = f"Leidy Prueba {self.sufijo}"
+        self._reply(f"Tercero nuevo: {nombre}")
+        p = self._payload()
+        self.assertTrue(p["third_party"]["identification_number"].startswith("SN-"))
+        self.assertEqual(p["third_party"].get("phone"), "3001234567")          # venía del genérico
+        tp_id = self._terceros()[0][0]
+        doc = self._doc()
+        self._reply(f"Tercero: {nombre} cc {doc}")
+        out = bot_driver.handle_callback("telegram", self.chat_id, f"tpset:{self.draft_id}:{tp_id}")
+        self.assertIn("completado", out["edit_text"])
+        p = self._payload()
+        self.assertEqual(p["third_party"]["identification_number"], doc)
+        self.assertEqual(p["third_party"].get("phone"), "3001234567")          # misma ficha: se conserva
+        # …y cambiar a OTRA ficha sí lo descarta
+        self._reply(f"Tercero nuevo: Otra Prueba {self.sufijo}")
+        p = self._payload()
+        self.assertEqual(p["third_party"]["name"], f"Otra Prueba {self.sufijo}")
+        self.assertNotIn("phone", p["third_party"])
+
+    def test_solo_correo_busca_por_igualdad(self):
+        doc = self._doc()
+        self._reply(f"Tercero: Mail Prueba {self.sufijo} cc {doc} p{self.sufijo}@correo.com")
+        self._reply(f"Tercero nuevo: Otra Prueba {self.sufijo}")          # el borrador queda con otra
+        r = self._reply(f"Tercero: P{self.sufijo}@Correo.com")           # solo el correo
+        self.assertIn("Tercero →", r["text"])
+        self.assertEqual(self._payload()["third_party"]["identification_number"], doc)
+        r = self._reply(f"Tercero: nadie{self.sufijo}@correo.com")
+        self.assertIn("No encontré", r["text"])
+        self.assertNotIn("None", r["text"])
 
     def test_pendiente_viejo_no_escribe_su_documento_en_otro_provisional(self):
         """Dicto «Leidy cc N» (quedan parecidos), NO elijo, y después toco un
@@ -261,12 +336,12 @@ class TestReplyCompletar(unittest.TestCase):
         nombre = f"Homonimo Prueba {self.sufijo}"
         d1, d2 = self._doc(), self._doc()
         self._reply(f"Tercero: {nombre} cc {d1}")                         # crea la 1.ª
-        self._reply(f"Tercero: {nombre} cc {d2}")                         # parecidos → elegir/crear
-        bot_driver.handle_callback("telegram", self.chat_id, f"tpnew:{self.draft_id}")
+        r = self._reply(f"Tercero: {nombre} cc {d2}")                     # parecidos → elegir/crear
+        bot_driver.handle_callback("telegram", self.chat_id, self._crear_nuevo(r))
         self.assertEqual(len(self._terceros()), 2)
         r = self._reply(f"Tercero nuevo: {nombre} cel 300 123 4567")
         self.assertIn("parecidos", r["text"])
-        out = bot_driver.handle_callback("telegram", self.chat_id, f"tpnew:{self.draft_id}")
+        out = bot_driver.handle_callback("telegram", self.chat_id, self._crear_nuevo(r))
         self.assertIn("CREADO", out["edit_text"])
         filas = self._terceros()
         self.assertEqual(len(filas), 3)                                   # ficha nueva de verdad

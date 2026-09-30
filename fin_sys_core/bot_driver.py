@@ -25,6 +25,7 @@ InboundMessage = {
     "media_path": str | None,     # ruta FS relativa (p.ej. "uploads/x.ogg")
 }
 """
+import hashlib
 import json
 import re
 import time
@@ -788,6 +789,17 @@ def _buscar_terceros(cur, q, limite=8):
     return [_tercero_dict(r) for r in cur.fetchall()]
 
 
+def _terceros_por_email(cur, email, limite=8):
+    """Fichas con ese correo exacto (sin mayúsculas ni espacios)."""
+    cur.execute("""
+        SELECT id, identification_type, identification_number, name, phone
+          FROM third_parties
+         WHERE lower(btrim(COALESCE(email, ''))) = lower(btrim(%s)) AND identification_number <> %s
+         ORDER BY id LIMIT %s
+    """, (email or "", _TERCERO_GENERICO, int(limite)))
+    return [_tercero_dict(r) for r in cur.fetchall()]
+
+
 def _terceros_recientes(cur, limite=8):
     """Últimos terceros usados en transacciones (sin el genérico)."""
     cur.execute("""
@@ -808,13 +820,31 @@ def _doc_legible(tercero) -> str:
     return f"{tercero.get('identification_type')} {doc}"
 
 
+def _huella_pendiente(datos) -> str:
+    """Huella corta de lo dictado (nombre + documento). Viaja en el callback de
+    «➕ Crear nuevo» para que un botón viejo no cree lo que se dictó DESPUÉS."""
+    nombre = " ".join(_norm((datos or {}).get("nombre") or "").split())
+    base = f"{nombre}|{(datos or {}).get('num') or ''}"
+    return hashlib.sha1(base.encode("utf-8")).hexdigest()[:8]
+
+
+def _etiqueta_dictado(t) -> str:
+    """Lo que el humano dictó, para citarlo en las notas (nunca «None»)."""
+    t = t or {}
+    return str(t.get("nombre") or t.get("buscar_num") or t.get("phone") or t.get("email") or "").strip()
+
+
 def _botones_terceros(draft_id, terceros, crear=None):
     """Una fila por candidato (con su documento, para distinguir homónimos) y,
-    si hay datos dictados pendientes, «➕ Crear nuevo: <nombre>»."""
+    si hay datos dictados pendientes, «➕ Crear nuevo: <nombre>».
+    `crear` = dict de lo dictado (nombre, num, …): su huella va en el callback."""
     filas = [[(f"{t['name'][:32]} · {_doc_legible(t)}"[:60], f"tpset:{draft_id}:{t['id']}")]
              for t in terceros]
     if crear:
-        filas.append([(f"➕ Crear nuevo: {crear}"[:60], f"tpnew:{draft_id}")])
+        if not isinstance(crear, dict):
+            crear = {"nombre": str(crear)}
+        filas.append([(f"➕ Crear nuevo: {crear.get('nombre') or ''}"[:60],
+                       f"tpnew:{draft_id}:{_huella_pendiente(crear)}")])
     filas.append([("« Volver", f"tpback:{draft_id}")])
     return filas
 
@@ -924,6 +954,7 @@ def _asignar_tercero(link, draft_id, tercero, cur=None):
     → dict {text, draft_id, buttons, payload, medio_pendiente}, o str con el error.
     Con `cur`, la botonera incluye 💾 si el SMS trae un medio sin registrar."""
     editado = editar_draft(draft_id, {"third_party": {
+        "id": tercero.get("id"),                 # identidad de la ficha (ver editar_draft)
         "identification_type": tercero["identification_type"],
         "identification_number": tercero["identification_number"],
         "name": tercero["name"]}}, hub_user_id=link["hub_user_id"])
@@ -985,10 +1016,8 @@ def _guardar_pendiente(cur, link, draft_id, datos):
     """, (json.dumps(pendiente), draft_id, link["id"]))
 
 
-def _tomar_pendiente(cur, link, draft_id):
-    """Lee y BORRA los datos pendientes del borrador. → dict | None.
-    OJO: deja un UPDATE sin confirmar sobre el borrador — el llamador debe
-    hacer commit ANTES de llamar a editar_draft (otra conexión, FOR UPDATE)."""
+def _ver_pendiente(cur, link, draft_id):
+    """Lee (sin borrar) los datos pendientes del borrador. → dict | None."""
     cur.execute("""
         SELECT payload->'tercero_pendiente' FROM transaction_drafts
          WHERE id = %s AND chat_link_id = %s
@@ -997,6 +1026,14 @@ def _tomar_pendiente(cur, link, draft_id):
     pendiente = row[0] if row else None
     if isinstance(pendiente, str):
         pendiente = json.loads(pendiente)
+    return pendiente or None
+
+
+def _tomar_pendiente(cur, link, draft_id):
+    """Lee y BORRA los datos pendientes del borrador. → dict | None.
+    OJO: deja un UPDATE sin confirmar sobre el borrador — el llamador debe
+    hacer commit ANTES de llamar a editar_draft (otra conexión, FOR UPDATE)."""
+    pendiente = _ver_pendiente(cur, link, draft_id)
     if pendiente:
         cur.execute("""
             UPDATE transaction_drafts SET payload = payload - 'tercero_pendiente'
@@ -1056,14 +1093,17 @@ def _resolver_tercero_dictado(cur, t):
             return "nada", (f"No existe un tercero con el documento {num}. Dime también "
                             f"el nombre: Tercero: Nombre cc {num}"), False
     if not nombre:
-        # Solo celular o correo ("Tercero: cel 3001234567"): se busca por el
-        # celular (igualdad); sin nombre jamás se crea nada.
+        # Solo celular o correo ("Tercero: cel 3001234567"): se busca por
+        # igualdad del celular o del correo; sin nombre jamás se crea nada.
+        encontrados = []
         if t.get("phone"):
             encontrados = _buscar_terceros(cur, t["phone"])
-            if len(encontrados) == 1:
-                return "asignar", encontrados[0], False
-            if encontrados:
-                return "elegir", encontrados, False
+        elif t.get("email"):
+            encontrados = _terceros_por_email(cur, t["email"])
+        if len(encontrados) == 1:
+            return "asignar", encontrados[0], False
+        if encontrados:
+            return "elegir", encontrados, False
         dato = t.get("phone") or t.get("email") or "ese dato"
         return "nada", (f"No encontré ningún tercero con {dato}. Para crearlo dime el nombre:\n"
                         f"  Tercero nuevo: Nombre" + (f" cel {t['phone']}" if t.get("phone") else "")), False
@@ -1132,11 +1172,10 @@ def _flujo_reply(cur, link, draft_id, texto):
         elif accion == "elegir":
             if puede_crear:
                 _guardar_pendiente(cur, link, draft_id, t)
-            notas.append(f"👤 «{t.get('nombre') or t.get('buscar_num')}»: hay terceros parecidos. "
+            notas.append(f"👤 «{_etiqueta_dictado(t)}»: hay terceros parecidos. "
                          + ("Toca el que es, o crea uno nuevo (así no quedan duplicados)."
                             if puede_crear else "Toca el que es."))
-            botones = _botones_terceros(draft_id, dato,
-                                        crear=(t.get("nombre") if puede_crear else None))
+            botones = _botones_terceros(draft_id, dato, crear=(t if puede_crear else None))
         else:
             notas.append("👤 " + dato)
         if not (accion == "elegir" and puede_crear):
@@ -1442,12 +1481,21 @@ def handle_callback(channel: str, chat_id: str, data: str):
             return out
 
         if accion == "tpnew":
-            pendiente = _tomar_pendiente(cur, link, draft_id)
+            pendiente = _ver_pendiente(cur, link, draft_id)
             if not pendiente or not pendiente.get("nombre"):
                 conn.commit()
                 out["alert"] = "Ya no tengo esos datos. Responde de nuevo: Tercero: Nombre cc 123"
                 out["edit_buttons"] = _botones_borrador(draft_id)
                 return out
+            # El botón lleva la huella de lo que se dictó al ofrecerlo: un botón de
+            # un mensaje anterior no crea lo que se dictó DESPUÉS (se deja intacto).
+            huella = partes[2] if len(partes) > 2 else ""
+            if huella != _huella_pendiente(pendiente):
+                conn.commit()
+                out["alert"] = (f"Ese botón es de un mensaje anterior. Lo último que dictaste fue "
+                                f"«{pendiente.get('nombre')}»: usa el botón más reciente.")[:190]
+                return out
+            _tomar_pendiente(cur, link, draft_id)
             tercero = (_tercero_por_documento(cur, pendiente["num"]) if pendiente.get("num") else None) \
                 or _crear_tercero(cur, pendiente)
             conn.commit()                 # antes de editar_draft (otra conexión)
@@ -1838,16 +1886,25 @@ def editar_draft(draft_id: int, cambios: dict, hub_user_id=None) -> dict:
             payload["account_id"] = None
         if tercero:
             tp = payload.get("third_party") or {}
+            # ¿Se cambia de FICHA? Por id de third_parties cuando ambos lo traen
+            # (el bot lo pone al asignar: así formalizar el mismo provisional SN-…
+            # con su documento no cuenta como cambio); si no, por el número.
+            nuevo_id, viejo_id = tercero.get("id"), tp.get("id")
             nuevo = str(tercero.get("identification_number") or "")
             viejo = str(tp.get("identification_number") or "")
-            if nuevo and viejo and nuevo != viejo and viejo != _TERCERO_GENERICO:
-                # Se cambia de ficha: el contacto que traía el borrador era del
-                # tercero ANTERIOR. Heredarlo lo escribiría en la ficha del nuevo
-                # al confirmar (_asegurar_tercero actualiza con lo que recibe).
-                for k in ("phone", "email", "address", "website"):
+            if nuevo_id and viejo_id:
+                otra_ficha = str(nuevo_id) != str(viejo_id)
+            else:
+                otra_ficha = bool(nuevo and viejo and nuevo != viejo and viejo != _TERCERO_GENERICO)
+            if otra_ficha:
+                # El contacto que traía el borrador era del tercero ANTERIOR.
+                # Heredarlo lo escribiría en la ficha del nuevo al confirmar
+                # (_asegurar_tercero actualiza con lo que recibe).
+                for k in ("id", "phone", "email", "address", "website"):
                     tp.pop(k, None)
             tp.update({k: v for k, v in tercero.items()
-                       if k in ("identification_type", "identification_number", "name")})
+                       if k in ("id", "identification_type", "identification_number", "name")
+                       and (k != "id" or v)})
             payload["third_party"] = tp
             editados.add("third_party")
 

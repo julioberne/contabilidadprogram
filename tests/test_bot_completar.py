@@ -232,6 +232,14 @@ class TestResolverTerceroDictado(unittest.TestCase):
         # "cel 319…" deja el nombre vacío: se busca por igualdad del celular…
         accion, dato, _ = self._r("Tercero: cel 319 330 1184")
         self.assertEqual((accion, dato["id"]), ("asignar", 2))
+        # …dos fichas con ese celular → elige el humano, y la nota cita el celular (no «None»)
+        dos = TERCEROS + [(6, "CC", "77000111", "Maria Lopez", "3193301184")]
+        accion, dato, crear = self._r("Tercero: cel 3193301184", terceros=dos)
+        self.assertEqual((accion, {d["id"] for d in dato}, crear), ("elegir", {2, 6}, False))
+        t = bot_driver._parse_reply("Tercero: cel 319 330 1184")["tercero"]
+        self.assertEqual(bot_driver._etiqueta_dictado(t), "3193301184")
+        self.assertEqual(bot_driver._etiqueta_dictado({"nombre": None, "email": "a@b.co"}), "a@b.co")
+        self.assertEqual(bot_driver._etiqueta_dictado({"nombre": "Ana", "phone": "3"}), "Ana")
         # …y sin coincidencia NO se crea nada (ni con «Tercero nuevo»), se pide el nombre
         for texto in ("Tercero nuevo: cel 3000000000", "Tercero: tel 3000000000",
                       "Tercero nuevo: alguien@correo.com"):
@@ -267,11 +275,17 @@ class TestBotones(unittest.TestCase):
 
     def test_botones_terceros_muestran_documento_crear_y_volver(self):
         candidatos = [bot_driver._tercero_dict(t) for t in (TERCEROS[1], TERCEROS[4])]
-        filas = bot_driver._botones_terceros(7, candidatos, crear="leidy daniela Molina")
+        dictado = {"nombre": "leidy daniela Molina", "num": "1007289007"}
+        filas = bot_driver._botones_terceros(7, candidatos, crear=dictado)
         self.assertEqual(filas[0][0], ("Juan Pérez · CC 10203040", "tpset:7:2"))
         self.assertIn("sin documento", filas[1][0][0])
-        self.assertEqual(filas[2][0], ("➕ Crear nuevo: leidy daniela Molina", "tpnew:7"))
+        huella = bot_driver._huella_pendiente(dictado)
+        self.assertEqual(filas[2][0], ("➕ Crear nuevo: leidy daniela Molina", f"tpnew:7:{huella}"))
         self.assertEqual(filas[-1][0][1], "tpback:7")
+        # la huella cambia con el documento y con el nombre; no con mayúsculas/tildes
+        self.assertNotEqual(huella, bot_driver._huella_pendiente({"nombre": "leidy daniela Molina", "num": "1"}))
+        self.assertNotEqual(huella, bot_driver._huella_pendiente({"nombre": "Pedro", "num": "1007289007"}))
+        self.assertEqual(huella, bot_driver._huella_pendiente({"nombre": "LEIDY DANIELA MOLINÁ", "num": "1007289007"}))
         for fila in filas:
             for etiqueta, data in fila:
                 self.assertLessEqual(len(etiqueta), 60)

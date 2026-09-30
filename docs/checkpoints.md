@@ -1073,6 +1073,21 @@ bundle `index-jk_urIvd.js` igual en prod y en `frontend/dist`). `/api/health` �
 por 6543; rutas protegidas → 401. Sin migración (el commit no cambia el esquema). A los 5 min los
 dos contenedores nuevos seguían arriba (sin bucle de reinicios).
 
+### Segunda vuelta de escépticos sobre `09325ce` (2 agentes, 11 min) → commit siguiente
+Dos lentes (flujo del bot · núcleo/medios) intentaron refutar las correcciones. Tres hallazgos reales,
+todos en `bot_driver.py`, corregidos con test (`tests.test_bot_completar` 33, `tests.test_bot_completar_db` 14):
+- **Botón «➕ Crear nuevo» viejo**: dictar A (mensaje M1) y luego B (M2) sobreescribía el pendiente; el ➕ de
+  M1 creaba a B con la etiqueta de A. Ahora el callback lleva una huella de lo dictado
+  (`tpnew:<draft>:<sha1[:8] nombre|documento>`); si no coincide con el pendiente vigente, avisa y no toca
+  nada (un botón sin huella, de la versión anterior, tampoco).
+- **Formalizar el mismo provisional perdía el celular dictado por voz**: la regla "cambió el número →
+  se descarta el contacto" no distinguía otra ficha de la misma ficha `SN-…` recién completada con su
+  documento. El bot guarda ahora `payload.third_party.id` al asignar y decide por identidad de ficha
+  (por número solo cuando no hay `id`, p. ej. desde la bandeja web).
+- **Solo correo** (`Tercero: ana@x.co`) decía "No encontré" sin buscar → busca por igualdad del correo;
+  y con varias fichas del mismo celular la nota citaba «None» → cita el dato dictado.
+Sin hallazgos en `terceros_cuentas`, el router ni los cursores falsos de los tests.
+
 ### Túnel muerto: el SMS de una compra no llegó (30-sep 13:50–13:56)
 Andrés hizo una compra y no salió borrador. La BD lo dijo primero: el último SMS del webhook seguía siendo
 el de la 01:37 (#237) y `sms_ingest_tokens.last_seen_at` no avanzó; el backend local no tenía ningún
