@@ -1073,6 +1073,19 @@ bundle `index-jk_urIvd.js` igual en prod y en `frontend/dist`). `/api/health` �
 por 6543; rutas protegidas → 401. Sin migración (el commit no cambia el esquema). A los 5 min los
 dos contenedores nuevos seguían arriba (sin bucle de reinicios).
 
+### Túnel muerto: el SMS de una compra no llegó (30-sep 13:50–13:56)
+Andrés hizo una compra y no salió borrador. La BD lo dijo primero: el último SMS del webhook seguía siendo
+el de la 01:37 (#237) y `sms_ingest_tokens.last_seen_at` no avanzó; el backend local no tenía ningún
+`POST /api/webhooks/sms`. Los dos `cloudflared` de la madrugada (Terminal 1 y 3) llevaban un rato en bucle
+`Register tunnel error … "Unauthorized: Tunnel not found"` y `fantasy-finance-effect-moral.trycloudflare.com`
+ya no resolvía (NXDOMAIN): Cloudflare descarta el túnel rápido tras una desconexión y el proceso no se
+recupera solo. Se mataron los dos procesos, se levantó otro túnel (`plants-evaluate-group-silicon`), probado
+desde fuera (`/api/health` 200; `POST /api/webhooks/sms` con token falso → 401 registrado por el backend
+local), y la URL nueva se mandó al chat con el modo nuevo `scripts/sms_token.py --solo-url --url …` (no crea
+ni revoca tokens: el #4 sigue vigente). Queda en manos de Andrés cambiar la URL en MacroDroid y pegar el SMS
+de la compra en el chat (plan B, R-09F-14). Refuerza el pendiente (5): HTTPS permanente en producción.
+En paralelo, otra sesión dejó cambios sin commit en `bot_driver.py` y los tests de completar (13:53): no se tocaron.
+
 ### Pendiente al cierre
 Prueba real CA-09G-13 (Andrés, en su chat): responder de nuevo al #237 —su concepto quedó
 contaminado por el defecto ya corregido— con el concepto y `Tercero: … cc …`, tocar 💾 y repetir

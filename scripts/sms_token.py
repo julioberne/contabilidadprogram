@@ -7,7 +7,11 @@ Uso:
   .venv\\Scripts\\python.exe scripts\\sms_token.py [email] [etiqueta]
         [--remitente 85540 ...] [--telegram] [--url https://xxxx.trycloudflare.com]
         [--revocar-otros]
+  .venv\Scripts\python.exe scripts\sms_token.py --solo-url --url https://yyyy.trycloudflare.com
 
+  --solo-url       NO crea ni revoca tokens: solo manda al chat la URL nueva del
+                   webhook (el túnel cloudflared cambia de URL cada vez que se
+                   reinicia; el token de MacroDroid sigue siendo el mismo).
   --telegram       envía el token (y la URL del webhook si se da --url) a TU chat
                    de Telegram vinculado, cada dato en un mensaje aparte: en el
                    celular se copia con un toque largo y se pega en MacroDroid.
@@ -56,6 +60,52 @@ def _enviar_telegram(chat_id, texto):
         return False
 
 
+def _chats_de(email):
+    """→ (nombre, [chat_id...]) del usuario; ([], None) si no existe."""
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, name FROM hub_users WHERE email = %s", (email,))
+        row = cur.fetchone()
+        if not row:
+            return None, []
+        cur.execute("""
+            SELECT chat_id FROM bot_chat_links
+             WHERE hub_user_id = %s AND channel = 'telegram' AND status = 'ACTIVO'
+        """, (row[0],))
+        chats = [r[0] for r in cur.fetchall()]
+        cur.close()
+        return row[1], chats
+    finally:
+        put_conn(conn)
+
+
+def _solo_url(a):
+    """--solo-url: manda la URL nueva del webhook al chat sin tocar los tokens."""
+    if not a.url:
+        print("--solo-url necesita --url https://xxxx.trycloudflare.com")
+        return 1
+    webhook = a.url.rstrip("/") + "/api/webhooks/sms"
+    nombre, chats = _chats_de(a.email)
+    if nombre is None:
+        print(f"No existe el usuario {a.email}")
+        return 1
+    print(f"Usuario:    {nombre} <{a.email}>")
+    print(f"URL:        {webhook}")
+    if not chats:
+        print("⚠ Sin chat de Telegram vinculado: cópiala de aquí.")
+        return 0
+    ok = True
+    for chat in chats:
+        ok &= _enviar_telegram(chat, (
+            "🔁 El túnel cambió de dirección. En MacroDroid → acción Solicitud HTTP, "
+            "reemplaza solo la URL por la del siguiente mensaje (toque largo → Copiar). "
+            "El token y los encabezados siguen igual."))
+        ok &= _enviar_telegram(chat, webhook)
+    print("Enviada a tu chat de Telegram." if ok else "⚠ No se pudo enviar por Telegram.")
+    return 0 if ok else 1
+
+
 def main():
     ap = argparse.ArgumentParser(description="Token de ingesta de SMS")
     ap.add_argument("email", nargs="?", default="andres@finsys.os")
@@ -64,7 +114,11 @@ def main():
     ap.add_argument("--telegram", action="store_true")
     ap.add_argument("--url", default="")
     ap.add_argument("--revocar-otros", action="store_true")
+    ap.add_argument("--solo-url", action="store_true")
     a = ap.parse_args()
+
+    if a.solo_url:
+        return _solo_url(a)
 
     remitentes = ["".join(ch for ch in r if ch.isdigit()) for r in a.remitente] or ["85540"]
     token = secrets.token_urlsafe(32)
