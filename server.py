@@ -94,6 +94,7 @@ from routers.bot import router as bot_router
 from routers.contadores import router as contadores_router
 from routers.analytics import router as analytics_router
 from routers.webhooks_sms import router as webhooks_sms_router
+from routers.third_party_accounts import router as third_party_accounts_router
 
 app.include_router(portfolios_router)
 app.include_router(transactions_router)
@@ -114,6 +115,7 @@ app.include_router(bot_router)
 app.include_router(contadores_router)   # módulo 12: Contadores (B2)
 app.include_router(analytics_router)    # Análisis Inteligente (B0+B2+B3)
 app.include_router(webhooks_sms_router) # Bot IA 09.F: webhook SMS + tokens
+app.include_router(third_party_accounts_router)  # Bot IA 09.G: medios de pago del tercero
 
 
 # ==============================================================================
@@ -174,6 +176,15 @@ def _startup():
         print("✅ Bot SMS: sms_ingest_tokens y user_accounts.last4_* listas")
     except Exception as e:
         print(f"⚠️ Bot SMS init: {e}")
+
+    # ── Bot IA 09.G: medios de pago del tercero (cuentas, celulares, llaves y
+    #    nombres del banco que el bot cruza por igualdad) ──
+    try:
+        from fin_sys_core.terceros_cuentas import init_table as init_third_party_accounts
+        init_third_party_accounts()
+        print("✅ Terceros: third_party_accounts lista (medios de pago)")
+    except Exception as e:
+        print(f"⚠️ Terceros medios de pago init: {e}")
 
     # ── Zero-COA: Registrar listener de partida doble ──
     try:

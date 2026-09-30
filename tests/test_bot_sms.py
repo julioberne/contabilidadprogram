@@ -30,10 +30,13 @@ class _FakeCursor:
     """Enruta por la tabla mencionada en el SQL. accounts: dicts con id, name,
     last4_cuenta, last4_tarjeta. terceros: dicts con type, number, name, phone."""
 
-    def __init__(self, portfolios=("Finanzas personales",), accounts=(), terceros=()):
+    def __init__(self, portfolios=("Finanzas personales",), accounts=(), terceros=(), medios=()):
         self.portfolios = list(portfolios)
         self.accounts = list(accounts)
         self.terceros = list(terceros)
+        # medios de pago registrados (third_party_accounts): dicts con
+        # tipo, valor y tercero = (id, type, number, name, phone)
+        self.medios = list(medios)
         self._rows = []
         self.sqls = []
 
@@ -41,6 +44,9 @@ class _FakeCursor:
         self.sqls.append(sql)
         if "FROM portfolios" in sql:
             self._rows = [(p,) for p in self.portfolios]
+        elif "FROM third_party_accounts" in sql:
+            self._rows = [m["tercero"] for m in self.medios
+                          if (m["tipo"], m["valor"]) == (params[0], params[1])]
         elif "FROM user_accounts" in sql:
             campo = "last4_tarjeta" if "last4_tarjeta" in sql else "last4_cuenta"
             self._rows = [(a["id"], a["name"]) for a in self.accounts
@@ -311,6 +317,108 @@ class TestRedDeSeguridad(unittest.TestCase):
         self.assertTrue(res["informativo"])
         self.assertFalse(res["plantilla_nueva"])
         self.assertIsNone(res["payload"]["amount"])
+
+
+class TestMediosDePago(unittest.TestCase):
+    """09.G §10: el tercero sale del medio de pago REGISTRADO en su ficha
+    (igualdad del identificador completo). Registrar es siempre explícito."""
+
+    LEIDY = (77, "CC", "1007289007", "Leidy Daniela Molina", None)
+
+    def test_celular_registrado_trae_el_tercero_sin_marcarlo_inferido(self):
+        cur = _FakeCursor(accounts=CUENTAS,
+                          medios=[{"tipo": "celular", "valor": "3193301184", "tercero": self.LEIDY}])
+        res = bot_sms.construir_borrador_sms(cur, SMS_OK, "85540", "Finanzas personales")
+        p = res["payload"]
+        self.assertTrue(res["tercero_por_medio"])
+        self.assertEqual(p["third_party"]["name"], "Leidy Daniela Molina")
+        self.assertEqual(p["third_party"]["identification_number"], "1007289007")
+        self.assertNotIn("third_party", p["inferred_fields"])
+        self.assertEqual(p["sms"]["medio"], {"tipo": "celular", "valor": "3193301184"})
+        self.assertTrue(p["sms"]["tercero_por_medio"])
+        self.assertIn("medio de pago registrado (cel 3193301184)", bot_sms.encabezado_sms(res))
+
+    def test_sin_registrar_el_medio_igual_viaja_en_el_borrador_para_el_boton_guardar(self):
+        cur = _FakeCursor(accounts=CUENTAS)
+        res = bot_sms.construir_borrador_sms(cur, SMS_OK, "85540", "Finanzas personales")
+        self.assertFalse(res["tercero_por_medio"])
+        self.assertEqual(res["payload"]["sms"]["medio"], {"tipo": "celular", "valor": "3193301184"})
+        self.assertEqual(res["payload"]["third_party"]["name"], "Sin especificar")
+
+    def test_cuenta_registrada_de_un_tercero_gana_a_la_regla_de_cuenta_propia(self):
+        # *91232656625 termina en 6625 = last4 de una cuenta MÍA; pero el número
+        # COMPLETO está en la ficha de un tercero → es un GASTO a ese tercero.
+        cur = _FakeCursor(accounts=CUENTAS,
+                          medios=[{"tipo": "cuenta", "valor": "91232656625", "tercero": self.LEIDY}])
+        p = bot_sms.construir_borrador_sms(cur, SMS_PROPIA, "85540", "Finanzas personales")["payload"]
+        self.assertEqual(p["type"], "GASTO")
+        self.assertIsNone(p["dest_account_id"])
+        self.assertEqual(p["third_party"]["name"], "Leidy Daniela Molina")
+
+    def test_recibida_por_nombre_del_banco_registrado(self):
+        sandra = (80, "CC", "52111222", "Sandra Jiménez Pérez", None)
+        cur = _FakeCursor(accounts=CUENTAS,
+                          medios=[{"tipo": "nombre_banco", "valor": "SANDRA JIMENEZ", "tercero": sandra}])
+        res = bot_sms.construir_borrador_sms(cur, SMS_RECIBIDA, "85540", "Finanzas personales")
+        self.assertEqual(res["payload"]["third_party"]["identification_number"], "52111222")
+        self.assertEqual(res["payload"]["type"], "INGRESO")
+        self.assertNotIn("El banco dice", bot_sms.encabezado_sms(res))
+
+    def test_compra_por_nombre_del_comercio_registrado(self):
+        didi = (81, "NIT", "901111222", "DiDi Colombia SAS", None)
+        cur = _FakeCursor(accounts=CUENTAS,
+                          medios=[{"tipo": "nombre_banco", "valor": "DIDI", "tercero": didi}])
+        p = bot_sms.construir_borrador_sms(cur, SMS_COMPRA, "85540", "Finanzas personales")["payload"]
+        self.assertEqual(p["third_party"]["name"], "DiDi Colombia SAS")
+        self.assertEqual(p["sms"]["medio"], {"tipo": "nombre_banco", "valor": "DIDI"})
+
+    def test_pago_qr_por_llave_registrada(self):
+        tienda = (82, "NIT", "900555666", "Tienda La Esquina", None)
+        cur = _FakeCursor(accounts=CUENTAS,
+                          medios=[{"tipo": "llave", "valor": "0087671656", "tercero": tienda}])
+        p = bot_sms.construir_borrador_sms(cur, SMS_QR, "85540", "Finanzas personales")["payload"]
+        self.assertEqual(p["third_party"]["name"], "Tienda La Esquina")
+
+    def test_no_reconocido_no_tiene_medio(self):
+        cur = _FakeCursor(accounts=CUENTAS)
+        res = bot_sms.construir_borrador_sms(cur, SMS_RARO, "85540", "Finanzas personales")
+        self.assertIsNone(res["payload"]["sms"]["medio"])
+        self.assertFalse(res["tercero_por_medio"])
+
+
+class TestTerceroDeMedio(unittest.TestCase):
+    """UN solo cruce para el SMS que llega y para decidir si se ofrece 💾:
+    medio registrado → celular de contacto / nombre exacto de una sola ficha."""
+
+    LEIDY = (77, "CC", "1007289007", "Leidy Daniela Molina", None)
+
+    def test_medio_registrado_gana_al_celular_de_contacto(self):
+        # Juan Pérez tiene ese celular en su ficha, pero el medio está registrado a Leidy
+        cur = _FakeCursor(terceros=TERCEROS,
+                          medios=[{"tipo": "celular", "valor": "3193301184", "tercero": self.LEIDY}])
+        t, por_medio = bot_sms.tercero_de_medio(cur, ("celular", "3193301184"))
+        self.assertEqual((t["name"], por_medio), ("Leidy Daniela Molina", True))
+
+    def test_sin_registro_cae_al_celular_de_contacto(self):
+        cur = _FakeCursor(terceros=TERCEROS)
+        t, por_medio = bot_sms.tercero_de_medio(cur, ("celular", "3193301184"))
+        self.assertEqual((t["name"], por_medio), ("Juan Pérez", False))
+        t, _ = bot_sms.tercero_de_medio(cur, ("llave", "3193301184"))    # llave que es un celular
+        self.assertEqual(t["name"], "Juan Pérez")
+
+    def test_nombre_del_banco_cae_al_nombre_exacto_de_la_ficha(self):
+        cur = _FakeCursor(terceros=TERCEROS)
+        t, por_medio = bot_sms.tercero_de_medio(cur, ("nombre_banco", "TIENDA"), "Tienda")
+        self.assertEqual((t["identification_number"], por_medio), ("900123456", False))
+        # «Juan Pérez» lleva tilde: NO es igualdad exacta con lo que escribe el banco
+        self.assertEqual(bot_sms.tercero_de_medio(cur, ("nombre_banco", "JUAN PEREZ"), "JUAN PEREZ"),
+                         (None, False))
+
+    def test_cuenta_o_llave_sin_registrar_no_resuelve_a_nadie(self):
+        cur = _FakeCursor(terceros=TERCEROS)
+        self.assertEqual(bot_sms.tercero_de_medio(cur, ("cuenta", "91232656625")), (None, False))
+        self.assertEqual(bot_sms.tercero_de_medio(cur, ("llave", "0087671656")), (None, False))
+        self.assertEqual(bot_sms.tercero_de_medio(cur, None), (None, False))
 
 
 class TestDedupe(unittest.TestCase):

@@ -913,10 +913,11 @@ Muestras pendientes de Andrés: un SMS de **retiro** y uno de **compra con tarje
 
 ---
 
-## Checkpoint 2026-09-30 — Bot 09.F cerrada con SMS real; plantillas nuevas; reply con tercero sin duplicados
+## Checkpoint 2026-09-30 — Bot 09.F cerrada con SMS real; plantillas nuevas; reply con tercero sin duplicados; medios de pago del tercero (💾)
 
 Sesión larga sobre `master` (push: Andrés; deploy: `scratch/deploy_prod.py`). Producción quedó en
-`f809aca`; lo posterior (`ad9bb57` y el commit de esta entrada) está en local **sin push**.
+`f809aca`; lo posterior (`0bd5192`, `ad9bb57`, `c1e4623` y el commit de 09.G §10) está en local
+**sin push**.
 
 ### Plantillas reales de SMS (9016c83, f809aca)
 Andrés envió capturas de sus SMS de agosto–septiembre. Familias con muestra real y test fijo:
@@ -968,12 +969,58 @@ cc 1007289007") y la primera versión metió TODO en el concepto (igual le habí
 - Callbacks nuevos/ajustados: `tpnew`, `tpset` (commit antes de `editar_draft`: evita el bloqueo
   entre conexiones).
 
-### Propuesta pendiente de aprobación
-`docs/specs/09-bot-ia/09.G-completar-borrador.md` §10: "medios de pago del tercero" — tabla
-`third_party_accounts` (celular / cuenta / llave / nombre del banco, identificador completo,
-`UNIQUE (tipo, valor)`), botón 💾 para registrar el destino de un SMS en la ficha del tercero,
-cruce automático en los siguientes SMS y ficha completa editable en el módulo Terceros de la web.
+Verificación de ese commit (`c1e4623`): 282 unittest (132+ puros, resto con BD real) + compileall
++ `import server`.
 
-### Verificación
-282 unittest (132+ puros, resto con BD real; todos limpian sus filas) + compileall + `import server`.
-Restos de tests en BD: 0 terceros de prueba, 0 chats `test-…`.
+### 09.G §10 — Medios de pago del tercero (aprobado e implementado el mismo día, sin push)
+Pregunta de Andrés tras su SMS real: "¿cómo sabe el bot cuando haga otra transferencia a la misma
+persona pero en otra cuenta… y toma automáticamente el tercero para no haber duplicados, y sí podré
+corregir y confirmar?". Propuesta → aprobó **"Botón 💾 Guardar"** y **"Todo lo que nombra el
+banco"**. Construido:
+- **Datos**: tabla nueva `third_party_accounts` (`tipo` celular / cuenta / llave / nombre_banco,
+  `valor` = identificador COMPLETO normalizado, `UNIQUE (tipo, valor)`, `origen` web|bot, cascada
+  con el tercero). Migración `scripts/migrate_third_party_accounts.py` **aplicada** a la BD
+  compartida; el server la auto-cura en `_startup()`. `third_parties` no se toca (Zero-Impact).
+- **Núcleo** `fin_sys_core/terceros_cuentas.py`: `normalizar`, `medio_de_sms`, `medio_de_payload`
+  (borradores anteriores a la etapa, como el #237), `buscar_tercero(_seguro)`, `agregar` (409
+  lógico `de_otro`), `mover`, `eliminar`, `listar`.
+- **Un solo cruce** `bot_sms.tercero_de_medio`: 1) medio registrado (celular ↔ llave equivalentes)
+  → 2) celular de contacto / nombre exacto de una sola ficha. Lo usan el SMS que llega y
+  `bot_driver._medio_pendiente` ("¿el próximo SMS igual llegaría con este tercero?"): 💾 solo se
+  ofrece cuando la respuesta es no. Un medio registrado gana a la regla "cuenta propia por 4 dígitos".
+- **Telegram**: botón `💾 Guardar cel … en (tercero)` al asignar el tercero (reply o 👤) y junto a
+  la confirmación (botón ✅ y `Confirmar #N`); `🔁 Mover … a (tercero)` si el medio es de otra
+  ficha — 💾 jamás pisa al dueño. Callbacks `tpsave` / `tpmove`; `bot_telegram` envía la botonera
+  del mensaje nuevo (`text_buttons`). Nada se guarda solo (Regla 6b).
+- **Web**: `routers/third_party_accounts.py` (GET sesión; POST / mover / DELETE admin; 201 · 409 ·
+  404 · 422). En 👤 Terceros, ✎ abre la ficha: teléfono, sitio web y dirección + sección "Cuentas,
+  celulares y llaves" (`TerceroMediosPago.jsx`: alta, baja, "Traerlo a esta ficha" ante el 409).
+  De paso: el alta de terceros enviaba la dirección en `website`; ahora va en `address`.
+- **Aislamiento de tests sobre la BD compartida**: la cola de SMS es parametrizable
+  (`procesar_pendientes(kind=…)`); los tests usan `sms_prueba`, así el poller de producción no
+  toca filas de prueba ni los tests se llevan un SMS real. `_reparar_sin_chat` ahora es
+  determinista (chat de Telegram activo más antiguo del usuario).
+
+Hallazgos de la sesión (fuera de alcance, anotados en CHECKLIST): el 🗑 de la tabla de Terceros
+llama a `DELETE /api/third-parties/{id}`, que no existe; `docs/bot_ia.md` decía que dev y prod
+usan bots distintos — hoy comparten token (corregido en el doc: no lanzar el poller local).
+
+### Verificación (09.G §10)
+- Puros (lista de CI, 244): incluye `tests.test_terceros_cuentas` (19) y `tests.test_bot_sms` (38).
+- Con BD real: `tests.test_terceros_cuentas_db` (11: núcleo, los tres momentos, mover, 💾 tras
+  confirmar por botón y por texto, celular de contacto, llave equivalente, borrador antiguo, router),
+  `test_bot_sms_db` + `test_bot_retencion` + `test_bot_completar_db`, `test_bot_driver` +
+  `test_bot_confirmation` + `test_bot_resolvers`, cimientos (15), kernel 6/6, core 5/5.
+- Frontend: 68 vitest (7 nuevos), lint limpio en los archivos tocados, build OK (carga inicial 295 KB).
+- Navegador (`localhost:8000`, sesión ya abierta, dos terceros `ZZ PRUEBA UI …` creados y borrados
+  por script): ficha abierta → alta `+57 300 111 2233` normalizada (POST 201) → valor inválido (422
+  con el mensaje del servidor) → mismo celular en la otra ficha (409 + "Traerlo a esta ficha" →
+  `mover` 200) → quitar (DELETE 200) → teléfono y dirección guardados con ✓ (PUT 200). Sin
+  desbordes a 1280 px. La pestaña del panel es muy angosta para una captura legible: la evidencia
+  es el registro de red y el DOM.
+- Restos en BD: 0 terceros de prueba, 0 chats `test-…`, 0 filas `sms_prueba…`, 0 medios de pago.
+
+### Pendiente al cierre
+`git push origin master` (Andrés) → deploy + sonda → prueba real CA-09G-13 → responder de nuevo al
+#237 (su concepto quedó contaminado por el defecto ya corregido). Muestras de SMS de retiro y de
+compra por internet. HTTPS permanente para el webhook.

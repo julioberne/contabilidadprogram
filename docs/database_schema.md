@@ -429,5 +429,31 @@ ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS last4_tarjeta VARCHAR(4);  --
 El bot cruza el `*3037` del SMS con `last4_cuenta` y resuelve `account_id`; el nombre de la cuenta queda libre. Editables en 💳 Cuentas.
 
 ### Uso de tablas existentes (sin cambios de esquema)
-- `bot_messages`: `channel='sms'`, `kind` ∈ `sms` (pendiente) · `sms_sin_chat` (sin link Telegram activo) · `sms_error` (falló al convertir) · `retencion_aviso` (salida de la purga); `raw_chat_id` = `hub_user_id`; `external_message_id` = sha256(remitente|texto|sentStamp)[:32] (dedupe por el índice único existente); `content` = JSON `{from, text, sentStamp}`.
-- `transaction_drafts`: `channel='sms'`, `raw_text` = SMS completo, `payload.sms = {familia, remitente, origen_last4, destino, hora}`, `payload.account_id` / `payload.dest_account_id` resueltos por id.
+- `bot_messages`: `channel='sms'`, `kind` ∈ `sms` (pendiente) · `sms_sin_chat` (sin link Telegram activo) · `sms_error` (falló al convertir) · `sms_info` (aviso sin dinero: no es un movimiento) · `retencion_aviso` (salida de la purga); `raw_chat_id` = `hub_user_id`; `external_message_id` = sha256(remitente|texto|sentStamp)[:32] (dedupe por el índice único existente); `content` = JSON `{from, text, sentStamp}`. Los tests de integración usan la cola aparte `sms_prueba` (`sms_prueba_sin_chat` / `_error` / `_info`): el poller de producción solo atiende `sms`.
+- `transaction_drafts`: `channel='sms'`, `raw_text` = SMS completo, `payload.sms = {familia, remitente, origen_last4, destino, hora, contraparte, origen_campo, plantilla_nueva, medio, tercero_por_medio}`, `payload.account_id` / `payload.dest_account_id` resueltos por id. `medio = {tipo, valor}` es el identificador de la contraparte que el botón 💾 guarda en `third_party_accounts` (09.G).
+
+---
+
+## MÓDULO BOT IA — Etapa 09.G (Tabla nueva — Zero-Impact)
+
+> Spec: `docs/specs/09-bot-ia/09.G-completar-borrador.md` §10 · Migración: `scripts/migrate_third_party_accounts.py` (aplicada 30-sep-2026; el server también auto-cura en `_startup()` vía `fin_sys_core/terceros_cuentas.init_table`).
+
+### U. `third_party_accounts` — Medios de pago de un tercero
+```sql
+CREATE TABLE IF NOT EXISTS third_party_accounts (
+    id SERIAL PRIMARY KEY,
+    third_party_id BIGINT NOT NULL REFERENCES third_parties(id) ON DELETE CASCADE,
+    tipo TEXT NOT NULL CHECK (tipo IN ('celular', 'cuenta', 'llave', 'nombre_banco')),
+    valor TEXT NOT NULL,              -- identificador COMPLETO, normalizado
+    banco TEXT,                       -- opcional, informativo: Nequi, Bancolombia…
+    etiqueta TEXT,                    -- opcional: "ahorros", "cuenta de la mamá"…
+    origen TEXT NOT NULL DEFAULT 'web' CHECK (origen IN ('web', 'bot')),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (tipo, valor)              -- un medio pertenece a UNA sola ficha
+);
+CREATE INDEX IF NOT EXISTS idx_third_party_accounts_tercero ON third_party_accounts(third_party_id);
+```
+- Un tercero (una ficha, la manda su documento) tiene **varios** medios: cuentas, celulares, llaves y el nombre con que el banco lo llama en sus SMS.
+- `valor` normalizado (`fin_sys_core/terceros_cuentas.normalizar`): `celular` = 10 dígitos que empiezan por 3 (sin `+57`); `cuenta` = solo dígitos (4–20); `llave` = sin espacios, minúsculas; `nombre_banco` = MAYÚSCULAS sin tildes.
+- Lo escribe una persona: botón 💾 del bot (`origen='bot'`) o la ficha del tercero en la web (`origen='web'`). El bot lo lee por **igualdad** para traer el tercero ya puesto en el borrador de un SMS (Regla 6b: nada se memoriza solo).
+- El tercero genérico (`999999999`) no puede tener medios. No altera `third_parties`.

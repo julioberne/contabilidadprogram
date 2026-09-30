@@ -1,5 +1,6 @@
 // TercerosTab.jsx — Extracted from ContextPanel.jsx
 import React, { useState } from 'react';
+import TerceroMediosPago from '../TerceroMediosPago';
 
 export default function TercerosTab({
   search, setSearch,
@@ -24,7 +25,8 @@ export default function TercerosTab({
         identification_number: tercero.idNumber || '',
         email: tercero.email || '',
         phone: tercero.phone || '',
-        website: tercero.address || '',
+        // La dirección va a `address` (antes se enviaba por error en `website`)
+        address: tercero.address || '',
       }, refreshTP);
     } catch (e) {
       setCreateError(e.message || 'Error al crear el tercero.');
@@ -32,6 +34,8 @@ export default function TercerosTab({
       setCreating(false);
     }
   };
+
+  const setCampo = (campo) => (e) => setEditData({ ...editData, [campo]: e.target.value });
 
   return (
     <>
@@ -87,27 +91,46 @@ export default function TercerosTab({
         </tr></thead>
         <tbody className="divide-y divide-gray-200">
           {allThirdParties.map(tp => (
-            <tr key={tp.id} className="hover:bg-brutalBg">
-              {editingId === tp.id ? (<>
-                <td className="p-0.5 border-r border-black"><input type="text" value={editData.name||''} onChange={e=>setEditData({...editData,name:e.target.value})} className="w-full border border-black px-1 py-0.5 text-[10px] font-mono outline-none" /></td>
-                <td className="p-0.5 border-r border-black"><select value={editData.identification_type||'NIT'} onChange={e=>setEditData({...editData,identification_type:e.target.value})} className="border border-black px-0.5 py-0.5 text-[10px] font-mono"><option>NIT</option><option>CC</option></select></td>
-                <td className="p-0.5 border-r border-black"><input type="text" value={editData.identification_number||''} onChange={e=>setEditData({...editData,identification_number:e.target.value})} className="w-full border border-black px-1 py-0.5 text-[10px] font-mono outline-none" /></td>
-                <td className="p-0.5 border-r border-black"><input type="text" value={editData.email||''} onChange={e=>setEditData({...editData,email:e.target.value})} className="w-full border border-black px-1 py-0.5 text-[10px] font-mono outline-none" /></td>
-                <td className="p-0.5 text-center">
-                  <button onClick={()=>updateItem('third-parties',tp.id,editData,refreshTP)} className="bg-brutalGreen border border-black px-1 py-0.5 text-[8px] font-bold mr-0.5">✓</button>
-                  <button onClick={()=>setEditingId(null)} className="bg-gray-200 border border-black px-1 py-0.5 text-[8px] font-bold">✕</button>
-                </td>
-              </>) : (<>
-                <td className="p-1 border-r border-black font-bold truncate max-w-[100px]">{tp.name}</td>
-                <td className="p-1 border-r border-black text-center text-[8px]">{tp.identification_type}</td>
-                <td className="p-1 border-r border-black">{tp.identification_number}</td>
-                <td className="p-1 border-r border-black text-gray-400 truncate max-w-[80px]">{tp.email||'—'}</td>
-                <td className="p-1 text-center whitespace-nowrap">
-                  <button onClick={()=>{setEditingId(tp.id);setEditData({...tp});}} className="text-[9px] text-gray-400 hover:text-black font-bold">✎</button>
-                  <button onClick={()=>deleteItem('third-parties',tp.id,refreshTP)} className="text-[9px] text-gray-300 hover:text-red-500 font-bold ml-1">🗑</button>
-                </td>
-              </>)}
-            </tr>
+            <React.Fragment key={tp.id}>
+              <tr className="hover:bg-brutalBg">
+                {editingId === tp.id ? (<>
+                  <td className="p-0.5 border-r border-black"><input type="text" value={editData.name||''} onChange={setCampo('name')} className="w-full border border-black px-1 py-0.5 text-[10px] font-mono outline-none" /></td>
+                  <td className="p-0.5 border-r border-black"><select value={editData.identification_type||'NIT'} onChange={setCampo('identification_type')} className="border border-black px-0.5 py-0.5 text-[10px] font-mono"><option>NIT</option><option>CC</option></select></td>
+                  <td className="p-0.5 border-r border-black"><input type="text" value={editData.identification_number||''} onChange={setCampo('identification_number')} className="w-full border border-black px-1 py-0.5 text-[10px] font-mono outline-none" /></td>
+                  <td className="p-0.5 border-r border-black"><input type="text" value={editData.email||''} onChange={setCampo('email')} className="w-full border border-black px-1 py-0.5 text-[10px] font-mono outline-none" /></td>
+                  <td className="p-0.5 text-center">
+                    <button onClick={()=>updateItem('third-parties',tp.id,editData,refreshTP)} title="Guardar la ficha" className="bg-brutalGreen border border-black px-1 py-0.5 text-[8px] font-bold mr-0.5">✓</button>
+                    <button onClick={()=>setEditingId(null)} title="Cerrar" className="bg-gray-200 border border-black px-1 py-0.5 text-[8px] font-bold">✕</button>
+                  </td>
+                </>) : (<>
+                  <td className="p-1 border-r border-black font-bold truncate max-w-[100px]">{tp.name}</td>
+                  <td className="p-1 border-r border-black text-center text-[8px]">{tp.identification_type}</td>
+                  <td className="p-1 border-r border-black">{tp.identification_number}</td>
+                  <td className="p-1 border-r border-black text-gray-400 truncate max-w-[80px]">{tp.email||'—'}</td>
+                  <td className="p-1 text-center whitespace-nowrap">
+                    <button onClick={()=>{setEditingId(tp.id);setEditData({...tp});}} title="Abrir la ficha: todos los campos y sus cuentas / celulares / llaves" className="text-[9px] text-gray-400 hover:text-black font-bold">✎</button>
+                    <button onClick={()=>deleteItem('third-parties',tp.id,refreshTP)} className="text-[9px] text-gray-300 hover:text-red-500 font-bold ml-1">🗑</button>
+                  </td>
+                </>)}
+              </tr>
+              {/* Ficha completa (etapa 09.G §10): los campos que no caben en la fila
+                  + los medios de pago con los que el bot reconoce a este tercero */}
+              {editingId === tp.id && (
+                <tr className="bg-yellow-50">
+                  <td colSpan={5} className="p-1.5 space-y-1">
+                    <div className="grid grid-cols-2 gap-1">
+                      <input type="tel" value={editData.phone||''} onChange={setCampo('phone')} placeholder="Teléfono de contacto" aria-label="Teléfono" className="border border-black px-1 py-0.5 text-[10px] font-mono outline-none" />
+                      <input type="text" value={editData.website||''} onChange={setCampo('website')} placeholder="Sitio web" aria-label="Sitio web" className="border border-black px-1 py-0.5 text-[10px] font-mono outline-none" />
+                      <input type="text" value={editData.address||''} onChange={setCampo('address')} placeholder="Dirección" aria-label="Dirección" className="col-span-2 border border-black px-1 py-0.5 text-[10px] font-mono outline-none" />
+                    </div>
+                    <div className="text-[8px] font-mono text-gray-500">
+                      Los cambios de la ficha se guardan con ✓. Los medios de pago de abajo se guardan al agregarlos.
+                    </div>
+                    <TerceroMediosPago terceroId={tp.id} />
+                  </td>
+                </tr>
+              )}
+            </React.Fragment>
           ))}
         </tbody>
       </table>

@@ -253,7 +253,9 @@ def _procesar_callback(bot_driver, cb: dict):
             edit_message(chat_id, m.get("message_id"),
                          text=out.get("edit_text"), buttons=out.get("edit_buttons"))
         if out.get("text"):
-            send_message(chat_id, out["text"])
+            # text_buttons: botonera del mensaje NUEVO (p. ej. 💾 Guardar el medio
+            # de pago junto a la confirmación — etapa 09.G)
+            send_message(chat_id, out["text"], buttons=out.get("text_buttons"))
     except Exception as e:
         print(f"⚠️ [TG] callback falló: {e}")
         answer_callback(cb_id, "Error procesando el botón.")

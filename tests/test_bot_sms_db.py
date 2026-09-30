@@ -28,6 +28,11 @@ if os.path.exists(_env):
 
 import bot_sms  # noqa: E402
 
+# La BD es la MISMA de producción y el poller real atiende la cola 'sms' cada
+# ≤ 45 s. Los tests usan OTRA cola para que ni producción toque sus filas ni
+# ellos se lleven un SMS real de Andrés (con un envío falso a Telegram).
+COLA = "sms_prueba"
+
 SMS = ("Bancolombia: Transferiste $11,900.00 desde tu cuenta *3037 a la cuenta "
        "*3193301184 el 21/09/26 a las 20:00. ¿Dudas? Llamanos al 018000931987.")
 
@@ -63,8 +68,20 @@ class _ConChatDePrueba(unittest.TestCase):
         conn = self.get_conn()
         try:
             cur = conn.cursor()
-            cur.execute("SELECT id FROM hub_users ORDER BY created_at LIMIT 1")
-            self.uid = str(cur.fetchone()[0])
+            # Preferir un usuario SIN chats activos: así una fila de prueba jamás
+            # puede engancharse al chat real de alguien.
+            cur.execute("""
+                SELECT u.id FROM hub_users u
+                 WHERE NOT EXISTS (SELECT 1 FROM bot_chat_links l
+                                    WHERE l.hub_user_id = u.id AND l.status = 'ACTIVO')
+                 ORDER BY u.created_at LIMIT 1
+            """)
+            fila = cur.fetchone()
+            self.usuario_sin_chats = fila is not None
+            if fila is None:
+                cur.execute("SELECT id FROM hub_users ORDER BY created_at LIMIT 1")
+                fila = cur.fetchone()
+            self.uid = str(fila[0])
             self.chat_id = f"test-{uuid.uuid4().hex[:10]}"
             cur.execute("""
                 INSERT INTO bot_chat_links (channel, chat_id, hub_user_id, default_portfolio, status)
@@ -87,7 +104,7 @@ class _ConChatDePrueba(unittest.TestCase):
         finally:
             self.put_conn(conn)
 
-    def _encolar(self, texto, kind="sms", content=None, link=True):
+    def _encolar(self, texto, kind=COLA, content=None, link=True):
         ext = uuid.uuid4().hex[:32]
         self.ext_ids.append(ext)
         conn = self.get_conn()
@@ -105,6 +122,10 @@ class _ConChatDePrueba(unittest.TestCase):
         finally:
             self.put_conn(conn)
 
+    def _procesar(self):
+        """El tick, pero SOLO sobre la cola de prueba."""
+        return bot_sms.procesar_pendientes(self.send_fn, kind=COLA)
+
     def _fila(self, msg_id):
         conn = self.get_conn()
         try:
@@ -120,10 +141,10 @@ class TestTickSms(_ConChatDePrueba):
 
     def test_sms_pendiente_crea_borrador_canal_sms_y_envia(self):          # CA-09F-06
         mid = self._encolar(SMS)
-        n = bot_sms.procesar_pendientes(self.send_fn)
+        n = self._procesar()
         self.assertGreaterEqual(n, 1)
         kind, draft_id, _ = self._fila(mid)
-        self.assertEqual(kind, "sms")
+        self.assertEqual(kind, COLA)
         self.assertIsNotNone(draft_id)
         conn = self.get_conn()
         try:
@@ -147,9 +168,9 @@ class TestTickSms(_ConChatDePrueba):
 
     def test_segunda_pasada_no_duplica(self):
         self._encolar(SMS)
-        bot_sms.procesar_pendientes(self.send_fn)
+        self._procesar()
         antes = len(self.enviados)
-        bot_sms.procesar_pendientes(self.send_fn)
+        self._procesar()
         conn = self.get_conn()
         try:
             cur = conn.cursor()
@@ -163,41 +184,43 @@ class TestTickSms(_ConChatDePrueba):
     def test_fila_envenenada_queda_sms_error_y_no_bloquea(self):
         malo = self._encolar("", content="{esto no es json")
         bueno = self._encolar(SMS)
-        bot_sms.procesar_pendientes(self.send_fn)
-        self.assertEqual(self._fila(malo)[0], "sms_error")
+        self._procesar()
+        self.assertEqual(self._fila(malo)[0], COLA + "_error")
         self.assertIsNone(self._fila(malo)[1])
         self.assertIsNotNone(self._fila(bueno)[1])
         avisos = [e for e in self.enviados if e[0] == self.chat_id and "No pude convertir" in e[1]]
         self.assertEqual(len(avisos), 1)
         # Una tercera pasada no vuelve a tomar la fila envenenada
         antes = len(self.enviados)
-        bot_sms.procesar_pendientes(self.send_fn)
+        self._procesar()
         self.assertEqual(len(self.enviados), antes)
 
     def test_sms_sin_chat_se_repara_con_el_link_activo(self):
-        mid = self._encolar(SMS, kind="sms_sin_chat", link=False)
-        bot_sms.procesar_pendientes(self.send_fn)
+        if not self.usuario_sin_chats:
+            self.skipTest("no hay un usuario sin chats activos para probar la reparación sin riesgo")
+        mid = self._encolar(SMS, kind=COLA + "_sin_chat", link=False)
+        self._procesar()
         kind, draft_id, link = self._fila(mid)
-        self.assertEqual((kind, link), ("sms", self.link_id))
+        self.assertEqual((kind, link), (COLA, self.link_id))
         self.assertIsNotNone(draft_id)
 
     def test_informativo_sin_dinero_no_crea_borrador_ni_avisa(self):      # R-09F-13
         mid = self._encolar("Bancolombia: Muy bien. Inscribiste la cuenta de un tercero desde APP "
                             "Bancolombia. Si no fuiste tu, llamanos ahora: 6045109095 o 018000931987.")
-        bot_sms.procesar_pendientes(self.send_fn)
+        self._procesar()
         kind, draft_id, _ = self._fila(mid)
-        self.assertEqual(kind, "sms_info")
+        self.assertEqual(kind, COLA + "_info")
         self.assertIsNone(draft_id)
         self.assertEqual([e for e in self.enviados if e[0] == self.chat_id], [])
         # y no se vuelve a tomar en la siguiente pasada
-        bot_sms.procesar_pendientes(self.send_fn)
-        self.assertEqual(self._fila(mid)[0], "sms_info")
+        self._procesar()
+        self.assertEqual(self._fila(mid)[0], COLA + "_info")
 
     def test_plantilla_nueva_con_dinero_crea_borrador_con_monto_y_texto(self):
         sms = ("Bancolombia: Retiraste $200.000,00 en CAJERO CC ANDINO de tu T.Deb *0000 "
                "el 01/10/2026 a las 09:15. Dudas: 018000931987.")
         mid = self._encolar(sms)
-        bot_sms.procesar_pendientes(self.send_fn)
+        self._procesar()
         _, draft_id, _ = self._fila(mid)
         self.assertIsNotNone(draft_id)
         conn = self.get_conn()

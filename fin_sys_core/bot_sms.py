@@ -29,7 +29,9 @@ import re
 from datetime import date
 
 from draft_builder import build_payload, compute_missing, resolver_portafolio
-from sms_bancolombia import REMITENTE_DEFAULT, extraer_generico, parsear, tiene_dinero
+from sms_bancolombia import (REMITENTE_DEFAULT, es_celular, extraer_generico, parsear,
+                             tiene_dinero)
+from terceros_cuentas import buscar_tercero_seguro, describir as describir_medio, medio_de_sms
 
 # ── Esquema propio (self-heal en server._startup + scripts/migrate_sms_bancolombia.py) ──
 DDL_SMS_TOKENS = """
@@ -155,6 +157,29 @@ def resolver_tercero_por_nombre(cur, nombre):
     return d
 
 
+def tercero_de_medio(cur, medio, contraparte=None):
+    """EL cruce de la contraparte de un SMS con Terceros. → (tercero | None, por_medio)
+      1) medio de pago REGISTRADO en una ficha (09.G §10): igualdad del
+         identificador completo — lo guardó una persona con 💾 o en la web;
+      2) si no, igualdad con los datos de la propia ficha: celular de contacto
+         (una sola ficha lo tiene) o nombre exacto (una sola ficha se llama así).
+    `medio` = (tipo, valor) de terceros_cuentas.medio_de_sms; `contraparte` = el
+    nombre tal como lo escribió el banco. Lo usan construir_borrador_sms (el SMS
+    que llega) y bot_driver._medio_pendiente (¿queda algo por guardar con 💾?):
+    las dos preguntas tienen SIEMPRE la misma respuesta."""
+    if not medio:
+        return None, False
+    tipo, valor = medio
+    tercero = buscar_tercero_seguro(cur, tipo, valor)
+    if tercero is not None:
+        return tercero, True
+    if tipo == "celular" or (tipo == "llave" and es_celular(valor)):
+        return resolver_tercero_por_celular(cur, valor), False
+    if tipo == "nombre_banco":
+        return resolver_tercero_por_nombre(cur, contraparte or valor), False
+    return None, False
+
+
 def concepto_sms(sms, transferencia_propia=False) -> str:
     """Traducción literal del SMS (no una adivinanza): lo que dice el banco."""
     if not sms:
@@ -210,17 +235,19 @@ def construir_borrador_sms(cur, texto_sms, remitente, portafolio_preferido):
     account_id = cuenta_nombre = None
     dest_account_id = None
     tercero = None
+    medio = None                      # (tipo, valor) de la contraparte según el SMS
+    por_medio = False                 # el tercero salió de un medio de pago registrado
     if sms:
         # MI cuenta: por número (transferencias, QR, recibidas) o por tarjeta (compras)
         account_id, cuenta_nombre = resolver_cuenta_por_last4(
             cur, sms["origen_last4"], campo=sms.get("origen_campo") or "last4_cuenta")
-        if sms.get("destino_es_celular"):
-            tercero = resolver_tercero_por_celular(cur, sms["destino"])
-        elif sms.get("contraparte_nombre"):
-            # Comercio o remitente: solo igualdad exacta de nombre, un candidato
-            tercero = resolver_tercero_por_nombre(cur, sms["contraparte_nombre"])
-        elif sms["familia"] == "transferencia_enviada" and sms.get("destino_last4"):
-            # ¿El destino es otra cuenta MÍA? → transferencia entre cuentas (determinista)
+        # La CONTRAPARTE: 1) medio de pago registrado en la ficha de un tercero
+        # (09.G §10) · 2) celular de contacto o nombre exacto de una sola ficha.
+        medio = medio_de_sms(sms)
+        tercero, por_medio = tercero_de_medio(cur, medio, sms.get("contraparte_nombre"))
+        # 3) ¿El destino es otra cuenta MÍA? → transferencia entre cuentas (determinista)
+        if (tercero is None and sms["familia"] == "transferencia_enviada"
+                and not sms.get("destino_es_celular") and sms.get("destino_last4")):
             dest_account_id, _ = resolver_cuenta_por_last4(cur, sms["destino_last4"])
 
     # Plantilla DESCONOCIDA pero con dinero (R-09F-13): lectura literal de
@@ -289,9 +316,14 @@ def construir_borrador_sms(cur, texto_sms, remitente, portafolio_preferido):
         "contraparte": sms.get("contraparte_nombre") if sms else None,
         "origen_campo": sms.get("origen_campo") if sms else None,
         "plantilla_nueva": bool(generico),
+        # Identificador de la contraparte: lo que el botón 💾 guarda en la
+        # ficha del tercero para que el próximo SMS igual llegue ya asignado.
+        "medio": {"tipo": medio[0], "valor": medio[1]} if medio else None,
+        "tercero_por_medio": por_medio,
     }
     return {"payload": payload, "inferred_fields": inferred, "missing_fields": missing,
             "sms": sms, "reconocido": sms is not None, "account_id": account_id,
+            "medio": medio, "tercero_por_medio": por_medio,
             # True = texto sin familia pero con dinero (se leyó monto/fecha literal)
             "plantilla_nueva": bool(generico),
             # True = ni familia ni dinero: aviso informativo, NO es un movimiento
@@ -317,6 +349,8 @@ def encabezado_sms(res) -> str:
         else:
             lineas.append(f"⚠️ Cuenta *{origen} no registrada — ponle sus últimos 4 dígitos "
                           "en 💳 Cuentas y edita el borrador en la web")
+    if res.get("tercero_por_medio") and res.get("medio"):
+        lineas.append(f"👤 Tercero por medio de pago registrado ({describir_medio(*res['medio'])})")
     # Contraparte que el banco nombró pero no existe (igual) en Terceros
     sms = res.get("sms") or {}
     tp = (res.get("payload") or {}).get("third_party") or {}
@@ -379,19 +413,25 @@ def encolar_sms(cur, identidad, remitente, texto, sent_stamp=None):
     return (row[0], False) if row else (None, True)
 
 
-def _reparar_sin_chat(cur):
-    """SMS que llegaron sin chat vinculado: al vincular, entran a la cola."""
+def _reparar_sin_chat(cur, kind="sms"):
+    """SMS que llegaron sin chat vinculado: al vincular, entran a la cola.
+    Determinista: el chat de Telegram ACTIVO más antiguo del usuario (la misma
+    regla de resolver_identidad)."""
     cur.execute("""
         UPDATE bot_messages m
-           SET kind = 'sms', chat_link_id = l.id
-          FROM bot_chat_links l
-         WHERE m.channel = 'sms' AND m.direction = 'IN' AND m.kind = 'sms_sin_chat'
-           AND l.hub_user_id::text = m.raw_chat_id
-           AND l.channel = 'telegram' AND l.status = 'ACTIVO'
-    """)
+           SET kind = %s,
+               chat_link_id = (SELECT l.id FROM bot_chat_links l
+                                WHERE l.hub_user_id::text = m.raw_chat_id
+                                  AND l.channel = 'telegram' AND l.status = 'ACTIVO'
+                                ORDER BY l.id LIMIT 1)
+         WHERE m.channel = 'sms' AND m.direction = 'IN' AND m.kind = %s
+           AND EXISTS (SELECT 1 FROM bot_chat_links l
+                        WHERE l.hub_user_id::text = m.raw_chat_id
+                          AND l.channel = 'telegram' AND l.status = 'ACTIVO')
+    """, (kind, kind + "_sin_chat"))
 
 
-def _procesar_uno(conn, cur, fila, send_fn):
+def _procesar_uno(conn, cur, fila, send_fn, kind="sms"):
     from bot_driver import (SCHEMA_VERSION, _botones_borrador, guardar_summary_message_id,
                             log_outbound, render_summary)
     msg_id, content, chat_link_id, raw_chat_id, ext_id = fila
@@ -406,8 +446,8 @@ def _procesar_uno(conn, cur, fila, send_fn):
     link = cur.fetchone()
     if not link or link[4] != "ACTIVO":
         # Se vuelve a la sala de espera; _reparar_sin_chat lo retoma al vincular.
-        cur.execute("UPDATE bot_messages SET kind = 'sms_sin_chat', chat_link_id = NULL WHERE id = %s",
-                    (msg_id,))
+        cur.execute("UPDATE bot_messages SET kind = %s, chat_link_id = NULL WHERE id = %s",
+                    (kind + "_sin_chat", msg_id))
         conn.commit()
         return False
     link_id, chat_id, hub_user_id, portafolio, _ = link
@@ -418,7 +458,7 @@ def _procesar_uno(conn, cur, fila, send_fn):
         # alertas de seguridad): no es un movimiento → sin borrador y sin
         # ruido en el chat. El texto queda en bot_messages (kind='sms_info',
         # retención 90 días) por si hay que revisarlo.
-        cur.execute("UPDATE bot_messages SET kind = 'sms_info' WHERE id = %s", (msg_id,))
+        cur.execute("UPDATE bot_messages SET kind = %s WHERE id = %s", (kind + "_info", msg_id))
         conn.commit()
         return False
     payload = res["payload"]
@@ -492,15 +532,15 @@ def borrador_desde_chat(cur, link, texto, msg, msg_row_id):
             "draft_id": draft_id, "buttons": _botones_borrador(draft_id)}
 
 
-def _marcar_error(conn, cur, fila, error, send_fn):
+def _marcar_error(conn, cur, fila, error, send_fn, kind="sms"):
     """La fila no vuelve a tomarse (kind='sms_error'); el texto sigue ahí y se avisa."""
     msg_id, _content, chat_link_id, raw_chat_id, _ext = fila
     try:
-        cur.execute("UPDATE bot_messages SET kind = 'sms_error' WHERE id = %s", (msg_id,))
+        cur.execute("UPDATE bot_messages SET kind = %s WHERE id = %s", (kind + "_error", msg_id))
         cur.execute("""
             INSERT INTO bot_messages (chat_link_id, raw_chat_id, direction, channel, kind, content)
-            VALUES (%s, %s, 'OUT', 'sms', 'sms_error', %s)
-        """, (chat_link_id, raw_chat_id, f"msg {msg_id}: {error}"[:2000]))
+            VALUES (%s, %s, 'OUT', 'sms', %s, %s)
+        """, (chat_link_id, raw_chat_id, kind + "_error", f"msg {msg_id}: {error}"[:2000]))
         conn.commit()
         if chat_link_id:
             cur.execute("SELECT chat_id FROM bot_chat_links WHERE id = %s", (chat_link_id,))
@@ -517,9 +557,15 @@ def _marcar_error(conn, cur, fila, error, send_fn):
         print(f"⚠️ [SMS] No se pudo marcar el error del mensaje {msg_id}: {e2}")
 
 
-def procesar_pendientes(send_fn, conn=None, limite=20) -> int:
+def procesar_pendientes(send_fn, conn=None, limite=20, kind="sms") -> int:
     """Tick del poller: SMS encolados → borradores → Telegram. → nº convertidos.
-    Jamás lanza (patrón tick_resumen_telegram)."""
+    Jamás lanza (patrón tick_resumen_telegram).
+
+    `kind` es la "cola" de bot_messages que se atiende ('sms' en producción;
+    de ahí derivan sms_sin_chat / sms_error / sms_info). Los tests de
+    integración usan OTRA cola ('sms_prueba'): la BD es compartida con
+    producción y así ni el poller real toca las filas de prueba ni los tests
+    se llevan un SMS real de Andrés."""
     from db_pool import get_conn, put_conn
     propia = conn is None
     n = 0
@@ -527,25 +573,25 @@ def procesar_pendientes(send_fn, conn=None, limite=20) -> int:
         if propia:
             conn = get_conn()
         cur = conn.cursor()
-        _reparar_sin_chat(cur)
+        _reparar_sin_chat(cur, kind)
         conn.commit()
         cur.execute("""
             SELECT id, content, chat_link_id, raw_chat_id, external_message_id
               FROM bot_messages
-             WHERE channel = 'sms' AND direction = 'IN' AND kind = 'sms' AND draft_id IS NULL
+             WHERE channel = 'sms' AND direction = 'IN' AND kind = %s AND draft_id IS NULL
              ORDER BY id LIMIT %s
-        """, (int(limite),))
+        """, (kind, int(limite)))
         filas = cur.fetchall()
         for fila in filas:
             try:
-                if _procesar_uno(conn, cur, fila, send_fn):
+                if _procesar_uno(conn, cur, fila, send_fn, kind):
                     n += 1
             except Exception as e:
                 try:
                     conn.rollback()
                 except Exception:
                     pass
-                _marcar_error(conn, cur, fila, e, send_fn)
+                _marcar_error(conn, cur, fila, e, send_fn, kind)
         cur.close()
     except Exception as e:
         print(f"⚠️ [SMS] tick falló (se reintenta en la próxima vuelta): {e}")

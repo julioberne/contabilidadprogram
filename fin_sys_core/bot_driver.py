@@ -74,6 +74,9 @@ AYUDA = (
     "    el documento manda, así que nunca se duplica\n"
     "  · \"Tercero nuevo: Nombre\" lo crea sin documento (provisional)\n"
     "  · el botón 👤 Tercero muestra los más recientes\n"
+    "  · 💾 Guardar (borradores de SMS): registra la cuenta, celular o llave\n"
+    "    del SMS en la ficha del tercero — la próxima vez el borrador llega\n"
+    "    con ese tercero ya puesto. Nada se guarda solo.\n"
     "Para corregir lo demás: 🏢 Cambiar empresa, o edítalo en la Bandeja web."
 )
 
@@ -220,7 +223,11 @@ def handle_message(msg: dict):
                 return (f"¿Cuál borrador? Indícame el número: {cmd.capitalize()} #N\n"
                         "(/borradores para ver la lista)")
             if cmd == "confirmar":
-                return confirmar_draft(draft_id, chat_link_id=link["id"])
+                resultado = confirmar_draft(draft_id, chat_link_id=link["id"])
+                texto, botones_medio = _confirmacion_con_medio(cur, link, draft_id, resultado)
+                if botones_medio:             # 💾 igual que con el botón ✅
+                    return {"text": texto, "buttons": botones_medio}
+                return resultado
             return descartar_draft(draft_id, chat_link_id=link["id"])
         if cmd == "empresa":
             reply = _cmd_empresa(cur, link, arg)
@@ -811,19 +818,124 @@ def _botones_terceros(draft_id, terceros, crear=None):
     return filas
 
 
-def _asignar_tercero(link, draft_id, tercero):
+def _medio_pendiente(cur, payload):
+    """¿Queda algo por guardar? El borrador viene de un SMS y, si mañana llegara
+    OTRO SMS con el mismo medio de pago (cuenta, celular, llave o nombre del
+    banco), ¿vendría ya con el tercero que tiene asignado este borrador?
+      · sí → None (no se ofrece nada);
+      · no → {"tipo", "valor", "tercero_id", "tercero_nombre", "dueno"}, con
+        `dueno` = nombre de OTRO tercero que hoy tiene registrado ese medio
+        (hay que moverlo) o None (basta guardarlo).
+    Usa el MISMO cruce que el SMS entrante (bot_sms.tercero_de_medio).
+    A prueba de instalaciones sin migrar: un error no envenena la transacción."""
+    from terceros_cuentas import dueno, medio_de_payload
+    sms_meta = (payload or {}).get("sms") or {}
+    medio = medio_de_payload(sms_meta)       # (tipo, valor) | None
+    tp = (payload or {}).get("third_party") or {}
+    numero = str(tp.get("identification_number") or "")
+    if not medio or not numero or numero == _TERCERO_GENERICO:
+        return None
+    try:
+        cur.execute("SAVEPOINT medio_pendiente")
+        from bot_sms import tercero_de_medio
+        cur.execute("SELECT id, name FROM third_parties WHERE identification_number = %s", (numero,))
+        tercero = cur.fetchone()
+        resuelto = actual = None
+        if tercero:
+            resuelto, _ = tercero_de_medio(cur, medio, sms_meta.get("contraparte"))
+            actual = dueno(cur, *medio)
+        cur.execute("RELEASE SAVEPOINT medio_pendiente")
+    except Exception as e:
+        try:
+            cur.execute("ROLLBACK TO SAVEPOINT medio_pendiente")
+        except Exception:
+            pass
+        print(f"⚠️ [BOT] medios de pago no disponibles: {e}")
+        return None
+    if not tercero:
+        return None                          # el tercero del borrador aún no tiene ficha
+    if resuelto and str(resuelto.get("identification_number")) == numero:
+        return None                          # el próximo SMS igual ya llegaría con él
+    return {"tipo": medio[0], "valor": medio[1], "tercero_id": tercero[0],
+            "tercero_nombre": str(tercero[1]).strip(),
+            "dueno": actual["name"] if actual and actual["id"] != tercero[0] else None}
+
+
+def _boton_medio(draft_id, pendiente):
+    """Botón explícito para registrar el medio en la ficha (Regla 6b: nada
+    se memoriza solo). Si ya es de otro tercero, el botón es «Mover»."""
+    from terceros_cuentas import describir
+    desc = describir(pendiente["tipo"], pendiente["valor"])
+    if pendiente["dueno"]:
+        return (f"🔁 Mover {desc} a {pendiente['tercero_nombre']}"[:60], f"tpmove:{draft_id}")
+    return (f"💾 Guardar {desc} en {pendiente['tercero_nombre']}"[:60], f"tpsave:{draft_id}")
+
+
+def _nota_medio(pendiente) -> str:
+    """Línea que explica el botón 💾/🔁 (o "" si no hay nada pendiente)."""
+    if not pendiente:
+        return ""
+    from terceros_cuentas import describir
+    desc = describir(pendiente["tipo"], pendiente["valor"])
+    if pendiente["dueno"]:
+        return (f"🔁 {desc} está registrado hoy en la ficha de {pendiente['dueno']}. Si en "
+                f"realidad es de {pendiente['tercero_nombre']}, toca «Mover».")
+    return (f"💾 Toca «Guardar» y la próxima vez que llegue un SMS con {desc} el borrador "
+            f"vendrá con {pendiente['tercero_nombre']} ya puesto.")
+
+
+def _botones_con_medio(draft_id, pendiente):
+    """Botonera estándar + (arriba) el botón 💾/🔁 cuando hay un medio de pago
+    del SMS sin registrar en la ficha del tercero asignado."""
+    filas = _botones_borrador(draft_id)
+    if pendiente:
+        filas.insert(0, [_boton_medio(draft_id, pendiente)])
+    return filas
+
+
+def _confirmacion_con_medio(cur, link, draft_id, resultado):
+    """Tras confirmar: última oportunidad de registrar el medio de pago del SMS
+    en la ficha del tercero (09.G §10). → (texto, botones | None)
+    Es un extra: si algo falla, la confirmación se informa igual (jamás lanza)."""
+    if not str(resultado).startswith("✅"):
+        return resultado, None
+    try:
+        cur.execute("SELECT payload FROM transaction_drafts WHERE id = %s AND chat_link_id = %s",
+                    (draft_id, link["id"]))
+        fila = cur.fetchone()
+        payload = (fila[0] if isinstance(fila[0], dict) else json.loads(fila[0])) if fila else {}
+        pendiente = _medio_pendiente(cur, payload)
+        cur.connection.commit()
+    except Exception as e:
+        print(f"⚠️ [BOT] botón 💾 tras confirmar #{draft_id}: {e}")
+        try:
+            cur.connection.rollback()
+        except Exception:
+            pass
+        return resultado, None
+    if not pendiente:
+        return resultado, None
+    return resultado + "\n\n" + _nota_medio(pendiente), [[_boton_medio(draft_id, pendiente)]]
+
+
+def _asignar_tercero(link, draft_id, tercero, cur=None):
     """Escribe el tercero en el borrador (editar_draft, determinista).
-    → dict {text, draft_id, buttons, payload}, o str con el error."""
+    → dict {text, draft_id, buttons, payload, medio_pendiente}, o str con el error.
+    Con `cur`, la botonera incluye 💾 si el SMS trae un medio sin registrar."""
     editado = editar_draft(draft_id, {"third_party": {
         "identification_type": tercero["identification_type"],
         "identification_number": tercero["identification_number"],
         "name": tercero["name"]}}, hub_user_id=link["hub_user_id"])
     if editado.get("error"):
         return editado["error"]
-    return {"text": f"👤 Tercero → {tercero['name']} ({_doc_legible(tercero)})\n\n"
-                    + render_summary(draft_id, editado["payload"]),
-            "draft_id": draft_id, "buttons": _botones_borrador(draft_id),
-            "payload": editado["payload"]}
+    payload = editado["payload"]
+    pendiente = _medio_pendiente(cur, payload) if cur is not None else None
+    nota = _nota_medio(pendiente)
+    return {"text": f"👤 Tercero → {tercero['name']} ({_doc_legible(tercero)})\n"
+                    + (nota + "\n" if nota else "") + "\n"
+                    + render_summary(draft_id, payload),
+            "draft_id": draft_id, "buttons": _botones_con_medio(draft_id, pendiente),
+            "payload": payload, "medio_pendiente": pendiente}
 
 
 def _crear_tercero(cur, datos):
@@ -983,7 +1095,7 @@ def _flujo_reply(cur, link, draft_id, texto):
             dato, accion, creado = _crear_tercero(cur, t), "asignar", True
         if accion == "asignar":
             _rellenar_contacto(cur, dato["id"], t)
-            res = _asignar_tercero(link, draft_id, dato)
+            res = _asignar_tercero(link, draft_id, dato, cur=cur)
             if isinstance(res, str):
                 return res
             payload = res["payload"]
@@ -1005,8 +1117,14 @@ def _flujo_reply(cur, link, draft_id, texto):
                     (draft_id, link["id"]))
         row = cur.fetchone()
         payload = (row[0] if isinstance(row[0], dict) else json.loads(row[0])) if row else {}
+    if botones is None:
+        # Medio de pago del SMS aún sin registrar en la ficha del tercero → botón 💾
+        pendiente = _medio_pendiente(cur, payload)
+        if pendiente:
+            notas.append(_nota_medio(pendiente))
+        botones = _botones_con_medio(draft_id, pendiente)
     return {"text": "\n".join(notas) + "\n\n" + render_summary(draft_id, payload),
-            "draft_id": draft_id, "buttons": botones or _botones_borrador(draft_id)}
+            "draft_id": draft_id, "buttons": botones}
 
 
 def _tags_reales(cur):
@@ -1139,8 +1257,12 @@ def handle_callback(channel: str, chat_id: str, data: str):
             resultado = confirmar_draft(draft_id, chat_link_id=link["id"])
             out["alert"] = "Confirmando…"
             out["edit_buttons"] = []          # el botón no puede volver a usarse
-            out["text"] = resultado
-            log_outbound(channel, chat_id, resultado, link["id"], draft_id)
+            # Con la confirmación va el botón 💾 si el medio de pago del SMS
+            # aún no está en la ficha del tercero (09.G §10).
+            out["text"], botones_medio = _confirmacion_con_medio(cur, link, draft_id, resultado)
+            if botones_medio:
+                out["text_buttons"] = botones_medio
+            log_outbound(channel, chat_id, out["text"], link["id"], draft_id)
             return out
 
         if accion == "no":
@@ -1273,14 +1395,15 @@ def handle_callback(channel: str, chat_id: str, data: str):
                 completado = _completar_provisional(cur, tp_id, pendiente)
             conn.commit()                 # antes de editar_draft (otra conexión)
             tercero = _tercero_dict(completado or row)
-            res = _asignar_tercero(link, draft_id, tercero)
+            res = _asignar_tercero(link, draft_id, tercero, cur=cur)
+            conn.commit()
             if isinstance(res, str):
                 out["alert"] = res[:190]
                 return out
             out["alert"] = f"👤 {tercero['name']}"[:190]
             out["edit_text"] = (("📇 Documento completado en la ficha.\n" if completado else "")
                                 + res["text"])
-            out["edit_buttons"] = _botones_borrador(draft_id)
+            out["edit_buttons"] = res["buttons"]      # incluye 💾 si el SMS trae un medio sin registrar
             return out
 
         if accion == "tpnew":
@@ -1293,13 +1416,65 @@ def handle_callback(channel: str, chat_id: str, data: str):
             tercero = (_tercero_por_documento(cur, pendiente["num"]) if pendiente.get("num") else None) \
                 or _crear_tercero(cur, pendiente)
             conn.commit()                 # antes de editar_draft (otra conexión)
-            res = _asignar_tercero(link, draft_id, tercero)
+            res = _asignar_tercero(link, draft_id, tercero, cur=cur)
+            conn.commit()
             if isinstance(res, str):
                 out["alert"] = res[:190]
                 return out
             out["alert"] = f"👤 Creado: {tercero['name']}"[:190]
             out["edit_text"] = "👤 Tercero CREADO.\n" + res["text"]
-            out["edit_buttons"] = _botones_borrador(draft_id)
+            out["edit_buttons"] = res["buttons"]
+            return out
+
+        # ── 09.G §10: registrar (💾) o mover (🔁) el medio de pago del SMS en la
+        #    ficha del tercero. SIEMPRE explícito: nada se memoriza solo. ──
+        if accion in ("tpsave", "tpmove"):
+            cur.execute("SELECT payload, status FROM transaction_drafts WHERE id = %s AND chat_link_id = %s",
+                        (draft_id, link["id"]))
+            fila = cur.fetchone()
+            if not fila:
+                conn.commit()
+                out["alert"] = "Borrador no encontrado."
+                return out
+            payload = fila[0] if isinstance(fila[0], dict) else json.loads(fila[0])
+            editable = fila[1] in ("BORRADOR", "ERROR")
+            botones_despues = _botones_borrador(draft_id) if editable else []
+            pendiente = _medio_pendiente(cur, payload)
+            if not pendiente:
+                conn.commit()
+                out["alert"] = "Nada que guardar: ese dato ya está asociado a este tercero."
+                out["edit_buttons"] = botones_despues
+                return out
+            from terceros_cuentas import agregar, describir, mover
+            desc = describir(pendiente["tipo"], pendiente["valor"])
+            nombre = pendiente["tercero_nombre"]
+            if pendiente["dueno"] and accion != "tpmove":
+                # Alguien lo registró a nombre de otro entre tanto: no se pisa solo
+                conn.commit()
+                out["alert"] = f"{desc} ya está en la ficha de {pendiente['dueno']}."[:190]
+                out["edit_buttons"] = ([[_boton_medio(draft_id, pendiente)]] + botones_despues
+                                       if editable else [[_boton_medio(draft_id, pendiente)]])
+                return out
+            if pendiente["dueno"] and mover(cur, pendiente["tipo"], pendiente["valor"],
+                                            pendiente["tercero_id"], origen="bot"):
+                out["alert"] = "🔁 Movido"
+                mensaje = (f"🔁 Listo: {desc} pasó de la ficha de {pendiente['dueno']} a la de "
+                           f"{nombre}. Desde ahora los SMS con ese dato llegan con {nombre}.")
+            else:
+                r = agregar(cur, pendiente["tercero_id"], pendiente["tipo"], pendiente["valor"],
+                            origen="bot")
+                if not r["ok"]:
+                    conn.rollback()
+                    out["alert"] = r["error"][:190]
+                    return out
+                out["alert"] = "💾 Guardado"
+                mensaje = (f"💾 Listo: {desc} quedó en la ficha de {nombre}. La próxima vez que "
+                           f"llegue un SMS con ese dato, el borrador vendrá con {nombre} ya puesto. "
+                           "(Se ve y se edita en el módulo Terceros de la web.)")
+            conn.commit()
+            out["edit_buttons"] = botones_despues
+            out["text"] = mensaje
+            log_outbound(channel, chat_id, mensaje, link["id"], draft_id)
             return out
 
         if accion == "cpt":

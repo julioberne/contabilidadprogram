@@ -542,7 +542,7 @@ Vincula un documento existente como comprobante de un pago.
 
 ### `POST /api/webhooks/sms`
 - **Auth**: header `X-SMS-Token` (token por teléfono, tabla `sms_ingest_tokens`).
-- **Body** (≤ 4096 bytes): `application/json` `{ "from": "85540", "text": "<SMS>", "sentStamp"?: "…" }` o `application/x-www-form-urlencoded` `from=…&text=…` (recomendado desde MacroDroid; también acepta `sms_number` / `sms_message`).
+- **Body** (≤ 4096 bytes): `text/plain` — el cuerpo ES el SMS y el remitente va en la cabecera `X-SMS-From` (**lo recomendado desde MacroDroid**: no hay que escapar nada) · `application/json` `{ "from": "85540", "text": "<SMS>", "sentStamp"?: "…" }` · `application/x-www-form-urlencoded` `from=…&text=…` (también acepta `sms_number` / `sms_message`).
 - **Respuestas**: `202 {"status":"ACEPTADO","id":n,"chat_vinculado":bool}` · `202 {"status":"DUPLICADO"}` · `400` JSON inválido · `401` sin token / token inválido o revocado · `403` remitente fuera del allowlist · `413` cuerpo > 4 KB · `415` Content-Type no soportado · `422` texto vacío · `429` ≥ 60 SMS/min.
 
 ### `POST /api/webhooks/sms/token` (sesión `Bearer`)
@@ -554,3 +554,24 @@ Vincula un documento existente como comprobante de un pago.
 
 ### Cambios en `POST/PUT /api/accounts`
 `AccountInput` / `AccountUpdateInput` aceptan `last4_cuenta` y `last4_tarjeta` (4 dígitos; en PUT `""` borra, ausente no toca). `GET /api/accounts` devuelve ambos campos.
+
+---
+
+## 6. Bot IA (09) — Medios de pago de un tercero (`/api/third-parties/{tp_id}/accounts*`)
+
+> Etapa 09.G §10 · Spec: `docs/specs/09-bot-ia/09.G-completar-borrador.md` · Router: `routers/third_party_accounts.py` · Lógica: `fin_sys_core/terceros_cuentas.py` · Tabla: `third_party_accounts`.
+> "Medio de pago" = cuenta, celular, llave o nombre con que el banco llama al tercero en sus SMS. El bot lo cruza por igualdad para traer el tercero ya puesto en el borrador. Lo registra una persona (aquí o con el botón 💾 del bot).
+
+Objeto `medio`: `{ id, third_party_id, tipo, valor, banco, etiqueta, origen, created_at, descripcion }` — `tipo` ∈ `celular` · `cuenta` · `llave` · `nombre_banco`; `valor` ya normalizado; `origen` ∈ `web` · `bot`; `descripcion` = texto corto (`cel 3213795458`, `cuenta *91232656625`, `llave 0087671656`, `«SANDRA JIMENEZ»`).
+
+### `GET /api/third-parties/{tp_id}/accounts` (sesión) → `[ medio, … ]`
+
+### `POST /api/third-parties/{tp_id}/accounts` (admin)
+- **Body**: `{ "tipo": "celular", "valor": "+57 321 379 5458", "banco"?: "Nequi", "etiqueta"?: "…" }` (el valor se normaliza en el servidor).
+- **Respuestas**: `201 {"status":"CREADO","medio":{…}}` · `201 {"status":"YA_EXISTIA","medio":{…}}` (ya estaba en esta ficha) · `409` ya está registrado en la ficha de **otro** tercero (`detail` dice de quién) · `404` el tercero no existe · `422` tipo o valor inválido, o es el tercero genérico.
+
+### `POST /api/third-parties/{tp_id}/accounts/mover` (admin)
+- Decisión explícita: el medio deja la ficha donde estaba y pasa a esta. **Body**: `{ "tipo": "cuenta", "valor": "91232656625" }`.
+- **Respuestas**: `200 {"status":"MOVIDO","medios":[…]}` · `404` el tercero o el medio no existen · `422` tipo/valor inválido o tercero genérico.
+
+### `DELETE /api/third-parties/{tp_id}/accounts/{medio_id}` (admin) → `{"status":"ELIMINADO","id"}` · `404` si ese medio no está en esta ficha.

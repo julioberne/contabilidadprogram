@@ -110,7 +110,7 @@ class TestRetencion(unittest.TestCase):
             cur.execute("""
                 INSERT INTO bot_messages (chat_link_id, raw_chat_id, direction, channel, kind,
                                           content, draft_id, created_at)
-                VALUES (%s, %s, 'IN', 'sms', 'sms', 'viejo', %s, NOW() - INTERVAL '%s days')
+                VALUES (%s, %s, 'IN', 'sms', 'sms_prueba', 'viejo', %s, NOW() - INTERVAL '%s days')
                 RETURNING id
             """ % ("%s", "%s", "%s", int(dias)), (self.link_id, self.uid, draft_id))
             mid = cur.fetchone()[0]

@@ -25,6 +25,8 @@ partida doble vía el pipeline oficial (`transaction_service.create_transaction`
 | Motor IA | `fin_sys_core/ai_engine.py` | Whisper (voz→texto) + LLM (texto→JSON estructurado) + contexto RAG de transacciones pasadas |
 | API web | `routers/bot.py` | Endpoints para la bandeja web de borradores (Etapa C) y vinculación |
 | Tablas | `scripts/migrate_bot_tables.py` | `transaction_drafts`, vinculación chat↔usuario, códigos. Idempotente |
+| Ingesta de SMS (09.F) | `fin_sys_core/sms_bancolombia.py`, `fin_sys_core/bot_sms.py`, `routers/webhooks_sms.py` | Lector por plantillas (sin LLM) → cola en `bot_messages` → borrador en el tick del poller |
+| Medios de pago del tercero (09.G) | `fin_sys_core/terceros_cuentas.py`, `routers/third_party_accounts.py` | Cuentas, celulares, llaves y nombre del banco de cada tercero (`third_party_accounts`): el SMS siguiente al mismo destino llega con el tercero puesto |
 
 ## 3. Flujo de un mensaje
 
@@ -51,8 +53,11 @@ Máquina de estados: `BORRADOR → PROCESANDO → CONFIRMADO | ERROR`, `BORRADOR
 - **Privacidad**: solo chats vinculados a un usuario del sistema pueden operar
   (`/vincular CODIGO`; el código se genera en la web o con `scripts/bot_link_code.py [email]`).
 - **Un solo poller por token**: Telegram devuelve `409 Conflict` con dos consumidores de
-  `getUpdates`. Por eso el bot de producción y el de desarrollo son **bots distintos con
-  tokens distintos**.
+  `getUpdates`. El diseño original preveía un bot de producción y otro de desarrollo con
+  tokens distintos. **Hoy (sep-2026) local y producción comparten el MISMO token** (decisión
+  de Andrés: no crear más bots): **no lanzar el poller local** mientras el contenedor `bot`
+  de producción esté arriba — los cambios del bot se ven en el chat solo después del deploy;
+  en local se prueban con los tests (`handle_message` / `handle_callback` directos).
 - **Portafolio**: se valida ANTES de llamar al LLM (default del chat; corregible).
 - La nota de voz de Telegram queda adjunta como evidencia de la transacción (mismo volumen
   `uploads` que sirve la web).
@@ -74,6 +79,8 @@ Máquina de estados: `BORRADOR → PROCESANDO → CONFIRMADO | ERROR`, `BORRADOR
 | **reply** al borrador: `Tercero nuevo: Nombre` | crea el tercero sin documento (provisional `SN-…`) y lo asigna |
 | SMS de Bancolombia pegado o reenviado al chat | lo convierte con el mismo lector del webhook (plan B si el teléfono no pudo enviarlo) |
 | botón 👤 Tercero / 📝 Concepto | terceros recientes con un toque / instrucciones |
+| botón **💾 Guardar … en (tercero)** (borradores de SMS) | registra en la ficha del tercero la cuenta, celular, llave o nombre del banco que trae el SMS; el siguiente SMS con ese dato llega con el tercero ya puesto. Aparece al asignar el tercero y junto a la confirmación; **nada se guarda solo** (etapa 09.G §10) |
+| botón **🔁 Mover … a (tercero)** | el dato ya estaba en la ficha de otro tercero: lo pasa al correcto (solo con el toque) |
 
 ## 6. Modelos IA y configuración
 
@@ -94,10 +101,12 @@ y poner el nuevo modelo en `GROQ_MODEL` **sin tocar código**.
 - **Producción**: servicio `bot` del `docker-compose.yml` (misma imagen del backend,
   `command: python fin_sys_core/bot_telegram.py`). Env: `TELEGRAM_BOT_TOKEN` (bot de PROD),
   `GROQ_API_KEY`, `GEMINI_API_KEY`, `DB_*` — en Dokploy → Environment. `GROQ_MODEL` opcional.
-- **Desarrollo**: `.venv\Scripts\python.exe fin_sys_core\bot_telegram.py` con el token del
-  bot dev (`@COLFinsysbot`) en `.env`.
+- **Desarrollo**: `.venv\Scripts\python.exe fin_sys_core\bot_telegram.py` **solo** si el
+  `.env` local tiene un token distinto al de producción. Con el token compartido actual (§4)
+  no se lanza: chocaría con el poller de producción (409).
 - **Migraciones**: `python scripts/migrate_bot_tables.py` ANTES del deploy (idempotente,
-  desde local — la BD es compartida).
+  desde local — la BD es compartida). Etapas nuevas: `scripts/migrate_sms_bancolombia.py`
+  (09.F) y `scripts/migrate_third_party_accounts.py` (09.G), ambas ya aplicadas.
 - **Tests**: `.venv\Scripts\python.exe -m unittest discover -s tests -p "test_bot_*.py"`.
 
 ## 8. Diagnóstico rápido
@@ -117,8 +126,8 @@ y poner el nuevo modelo en `GROQ_MODEL` **sin tocar código**.
 - ⏳ B.5 — RAG semántico (pgvector instalado; requiere aprobación para tocar `get_rag_context`)
 - ⏳ D — WhatsApp (Meta Cloud API; necesita dominio+TLS)
 - ✅ E / E.2 / E.3 — Fotos de facturas (cero inferencia), ubicación, múltiples evidencias, botones (09-sep-2026)
-- 🔵 F — SMS de Bancolombia → borradores automáticos — `docs/specs/09-bot-ia/09.F-sms-bancolombia.md`
-- ⏳ G — Completar tercero y concepto desde Telegram — `docs/specs/09-bot-ia/09.G-completar-borrador.md`
+- ✅ F — SMS de Bancolombia → borradores automáticos (30-sep-2026, probado con SMS real) — `docs/specs/09-bot-ia/09.F-sms-bancolombia.md`
+- 🔵 G — Completar tercero y concepto desde Telegram + medios de pago del tercero (💾) — código completo 30-sep-2026; falta deploy y prueba real — `docs/specs/09-bot-ia/09.G-completar-borrador.md`
 - ⏳ H — OCR de comprobantes con botón dedicado — `docs/specs/09-bot-ia/09.H-ocr-comprobantes.md`
 
 > Las consultas de lectura ("¿cuánto gasté este mes?") las cubre el módulo 13 (Análisis Inteligente), no una etapa del bot.
