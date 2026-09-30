@@ -1114,6 +1114,15 @@ siempre su `chat_link_id`, los conteos pasaron de `>=` a exactos y hay un test n
 sí lo barre. `tests.test_bot_retencion` 6/6 (~19 s); la BD quedó sin filas `test-ret-` residuales.
 Kill-switch intacto. Sin push (lo hace Andrés).
 
+### Deploy de `35a9154` + `764bc3d` (30-sep 15:01–15:07)
+Andrés empujó desde las otras sesiones (`origin/master` = `764bc3d`; local iba 1 atrás y se adelantó con
+`merge --ff-only`). Ninguna sesión había desplegado (último deploy en Dokploy: el de `09325ce`, 13:40). CI en
+verde en `596f904`, `9313379` y `764bc3d`. `scratch/deploy_prod.py` 15:01 → `done` a los ~50 s con el título
+de `764bc3d`; `finsys-backend` recreado (healthy) y `finsys-bot` recreado, ambos arriba a los 4 min;
+`finsys-frontend` sin recrear (los commits no tocan `frontend/`). `/api/health` → `db: connected`; rutas
+protegidas → 401. Sin migración. Pendiente de integrar: rama `claude/eager-mcnulty-92ede8` (`a7fa86d`, el
+🗑 de Terceros con `DELETE /api/third-parties/{id}`), aún fuera de `master`.
+
 ### Pendiente al cierre
 Prueba real CA-09G-13 (Andrés, en su chat): responder de nuevo al #237 —su concepto quedó
 contaminado por el defecto ya corregido— con el concepto y `Tercero: … cc …`, tocar 💾 y repetir
