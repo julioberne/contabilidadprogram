@@ -11,7 +11,7 @@
 | Backend | FastAPI (Python 3.10+) | `server.py` | `:8000` |
 | Frontend | Vite + React 19 | `frontend/` (`src/` = código) | `:5173` |
 | Base de Datos | PostgreSQL 17 (Supabase) | Cloud · us-east-2 | — |
-| IA Voz | Groq (Whisper + Llama 3.3) | `fin_sys_core/ai_engine.py` | — |
+| IA Voz / texto | Groq (Whisper + LLM de `GROQ_MODEL`, default `openai/gpt-oss-120b`) | `fin_sys_core/ai_engine.py` | — |
 | IA Fallback | Gemini API | `fin_sys_core/ai_engine.py` | — |
 | Estilo Visual | Retro-Brutalista | IBM Plex Mono · bordes 2px · 0px radius | — |
 
@@ -25,8 +25,11 @@ Las fuentes ejecutables son la verdad. Los conteos hardcodeados (tablas, endpoin
 # 1. Salud completa del sistema (7 checks): frontend, backend, BD, motor, CT, Hub, integridad
 python scripts/health_check.py
 
-# 2. Mantenimiento de sesión (borradores, logs, cache)
-python scripts/session_maintenance.py
+# 2. Mantenimiento de sesión — usar SIEMPRE --check (solo verifica, no escribe).
+#    ⚠️ Sin argumentos o con --clean BORRA en la BD compartida con producción
+#    (hr_documents con URL vacía/localhost, workspaces del Hub sin nombre): solo con
+#    aprobación explícita de Andrés y revisando antes qué filas caerían.
+python scripts/session_maintenance.py --check
 
 # 3. Tests del motor matemático (deben pasar 5/5)
 python tests/test_core.py
@@ -37,7 +40,7 @@ python tests/test_e2e.py
 ```
 
 **Checks del health_check.py (7)** — el orden importa, los posteriores se omiten si fallan los críticos:
-1. Frontend Vite `:5173` (si cae, prueba `:5174` → hay proceso Node zombie)
+1. Frontend Vite `:5173` (si cae, prueba `:5174` → hay proceso Node zombie). Es normal verlo en rojo cuando se trabaja contra `localhost:8000`, que sirve el build `frontend/dist` (ver CHECKLIST → "Local al día con producción")
 2. Backend FastAPI `:8000`
 3. PostgreSQL (TXs, entidades CT, cuentas, TXs sin `account_id` → alerta DT-01)
 4. Motor matemático (IVA=19000, GMF=400 sobre 100000)
@@ -63,9 +66,10 @@ python tests/test_e2e.py
 | Project Hub (08) | `frontend/src/project-hub/*`, `fin_sys_core/hub_driver.py` | ✅ COMPLETO | NO refactorizar sin permiso |
 | RRHH / Empresas (08c) | `project-hub/features/members/tabs/`, `fin_sys_core/hr_driver.py`, `fin_sys_core/hr_documents_driver.py` | ✅ EN USO | Solo agregar, no modificar existentes |
 | **Zero-COA** | `server.py` (bloque final), `kernel/`, `scripts/seed_puc.py`, `posting_rules` (BD) | ✅ FASE 1+2 | Emit automático de partida doble |
-| Módulo 09 (Bot IA) | `frontend/src/bot/*` (por crear) | 🔵 PLANIFICADO | Crear en carpeta nueva, registrar en registry |
+| **Módulo 09 (Bot IA)** | `fin_sys_core/bot_driver.py`, `bot_telegram.py`, `draft_builder.py`, `bot_sms.py`, `sms_bancolombia.py`, `terceros_cuentas.py`, `bot_retencion.py` · `routers/bot.py`, `routers/webhooks_sms.py`, `routers/third_party_accounts.py` · `frontend/src/bot/*` (bandeja) | ✅ EN PRODUCCIÓN — etapas A–G (30 Sep 2026); H (OCR) planificada | Ver "BOT IA — reglas propias" abajo. Specs por etapa en `docs/specs/09-bot-ia/`; referencia operativa en `docs/bot_ia.md` |
 | Módulo 10 (Trading NASDAQ) | `frontend/src/trading/*` (por crear) | 🔵 PLANIFICADO | Crear en carpeta nueva, registrar en registry |
 | **Módulo 12 (Contadores)** | `frontend/src/contadores/*`, `routers/contadores.py`, `kernel/kernel_journal_workflow.py`, `kernel/kernel_periods.py`, `kernel/kernel_reports.py`, `fin_sys_core/coa_admin_driver.py` | ✅ v1 (15 Sep 2026) | Asientos nacen BORRADOR y solo el contador los CONTABILIZA; reportes = asientos en libros (CONTABILIZADO+ANULADO). Rol `contador` + `require_contador`. Un periodo cerrado bloquea TXs y asientos |
+| **Módulo 13 (Análisis Inteligente)** | `fin_sys_core/metrics_catalog.py`, `analytics_qa.py`, `insight_engine.py` · `routers/analytics.py` · `frontend/src/analisis/*` | ✅ hitos 1–3 (22 Sep 2026); falta export .xlsx | Catálogo de métricas en lista blanca; la IA traduce la pregunta, jamás calcula |
 
 ---
 
@@ -83,6 +87,14 @@ python tests/test_e2e.py
 3. Sidebar, HomeDashboard y main.jsx lo consumen automáticamente — **no editar main.jsx**
 4. Si necesita endpoints → router nuevo en `routers/` + `include_router` en `server.py`
 5. Feature flags remotos (`/module-flags` en BD) pueden override del campo `active`
+
+### BOT IA (Módulo 09) — reglas propias
+- **Regla 6b — "el bot no adivina"** (`docs/reglas_proyecto.md`): cualquier dato que el bot necesite debe existir como campo estructurado en la web; si no existe, se pide a mano. Sin heurísticas, pistas, puntajes ni aprendizaje implícito; los SMS del banco se leen por plantillas (regex por familia) y lo que no se reconoce se conserva, nunca se descarta en silencio.
+- **Nada contable sin confirmación humana**: todo entra como borrador (`transaction_drafts`) y solo `Confirmar #N` o el botón ✅ crea la transacción. Registrar un medio de pago de un tercero también es un toque explícito (💾).
+- **El token de Telegram es el MISMO en local y en producción** (decisión de Andrés): **no lanzar `fin_sys_core/bot_telegram.py` en local** — chocaría con el poller de producción (409). El bot se prueba con los tests (`bot_driver.handle_message` / `handle_callback`); en el chat real los cambios se ven después del deploy.
+- **La BD es compartida con producción**: los tests de integración del bot usan un chat `test-…`, terceros con sufijo único y la cola de SMS `sms_prueba` (nunca `sms`, que atiende el poller real), y borran sus filas en `tearDown`.
+- **Trabajar por id**: cuentas y terceros se cruzan por campos estructurados (`last4_cuenta`, `last4_tarjeta`, `phone`, `third_party_accounts`), siempre por igualdad; los nombres son libres.
+- **Specs**: cada etapa tiene su spec en `docs/specs/09-bot-ia/` (requisitos `R-`, decisiones `D-`, criterios `CA-`); al cerrar una etapa se actualiza su `Estado`.
 
 ### PERMISOS EXPLÍCITOS POR ARCHIVO
 
@@ -105,6 +117,7 @@ python tests/test_e2e.py
 | `frontend/src/registry/moduleRegistry.js` | 🟢 ACTIVO — SSOT de módulos, agregar entradas aquí |
 | `frontend/src/main.jsx` | 🟡 No editar el switch — consume del registry. Solo tocar si hay bug del shell |
 | `frontend/src/contabilidad-v2/components/*` | 🟢 ACTIVO — ContextPanel, tabs, modales, inventario (Cartera + Zero-COA toggle) |
+| `fin_sys_core/bot_*.py`, `sms_bancolombia.py`, `terceros_cuentas.py`, `draft_builder.py` | 🟢 ACTIVO — Bot IA; cambios con tests (puros en CI + con BD en local) y respetando la Regla 6b |
 | `kernel/*` | 🟢 ACTIVO — Motor contable, event bus, accounting |
 | `scripts/seed_puc.py` | 🟢 ACTIVO — Seed PUC + posting rules |
 
@@ -191,3 +204,5 @@ npm run build                                 # build producción
 > Leer `CHECKLIST.md` (raíz) para el estado actual, pendientes y archivos prohibidos,
 > y `docs/checkpoints.md` para lo que pasó en sesiones anteriores.
 > Se actualizan cada sesión — son más frescos que este `AGENTS.md` para conteos y deuda técnica.
+> Para diseñar o continuar una etapa: `docs/specs/README.md` (specs por módulo y etapa).
+> Cómo se trabaja hoy (push de Andrés, deploy por script, sin HTTPS en producción): nota "Estado real" al inicio de `WORKFLOW.md`.

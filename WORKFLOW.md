@@ -1,9 +1,28 @@
 # 🧭 WORKFLOW.md — Metodología de Trabajo para Agentes IA
-## FIN-SYS OS v2.0 · Última actualización: 12 Jul 2026
+## FIN-SYS OS v2.0 · Última actualización: 30 Sep 2026 (nota "Estado real"; el resto del documento es de julio)
 
 > **Este archivo es de lectura obligatoria para cualquier agente IA al inicio de cada sesión.**
 > Describe el flujo completo: desarrollo local → git → producción vía Dokploy.
 > Complementa a `AGENTS.md` (reglas del proyecto) con el **cómo trabajamos**.
+
+---
+
+## ⚠️ Estado real al 30 Sep 2026 (manda sobre lo que diga más abajo)
+
+Varias secciones de este documento describen el plan original de julio. Hoy se trabaja así:
+
+| Tema | Lo que dice el documento | Lo que pasa hoy |
+|---|---|---|
+| **Deploy** | "auto-deploy" por webhook al hacer push | **No hay webhook.** Tras cada push a `master` el agente corre `.venv\Scripts\python.exe scratch\deploy_prod.py` (API de Dokploy) y verifica con una sonda (una ruta nueva que pase de 404 a 401, `/api/health`, hash del bundle). |
+| **Push** | lo ejecuta el usuario o el agente con aprobación | Lo hace **Andrés** en su terminal: `git push origin master`. El agente commitea en `master` y espera el push. |
+| **Producción** | Traefik con SSL en 443 | `http://159.223.156.50:8080`, **HTTP plano, sin dominio ni TLS**. Lo que exige HTTPS (p. ej. el teléfono enviando SMS al webhook) pasa por un túnel `cloudflared` al PC de Andrés hasta que haya dominio + Let's Encrypt. |
+| **Backend local** | `uvicorn --reload` lanzado por el usuario | Preview `finsys-backend` (`.claude/launch.json`) en `:8000`, que sirve el build congelado `frontend/dist`. Tras cambios de frontend: `npm run build` (o `scripts\sync_local.py`). Vite `:5173` es opcional. |
+| **Python** | `python …` | Siempre `.venv\Scripts\python.exe` (el Python global no tiene las dependencias). |
+| **Base de datos** | — | **Una sola BD (Supabase) para local y producción**: un borrado o un dato de prueba en local existe en producción. Los tests de integración limpian sus filas. |
+| **Bot de Telegram** | bots distintos para dev y prod | **Mismo token en local y producción**: no lanzar el poller local. Reglas del bot en `AGENTS.md` → "BOT IA — reglas propias". |
+| **Ramas** | ramas de feature para módulos nuevos | Todo se integra directo a `master`, sin PRs: desde el checkout principal, o desde el worktree de una sesión (`git push origin <rama>:master`). Commits pequeños y verificados. |
+| **Cierre de sesión** | checkpoint + CHECKLIST | Además: spec de la etapa (`docs/specs/`), `database_schema.md` / `api_spec.md` si hubo tablas o endpoints, y `AGENTS.md` si cambió el estado de un módulo (Regla 10 de `docs/reglas_proyecto.md`). |
+| **Mantenimiento** | `session_maintenance.py` | Solo con `--check`. Sin argumentos ejecuta borrados en la BD compartida. |
 
 ---
 

@@ -1020,7 +1020,27 @@ usan bots distintos — hoy comparten token (corregido en el doc: no lanzar el p
   es el registro de red y el DOM.
 - Restos en BD: 0 terceros de prueba, 0 chats `test-…`, 0 filas `sms_prueba…`, 0 medios de pago.
 
+### Deploy de 09.G (`d51afb5`, 30-sep 03:16–03:18)
+Andrés hizo el push (origin = local = `d51afb5`, 4 commits); el agente corrió
+`scratch/deploy_prod.py`. Verificado:
+- Dokploy: último deployment `done` con el título del commit; los tres contenedores recreados
+  (`finsys-backend` healthy, `finsys-bot` y `finsys-frontend` running).
+- Sonda de versión: `GET /api/third-parties/1/accounts` sin sesión pasó de **404** (antes) a **401**
+  en ~80 s; `POST` igual 401; `/api/health` ok; webhook SMS 401 sin token válido.
+- Frontend: `index-*.js` de producción idéntico al del build local y el chunk de Contabilidad
+  contiene la sección nueva.
+- CI del commit en verde (vitest + build + guardia de peso; tests puros con
+  `tests.test_terceros_cuentas`; import del server).
+- `health_check` local: 6/7 (el único rojo es Vite :5173, que no se usa: local sirve el build por
+  :8000). BD: 31 TXs, 5 entidades CT, 7 cuentas, 7 portafolios, 18 terceros.
+
+Documentación puesta al día en el mismo cierre: `AGENTS.md` (módulos 09 y 13 con su estado real y
+las reglas del bot), `WORKFLOW.md` (nota de estado real: deploy por script, sin HTTPS, token
+compartido), `docs/user_stories.md` (historias del bot entregadas), CHECKLIST, specs y memoria.
+
 ### Pendiente al cierre
-`git push origin master` (Andrés) → deploy + sonda → prueba real CA-09G-13 → responder de nuevo al
-#237 (su concepto quedó contaminado por el defecto ya corregido). Muestras de SMS de retiro y de
-compra por internet. HTTPS permanente para el webhook.
+Prueba real CA-09G-13 (Andrés, en su chat): responder de nuevo al #237 —su concepto quedó
+contaminado por el defecto ya corregido— con el concepto y `Tercero: … cc …`, tocar 💾 y repetir
+la transferencia. Muestras de SMS de retiro y de compra por internet. HTTPS permanente para el
+webhook. En otra sesión (tarea abierta por Andrés el 30-sep): endpoint que falta para el 🗑 de
+Terceros.

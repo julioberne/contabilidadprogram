@@ -1,6 +1,7 @@
 # 📝 FIN-SYS OS v2.0 — Historias de Usuario (Especificaciones Funcionales)
 
-> **Versión**: 2.1 · **Última actualización**: Junio 2026 · **Estado**: MVP Local Funcional
+> **Versión**: 2.2 · **Última actualización**: 30 Sep 2026 (módulo 09 — Bot IA; el resto es de junio) · **Estado**: en producción
+> El estado vivo de TODOS los módulos (incluidos RRHH, Contadores y Análisis) está en `CHECKLIST.md`; este documento solo lista historias.
 
 Este documento define las especificaciones funcionales del sistema como Historias de Usuario con criterios de aceptación verificables. Cubre los módulos implementados y los planificados.
 
@@ -18,7 +19,9 @@ Este documento define las especificaciones funcionales del sistema como Historia
 | Módulo 06 — Ingestión por Voz (Groq/Gemini) | ✅ COMPLETO | Jun 2026 |
 | **Módulo 07 — Control Tower (Multi-Entidad B2B)** | ✅ COMPLETO | Jun 2026 |
 | Módulo 08 — Trading / NASDAQ-100 | 🔵 PLANIFICADO | — |
-| Módulo 09 — Bot WhatsApp/Telegram | 🔵 PLANIFICADO | — |
+| Módulo 09 — Bot IA (Telegram; WhatsApp pendiente) | ✅ EN PRODUCCIÓN — etapas A–G | Sep 2026 |
+| Módulo 12 — Contadores | ✅ v1 | Sep 2026 |
+| Módulo 13 — Análisis Inteligente | ✅ hitos 1–3 | Sep 2026 |
 
 ---
 
@@ -230,18 +233,63 @@ Este documento define las especificaciones funcionales del sistema como Historia
 
 ---
 
-## 7. Módulo 09: Bot WhatsApp/Telegram 🔵 (Planificado)
+## 7. Módulo 09: Bot IA por Telegram ✅ (en producción — etapas A–G)
 
-### Historia 7.1: Ingestión Móvil por Mensajería
+> Specs con requisitos, decisiones y criterios verificables: `docs/specs/09-bot-ia/`. Referencia operativa: `docs/bot_ia.md`.
+> Regla que gobierna todo el módulo: **el bot no adivina** (Regla 6b) y **nada toca la contabilidad sin confirmación humana**.
+
+### Historia 7.1: Ingestión Móvil por Mensajería ✅
 > **Como** Dueño de Negocio móvil,
-> **Quiero** enviar notas de voz de WhatsApp y que se conviertan en borradores de transacción,
+> **Quiero** enviar un texto, una nota de voz o una foto por Telegram y que se convierta en un borrador de transacción,
 > **Para** registrar gastos desde mi teléfono sin abrir la web.
 
-**Criterios de Aceptación** (pendientes):
-- Webhook FastAPI integrado con Twilio Gateway
-- Conversión OGG/AAC → Groq Whisper STT → estructuración Llama
-- Borrador creado en Supabase con estado PENDIENTE_CONFIRMACION
-- Notificación de retorno al WhatsApp con resumen del borrador creado
+**Criterios de Aceptación** (cumplidos):
+- Solo chats vinculados a un usuario operan (`/vincular CODIGO`)
+- Voz → Whisper → estructuración con el LLM de `GROQ_MODEL`; lo que no está explícito queda vacío
+- Borrador en `transaction_drafts` (estado `BORRADOR`) con resumen y botones en el chat
+- `Confirmar #N` o botón ✅ crea la transacción y su asiento por el pipeline oficial; chat y web no pueden confirmar dos veces
+- Fotos, ubicación y etiquetas se adjuntan al borrador; bandeja web de borradores
+
+**Pendiente**: WhatsApp (requiere dominio + TLS).
+
+### Historia 7.2: Los SMS del banco se vuelven borradores ✅ (etapa 09.F)
+> **Como** usuario que paga con Bancolombia,
+> **Quiero** que cada SMS del banco (remitente 85540) llegue solo al bot como borrador,
+> **Para** no tener que digitar mis movimientos.
+
+**Criterios de Aceptación** (cumplidos, probado con un SMS real el 30-sep-2026):
+- El teléfono reenvía el SMS a `POST /api/webhooks/sms` con un token propio; el poller lo convierte en ≤ 45 s
+- Lectura por plantillas, sin IA: transferencia enviada, compra con tarjeta, transferencia recibida (dos variantes) y pago con QR
+- Mi cuenta se identifica por id con sus últimos 4 dígitos (cuenta o tarjeta), registrados en 💳 Cuentas
+- Un SMS que no es un movimiento no genera nada; uno con dinero y plantilla desconocida genera un borrador "PLANTILLA NUEVA" para revisar
+- Sin duplicados si el teléfono reenvía el mismo SMS
+
+**Pendiente**: muestras reales de retiro en cajero y compra por internet; HTTPS permanente (hoy túnel en el PC).
+
+### Historia 7.3: Completar el borrador sin salir del chat ✅ (etapa 09.G)
+> **Como** usuario del bot,
+> **Quiero** responder al borrador con el concepto y el tercero,
+> **Para** dejarlo listo para confirmar desde el teléfono.
+
+**Criterios de Aceptación** (cumplidos):
+- Responder (reply) con texto pone el concepto literal; `Tercero: nombre cc 123` asigna el tercero, en el mismo mensaje o en otra línea
+- El documento manda: si ya existe se asigna aunque el nombre venga escrito distinto; nunca se duplica un tercero
+- Con nombres parecidos el bot muestra botones y decide la persona; `➕ Crear nuevo` es explícito
+
+### Historia 7.4: El bot reconoce a quién le transfiero ✅ (etapa 09.G §10 — falta la prueba real)
+> **Como** usuario que le transfiere varias veces a la misma persona, a veces a cuentas distintas,
+> **Quiero** que la siguiente transferencia llegue con el tercero ya puesto,
+> **Para** solo escribir el concepto y confirmar.
+
+**Criterios de Aceptación** (cumplidos en pruebas; pendiente CA-09G-13 con un SMS real):
+- Un tercero es una sola ficha con varios medios de pago: cuentas, celulares, llaves y el nombre con que el banco lo escribe
+- Tras asignar el tercero a un borrador de SMS aparece el botón **💾 Guardar**; nada se guarda sin ese toque
+- El siguiente SMS con el mismo dato llega con el tercero puesto; otra cuenta de la misma persona se suma a la misma ficha
+- Si el dato estaba en la ficha de otro tercero el botón es **🔁 Mover**; 💾 nunca pisa al dueño
+- En la web, 👤 Terceros → ✎ abre la ficha completa con la sección "Cuentas, celulares y llaves"
+
+### Historia 7.5: Leer comprobantes con un botón 🔵 (etapa 09.H — planificada)
+OCR de recibos y vouchers con un botón dedicado en Telegram, límites de 5 MB por imagen y 50 lecturas diarias. Ver `docs/specs/09-bot-ia/09.H-ocr-comprobantes.md`.
 
 ---
 

@@ -127,7 +127,36 @@ y poner el nuevo modelo en `GROQ_MODEL` **sin tocar código**.
 - ⏳ D — WhatsApp (Meta Cloud API; necesita dominio+TLS)
 - ✅ E / E.2 / E.3 — Fotos de facturas (cero inferencia), ubicación, múltiples evidencias, botones (09-sep-2026)
 - ✅ F — SMS de Bancolombia → borradores automáticos (30-sep-2026, probado con SMS real) — `docs/specs/09-bot-ia/09.F-sms-bancolombia.md`
-- 🔵 G — Completar tercero y concepto desde Telegram + medios de pago del tercero (💾) — código completo 30-sep-2026; falta deploy y prueba real — `docs/specs/09-bot-ia/09.G-completar-borrador.md`
+- 🔵 G — Completar tercero y concepto desde Telegram + medios de pago del tercero (💾) — **en producción desde el 30-sep-2026**; falta solo la prueba con SMS real — `docs/specs/09-bot-ia/09.G-completar-borrador.md`
 - ⏳ H — OCR de comprobantes con botón dedicado — `docs/specs/09-bot-ia/09.H-ocr-comprobantes.md`
 
 > Las consultas de lectura ("¿cuánto gasté este mes?") las cubre el módulo 13 (Análisis Inteligente), no una etapa del bot.
+
+## 10. Flujo típico: del SMS del banco a la transacción (09.F + 09.G)
+
+1. **Pagas o transfieres.** Bancolombia manda el SMS (remitente 85540). MacroDroid lo reenvía al
+   webhook y en menos de un minuto llega a Telegram un borrador con monto, fecha y tu cuenta.
+2. **Si el bot ya conoce el destino**, el borrador llega con el tercero puesto y la nota
+   "Tercero por medio de pago registrado". Respondes con el concepto y tocas ✅.
+3. **Si no lo conoce** (primera vez), respondes (reply) al borrador:
+   ```
+   abono cuota 1
+   Tercero: Leidy Molina cc 1007289007
+   ```
+   La primera línea es el concepto. La segunda asigna el tercero: si el documento existe lo usa,
+   si no existe lo crea; con nombres parecidos te muestra botones para que elijas.
+4. **Aparece el botón 💾 Guardar … en (tercero).** Un toque registra en su ficha el celular, la
+   cuenta o la llave que traía el SMS. Desde ahí, los SMS con ese dato llegan con el tercero.
+   Si no lo tocas, el botón vuelve a salir junto a la confirmación.
+5. **Otra cuenta de la misma persona**: llega sin tercero; respondes `Tercero: leidy`, la
+   encuentra sin duplicarla y tocas 💾. Queda una ficha con dos medios de pago.
+6. **Si el bot trajo un tercero que no era**, lo cambias (reply o botón 👤) y el botón pasa a ser
+   🔁 Mover: el dato sale de la ficha equivocada y entra en la correcta.
+7. **En la web** (Contabilidad → 👤 Terceros → ✎) ves y editas la ficha completa y su sección
+   "Cuentas, celulares y llaves": lo que guardas con 💾 aparece ahí y lo que registres ahí lo usa
+   el bot.
+
+Qué dato se guarda según el SMS: transferencia a celular → el celular; transferencia a cuenta → el
+número completo de la cuenta; pago con QR → la llave; transferencia recibida o compra con tarjeta →
+el nombre tal como lo escribe el banco. Siempre por igualdad exacta; nada se guarda ni se mueve sin
+tu toque (Regla 6b).
