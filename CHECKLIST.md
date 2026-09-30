@@ -11,7 +11,7 @@
 | Dónde | Estado |
 |---|---|
 | rama `claude/intelligent-ellis-79a132` (worktree) | **Análisis Inteligente hito 3 (B4) SIN push** (22-sep): bot informativo — `/analisis <pregunta>` responde texto + foto de la gráfica (send_photo multipart; misma maquinaria analytics_qa de la web; empresa = la del chat, mostrada con nombre CT) · `/resumen` a demanda (consolidado). Comando EXPLÍCITO (regla 6b: el bot no adivina). Verificado: handle_message directo contra Supabase real → dict con PNG 18KB. Push: `git push origin claude/intelligent-ellis-79a132:master` → deploy `scratch/deploy_prod.py` |
-| `origin/master` = producción :8080 | desplegado y verificado **22 sep** (`30e3aa7`): Análisis hito 3 (bot `/analisis`+foto, `/resumen`) + Bot 09.F (webhook SMS `POST /api/webhooks/sms` → 401 sin token ✅, tick del poller, cuentas por id) + 09.G parte chat (reply `Concepto:`/`Tercero:`, botón 👤). Deploy: `scratch/deploy_prod.py` (agente, tras cada push); push: Andrés |
+| `origin/master` = producción :8080 | desplegado y verificado **30 sep** (`f809aca`): SMS Bancolombia con 5 plantillas reales (transferencia, compra con tarjeta, recibida clásica y por llave, pago QR), red de seguridad de plantillas nuevas, SMS pegado en el chat y webhook `text/plain`; antes (22 sep, `30e3aa7`): Análisis hito 3 (bot `/analisis`+foto, `/resumen`) + Bot 09.F (webhook SMS `POST /api/webhooks/sms` → 401 sin token ✅, tick del poller, cuentas por id) + 09.G parte chat (reply `Concepto:`/`Tercero:`, botón 👤). Deploy: `scratch/deploy_prod.py` (agente, tras cada push); push: Andrés |
 | BD Supabase | compartida local↔prod · **reiniciada con `feat(reset)`: 0 TXs** · 6 entidades CT (2 vinculadas) · 5 cuentas · 4 portafolios · patrimonio $1.000.000 (verificado 26 ago) |
 
 ### Módulos
