@@ -1134,8 +1134,8 @@ HTTPS, Let's Encrypt; "DNS Valid"). El clasificador me bloqueó `domain.create` 
 `websecure` con `certresolver=letsencrypt`) y conectó `finsys-frontend` a `dokploy-network`; solo se recreó
 el frontend. A los 15 s: `https://finsys-andres.duckdns.org/api/health` 200 con certificado válido, `db:
 connected`; `http://` → 301 a `https://`; `POST /api/webhooks/sms` con token falso → 401. URL definitiva
-enviada al chat con `sms_token.py --solo-url`. Pendiente: Andrés la pega en MacroDroid y se apaga el túnel
-(`cloudflared` PID 24916 en el PC). El formulario "Server Domain" de Settings es para el PANEL de Dokploy:
+enviada al chat con `sms_token.py --solo-url`; Andrés la pegó en MacroDroid y el túnel `cloudflared` del PC se
+apagó a las 17:25 (ya no hay ningún cloudflared corriendo; el PC dejó de estar en el camino del SMS). El formulario "Server Domain" de Settings es para el PANEL de Dokploy:
 con un segundo nombre de DuckDNS dejaría el panel en HTTPS y fijaría el correo de Let's Encrypt (opcional).
 
 ### Pendiente al cierre
