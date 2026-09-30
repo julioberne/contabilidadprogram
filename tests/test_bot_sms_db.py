@@ -182,7 +182,7 @@ class TestTickSms(_ConChatDePrueba):
         self.assertIsNotNone(draft_id)
 
     def test_no_reconocido_crea_borrador_sin_monto(self):
-        mid = self._encolar("Bancolombia: Compraste $45,000.00 en EXITO con tu T.Deb *7706 el 21/09/26.")
+        mid = self._encolar("Bancolombia te informa: tu clave dinamica fue generada el 21/09/26.")
         bot_sms.procesar_pendientes(self.send_fn)
         _, draft_id, _ = self._fila(mid)
         conn = self.get_conn()

@@ -130,15 +130,48 @@ def resolver_tercero_por_celular(cur, celular):
             "phone": tel}
 
 
+def resolver_tercero_por_nombre(cur, nombre):
+    """→ dict del tercero si UNA fila de third_parties se llama EXACTAMENTE así
+    (sin mayúsculas ni espacios de más — misma igualdad que usa la web en
+    database_driver._asegurar_tercero). Sirve para el comercio de una compra
+    ("Didi") y el remitente de una transferencia recibida ("SANDRA JIMENEZ").
+    Parecidos NO cuentan: 0 ó >1 → None y el humano lo asigna (09.G)."""
+    nombre = re.sub(r"\s+", " ", str(nombre or "")).strip()
+    if len(nombre) < 2:
+        return None
+    cur.execute("""
+        SELECT identification_type, identification_number, name, phone
+          FROM third_parties
+         WHERE lower(btrim(name)) = lower(%s) AND identification_number <> '999999999'
+         ORDER BY id
+    """, (nombre,))
+    filas = cur.fetchall()
+    if len(filas) != 1:
+        return None
+    t, n, nom, tel = filas[0]
+    d = {"identification_type": t, "identification_number": n, "name": nom}
+    if tel:
+        d["phone"] = tel
+    return d
+
+
 def concepto_sms(sms, transferencia_propia=False) -> str:
     """Traducción literal del SMS (no una adivinanza): lo que dice el banco."""
     if not sms:
         return ""
-    if sms["familia"] == "transferencia_enviada":
+    fam, o = sms["familia"], sms.get("origen_last4")
+    if fam == "transferencia_enviada":
         if transferencia_propia:
-            return f"Transferencia entre cuentas *{sms['origen_last4']} → *{sms['destino_last4']} (SMS)"
-        return f"Transferencia Bancolombia *{sms['origen_last4']} → *{sms['destino_last4']} (SMS)"
-    return f"{sms['familia']} (SMS)"
+            return f"Transferencia entre cuentas *{o} → *{sms['destino_last4']} (SMS)"
+        return f"Transferencia Bancolombia *{o} → *{sms['destino_last4']} (SMS)"
+    if fam == "compra_tarjeta":
+        tarjeta = "T.Cred" if sms.get("tarjeta_tipo") == "credito" else "T.Deb"
+        return f"Compra en {sms.get('contraparte_nombre') or '—'} con {tarjeta} *{o} (SMS)"
+    if fam == "transferencia_recibida":
+        return f"Transferencia recibida de {sms.get('contraparte_nombre') or '—'} en *{o} (SMS)"
+    if fam == "pago_qr":
+        return f"Pago con QR a la llave {sms.get('destino') or '—'} desde *{o} (SMS)"
+    return f"{fam} (SMS)"
 
 
 def mapear_a_parsed(sms, cuenta_nombre=None, tercero=None, transferencia_propia=False) -> dict:
@@ -150,7 +183,10 @@ def mapear_a_parsed(sms, cuenta_nombre=None, tercero=None, transferencia_propia=
     if transferencia_propia:
         tipo, inferidos = "TRANSFERENCIA", []
     else:
-        tipo, inferidos = sms.get("tipo_sugerido") or "GASTO", ["type"]
+        # "Compraste", "Recibiste" y "pagaste" no dejan duda del tipo; solo
+        # "Transferiste" queda inferido (podría ser entre cuentas propias).
+        tipo = sms.get("tipo_sugerido") or "GASTO"
+        inferidos = ["type"] if sms.get("tipo_inferido", True) else []
     return {
         "type": tipo,
         "amount": sms.get("amount"),
@@ -175,10 +211,15 @@ def construir_borrador_sms(cur, texto_sms, remitente, portafolio_preferido):
     dest_account_id = None
     tercero = None
     if sms:
-        account_id, cuenta_nombre = resolver_cuenta_por_last4(cur, sms["origen_last4"])
+        # MI cuenta: por número (transferencias, QR, recibidas) o por tarjeta (compras)
+        account_id, cuenta_nombre = resolver_cuenta_por_last4(
+            cur, sms["origen_last4"], campo=sms.get("origen_campo") or "last4_cuenta")
         if sms.get("destino_es_celular"):
             tercero = resolver_tercero_por_celular(cur, sms["destino"])
-        else:
+        elif sms.get("contraparte_nombre"):
+            # Comercio o remitente: solo igualdad exacta de nombre, un candidato
+            tercero = resolver_tercero_por_nombre(cur, sms["contraparte_nombre"])
+        elif sms["familia"] == "transferencia_enviada" and sms.get("destino_last4"):
             # ¿El destino es otra cuenta MÍA? → transferencia entre cuentas (determinista)
             dest_account_id, _ = resolver_cuenta_por_last4(cur, sms["destino_last4"])
 
@@ -220,6 +261,10 @@ def construir_borrador_sms(cur, texto_sms, remitente, portafolio_preferido):
         "origen_last4": sms["origen_last4"] if sms else None,
         "destino": sms["destino"] if sms else None,
         "hora": sms.get("hora") if sms else None,
+        # Lo que el banco escribió de la contraparte (comercio / remitente):
+        # queda a la vista para asignar el tercero a mano si no hubo igualdad.
+        "contraparte": sms.get("contraparte_nombre") if sms else None,
+        "origen_campo": sms.get("origen_campo") if sms else None,
     }
     return {"payload": payload, "inferred_fields": inferred, "missing_fields": missing,
             "sms": sms, "reconocido": sms is not None, "account_id": account_id}
@@ -232,9 +277,20 @@ def encabezado_sms(res) -> str:
     if not res.get("reconocido"):
         lineas.append("⚠️ SMS no reconocido — completa monto y concepto en la Bandeja web")
     elif not res.get("account_id"):
-        origen = (res.get("sms") or {}).get("origen_last4") or "????"
-        lineas.append(f"⚠️ Cuenta *{origen} no registrada — ponle sus últimos 4 dígitos "
-                      "en 💳 Cuentas y edita el borrador en la web")
+        sms = res.get("sms") or {}
+        origen = sms.get("origen_last4") or "????"
+        if sms.get("origen_campo") == "last4_tarjeta":
+            lineas.append(f"⚠️ Tarjeta *{origen} no registrada — ponle sus últimos 4 dígitos "
+                          "en 💳 Cuentas (campo tarjeta) y edita el borrador en la web")
+        else:
+            lineas.append(f"⚠️ Cuenta *{origen} no registrada — ponle sus últimos 4 dígitos "
+                          "en 💳 Cuentas y edita el borrador en la web")
+    # Contraparte que el banco nombró pero no existe (igual) en Terceros
+    sms = res.get("sms") or {}
+    tp = (res.get("payload") or {}).get("third_party") or {}
+    if sms.get("contraparte_nombre") and tp.get("identification_number") == "999999999":
+        lineas.append(f"👤 El banco dice: {sms['contraparte_nombre']} — asígnalo con el botón "
+                      "👤 Tercero o respondiendo \"Tercero: …\"")
     return "\n".join(lineas) + "\n\n"
 
 

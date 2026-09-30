@@ -69,10 +69,81 @@ class TestTransferiste(unittest.TestCase):
         self.assertEqual(r["amount"], 25.5)
 
 
+COMPRA_1 = ("Bancolombia: Compraste $7.000,00 en Didi con tu T.Deb *1775, el 23/09/2026 a las 10:35. "
+            "Si tienes dudas, encuentranos aqui: 6045109095 o 018000931987. Estamos cerca.")
+COMPRA_2 = ("Bancolombia: Compraste $759.600,00 en ONLY 3 con tu T.Deb *5379, el 26/09/2026 a las 16:07. "
+            "Si tienes dudas, encuentranos aqui: 6045109095 o 018000931987. Estamos cerca.")
+RECIBIDA = ("Bancolombia: Recibiste una transferencia por $1,696,000 de SANDRA JIMENEZ en tu cuenta "
+            "**3037, el 26/09/2026 a las 16:40. Si tienes dudas, hablemos: 018000931987. Siempre a tu lado.")
+PAGO_QR = ("Bancolombia: ANDRES JULIAN DIAZ BERNATE pagaste $30,000.00 por codigo QR desde tu cuenta "
+           "*3037 a la llave 0087671656 el 26/09/2026 a las 17:52. Con codigo QR es facil y de una. "
+           "Dudas al 018000912345.")
+
+
+class TestFamiliasNuevas(unittest.TestCase):
+    """Muestras reales del 23–29 sep 2026 (captura de Andrés del 30-sep)."""
+
+    def test_compra_tarjeta_debito_formato_europeo(self):
+        r = sms.parsear(COMPRA_1)
+        self.assertEqual(r["familia"], "compra_tarjeta")
+        self.assertEqual(r["tipo_sugerido"], "GASTO")
+        self.assertFalse(r["tipo_inferido"])
+        self.assertEqual(r["amount"], 7000.0)
+        self.assertEqual(r["origen_last4"], "1775")
+        self.assertEqual(r["origen_campo"], "last4_tarjeta")
+        self.assertEqual(r["tarjeta_tipo"], "debito")
+        self.assertEqual(r["contraparte_nombre"], "Didi")
+        self.assertEqual((r["fecha"], r["hora"]), ("2026-09-23", "10:35"))
+        self.assertIsNone(r["destino"])
+
+    def test_compra_comercio_con_espacios_y_otra_tarjeta(self):
+        r = sms.parsear(COMPRA_2)
+        self.assertEqual(r["amount"], 759600.0)
+        self.assertEqual(r["contraparte_nombre"], "ONLY 3")
+        self.assertEqual(r["origen_last4"], "5379")
+
+    def test_compra_credito_en_dolares_sin_coma_antes_de_el(self):
+        r = sms.parsear("Bancolombia: Compraste USD1,00 en LOUNGEKEY con tu T.Cred *7706 el 22/08/26 a las 10:53.")
+        self.assertEqual(r["familia"], "compra_tarjeta")
+        self.assertEqual((r["currency"], r["amount"], r["tarjeta_tipo"]), ("USD", 1.0, "credito"))
+
+    def test_transferencia_recibida_es_ingreso_con_remitente(self):
+        r = sms.parsear(RECIBIDA)
+        self.assertEqual(r["familia"], "transferencia_recibida")
+        self.assertEqual(r["tipo_sugerido"], "INGRESO")
+        self.assertFalse(r["tipo_inferido"])
+        self.assertEqual(r["amount"], 1696000.0)
+        self.assertEqual(r["contraparte_nombre"], "SANDRA JIMENEZ")
+        self.assertEqual((r["origen_last4"], r["origen_campo"]), ("3037", "last4_cuenta"))
+        self.assertEqual((r["fecha"], r["hora"]), ("2026-09-26", "16:40"))
+
+    def test_pago_qr_a_llave(self):
+        r = sms.parsear(PAGO_QR)
+        self.assertEqual(r["familia"], "pago_qr")
+        self.assertEqual(r["tipo_sugerido"], "GASTO")
+        self.assertFalse(r["tipo_inferido"])
+        self.assertEqual(r["amount"], 30000.0)
+        self.assertEqual(r["origen_last4"], "3037")
+        self.assertEqual(r["destino"], "0087671656")
+        self.assertFalse(r["destino_es_celular"])
+        self.assertEqual((r["fecha"], r["hora"]), ("2026-09-26", "17:52"))
+
+    def test_pago_qr_a_llave_celular(self):
+        r = sms.parsear("Bancolombia: JUAN pagaste $23,000.00 por codigo QR desde tu cuenta *3037 "
+                        "a la llave 3001234567 el 29/09/26 a las 23:40.")
+        self.assertTrue(r["destino_es_celular"])
+
+    def test_transferiste_sigue_inferido_y_con_contrato_completo(self):
+        r = sms.parsear(MUESTRA_1)
+        self.assertTrue(r["tipo_inferido"])
+        self.assertEqual(r["origen_campo"], "last4_cuenta")
+        self.assertIsNone(r["contraparte_nombre"])
+
+
 class TestNoReconocido(unittest.TestCase):
 
     def test_no_reconocido_devuelve_none(self):                    # CA-09F-02
-        self.assertIsNone(sms.parsear("Bancolombia: Compraste $45,000.00 en EXITO con tu T.Deb *1234 el 21/09/26."))
+        self.assertIsNone(sms.parsear("Bancolombia te informa: tu clave dinamica fue generada el 21/09/26."))
         self.assertIsNone(sms.parsear("Tu código de verificación es 123456"))
         self.assertIsNone(sms.parsear(""))
         self.assertIsNone(sms.parsear(None))

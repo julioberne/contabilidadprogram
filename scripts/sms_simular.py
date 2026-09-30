@@ -22,8 +22,16 @@ MUESTRAS = [
               "el 21/09/26 a las 21:44. ¿Dudas? Llamanos al 018000931987. Estamos cerca."),
     ("85540", "Bancolombia: Transferiste $4,530,000 desde tu cuenta *3037 a la cuenta *91232656625 "
               "el 21/09/2026 a las 17:24. ¿Dudas? Llamanos al 018000931987. Estamos cerca."),
-    ("85540", "Bancolombia: Compraste $45,000.00 en EXITO con tu T.Deb *7706 el 21/09/26 a las 12:10. "
-              "(familia sin muestra real: debe caer en NO RECONOCIDO)"),
+    # Familias añadidas el 30-sep-2026 (muestras reales del 23–26 sep)
+    ("85540", "Bancolombia: Compraste $7.000,00 en Didi con tu T.Deb *1775, el 23/09/2026 a las 10:35. "
+              "Si tienes dudas, encuentranos aqui: 6045109095 o 018000931987. Estamos cerca."),
+    ("85540", "Bancolombia: Recibiste una transferencia por $1,696,000 de SANDRA JIMENEZ en tu cuenta "
+              "**3037, el 26/09/2026 a las 16:40. Si tienes dudas, hablemos: 018000931987. Siempre a tu lado."),
+    ("85540", "Bancolombia: ANDRES JULIAN DIAZ BERNATE pagaste $30,000.00 por codigo QR desde tu cuenta "
+              "*3037 a la llave 0087671656 el 26/09/2026 a las 17:52. Con codigo QR es facil y de una. "
+              "Dudas al 018000912345."),
+    # Texto sin familia: debe llegar como borrador ⚠️ NO RECONOCIDO (nunca se pierde)
+    ("85540", "Bancolombia te informa: tu clave dinamica fue generada el 21/09/26 a las 12:10."),
 ]
 
 
@@ -67,7 +75,7 @@ def main():
     print(f"{'OK ' if status == 413 else '!! '}[cuerpo > 4 KB] HTTP {status}")
     ok = ok and status == 413
 
-    print("\nAhora mira Telegram: en ≤ 45 s deben llegar 4 borradores (uno ⚠️ no reconocido)."
+    print(f"\nAhora mira Telegram: en ≤ 45 s deben llegar {len(MUESTRAS)} borradores (uno ⚠️ no reconocido)."
           if ok else "\nAlgo no cuadró: revisa el server (¿migración corrida? ¿token vigente?).")
     return 0 if ok else 1
 

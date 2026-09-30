@@ -17,7 +17,13 @@ SMS_OK = ("Bancolombia: Transferiste $11,900.00 desde tu cuenta *3037 a la cuent
           "*3193301184 el 21/09/26 a las 20:00. ¿Dudas? Llamanos al 018000931987.")
 SMS_PROPIA = ("Bancolombia: Transferiste $4,530,000 desde tu cuenta *3037 a la cuenta "
               "*91232656625 el 21/09/2026 a las 17:24.")
-SMS_RARO = "Bancolombia: Compraste $45,000.00 en EXITO con tu T.Deb *1234 el 21/09/26."
+SMS_RARO = "Bancolombia te informa: tu clave dinamica fue generada el 21/09/26."
+SMS_COMPRA = ("Bancolombia: Compraste $7.000,00 en Didi con tu T.Deb *7706, el 23/09/2026 a las 10:35. "
+              "Si tienes dudas, encuentranos aqui: 6045109095 o 018000931987. Estamos cerca.")
+SMS_RECIBIDA = ("Bancolombia: Recibiste una transferencia por $1,696,000 de SANDRA JIMENEZ en tu cuenta "
+                "**3037, el 26/09/2026 a las 16:40. Si tienes dudas, hablemos: 018000931987.")
+SMS_QR = ("Bancolombia: ANDRES JULIAN DIAZ BERNATE pagaste $30,000.00 por codigo QR desde tu cuenta "
+          "*3037 a la llave 0087671656 el 26/09/2026 a las 17:52. Con codigo QR es facil y de una.")
 
 
 class _FakeCursor:
@@ -39,6 +45,11 @@ class _FakeCursor:
             campo = "last4_tarjeta" if "last4_tarjeta" in sql else "last4_cuenta"
             self._rows = [(a["id"], a["name"]) for a in self.accounts
                           if a.get(campo) == params[0]]
+        elif "FROM third_parties" in sql and "lower(btrim(name))" in sql:
+            buscado = params[0].lower()
+            self._rows = [(t["type"], t["number"], t["name"], t["phone"])
+                          for t in self.terceros
+                          if t["name"].strip().lower() == buscado and t["number"] != "999999999"]
         elif "FROM third_parties" in sql:
             cel = params[0].lstrip("%")
             self._rows = [(t["type"], t["number"], t["name"], t["phone"])
@@ -166,6 +177,76 @@ class TestConstruirBorrador(unittest.TestCase):
         self.assertIn("transaction_date", p["inferred_fields"])
         self.assertIn("no reconocido", bot_sms.encabezado_sms(res))
         self.assertIsNone(p["sms"]["familia"])
+
+    # ── Familias nuevas (muestras reales del 23–29 sep 2026) ──
+
+    def test_compra_resuelve_cuenta_por_tarjeta_y_comercio_por_nombre_exacto(self):
+        terceros = TERCEROS + [{"type": "NIT", "number": "901111222", "name": "DIDI", "phone": None}]
+        cur = _FakeCursor(accounts=CUENTAS, terceros=terceros)
+        res = bot_sms.construir_borrador_sms(cur, SMS_COMPRA, "85540", "Finanzas personales")
+        p = res["payload"]
+        self.assertEqual(p["type"], "GASTO")
+        self.assertNotIn("type", p["inferred_fields"])          # una compra ES un gasto
+        self.assertEqual(p["amount"], 7000.0)
+        self.assertEqual(p["account_id"], 2)                     # por last4_tarjeta = 7706
+        self.assertEqual(p["third_party"]["name"], "DIDI")       # igualdad sin mayúsculas
+        self.assertEqual(p["concept"], "Compra en Didi con T.Deb *7706 (SMS)")
+        self.assertEqual(p["transaction_date"], "2026-09-23")
+        self.assertEqual(p["missing_fields"], [])
+        self.assertEqual(p["sms"]["contraparte"], "Didi")
+        self.assertEqual(p["sms"]["origen_campo"], "last4_tarjeta")
+
+    def test_compra_con_tarjeta_no_registrada_avisa_tarjeta(self):
+        sin_tarjeta = [dict(c, last4_tarjeta=None) for c in CUENTAS]
+        cur = _FakeCursor(accounts=sin_tarjeta, terceros=TERCEROS)
+        res = bot_sms.construir_borrador_sms(cur, SMS_COMPRA, "85540", "Finanzas personales")
+        self.assertIsNone(res["payload"]["account_id"])
+        self.assertIn("cuenta", res["payload"]["missing_fields"])
+        enc = bot_sms.encabezado_sms(res)
+        self.assertIn("Tarjeta *7706 no registrada", enc)
+        self.assertIn("El banco dice: Didi", enc)                # comercio sin tercero igual
+
+    def test_comercio_parecido_no_cuenta(self):
+        terceros = [{"type": "NIT", "number": "901111222", "name": "Didi Colombia SAS", "phone": None}]
+        cur = _FakeCursor(accounts=CUENTAS, terceros=terceros)
+        p = bot_sms.construir_borrador_sms(cur, SMS_COMPRA, "85540", "Finanzas personales")["payload"]
+        self.assertEqual(p["third_party"]["name"], "Sin especificar")
+
+    def test_recibida_es_ingreso_en_mi_cuenta_con_remitente(self):
+        terceros = TERCEROS + [{"type": "CC", "number": "52111222", "name": "Sandra Jimenez", "phone": None}]
+        cur = _FakeCursor(accounts=CUENTAS, terceros=terceros)
+        res = bot_sms.construir_borrador_sms(cur, SMS_RECIBIDA, "85540", "Finanzas personales")
+        p = res["payload"]
+        self.assertEqual(p["type"], "INGRESO")
+        self.assertNotIn("type", p["inferred_fields"])
+        self.assertEqual(p["amount"], 1696000.0)
+        self.assertEqual(p["account_id"], 2)
+        self.assertIsNone(p["dest_account_id"])
+        self.assertEqual(p["third_party"]["identification_number"], "52111222")
+        self.assertEqual(p["concept"], "Transferencia recibida de SANDRA JIMENEZ en *3037 (SMS)")
+        self.assertEqual(p["transaction_date"], "2026-09-26")
+
+    def test_pago_qr_gasto_desde_mi_cuenta_a_llave(self):
+        cur = _FakeCursor(accounts=CUENTAS, terceros=TERCEROS)
+        res = bot_sms.construir_borrador_sms(cur, SMS_QR, "85540", "Finanzas personales")
+        p = res["payload"]
+        self.assertEqual(p["type"], "GASTO")
+        self.assertNotIn("type", p["inferred_fields"])
+        self.assertEqual(p["amount"], 30000.0)
+        self.assertEqual(p["account_id"], 2)
+        self.assertIsNone(p["dest_account_id"])                  # una llave jamás es "cuenta propia"
+        self.assertEqual(p["concept"], "Pago con QR a la llave 0087671656 desde *3037 (SMS)")
+        self.assertEqual(p["sms"]["destino"], "0087671656")
+        self.assertEqual(p["third_party"]["name"], "Sin especificar")
+
+    def test_tercero_por_nombre_ambiguo_o_generico_devuelve_none(self):
+        dobles = [{"type": "CC", "number": "1", "name": "Sandra Jimenez", "phone": None},
+                  {"type": "CC", "number": "2", "name": "SANDRA JIMENEZ", "phone": None},
+                  {"type": "NIT", "number": "999999999", "name": "Sin especificar", "phone": None}]
+        cur = _FakeCursor(terceros=dobles)
+        self.assertIsNone(bot_sms.resolver_tercero_por_nombre(cur, "sandra jimenez"))
+        self.assertIsNone(bot_sms.resolver_tercero_por_nombre(cur, "Sin especificar"))
+        self.assertIsNone(bot_sms.resolver_tercero_por_nombre(cur, ""))
 
     def test_portafolio_corregido_queda_inferido(self):
         cur = _FakeCursor(portfolios=("Negocio A",), accounts=CUENTAS)
