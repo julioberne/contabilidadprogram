@@ -1101,6 +1101,19 @@ ni revoca tokens: el #4 sigue vigente). Queda en manos de Andrés cambiar la URL
 de la compra en el chat (plan B, R-09F-14). Refuerza el pendiente (5): HTTPS permanente en producción.
 En paralelo, otra sesión dejó cambios sin commit en `bot_driver.py` y los tests de completar (13:53): no se tocaron.
 
+### Retención acotada por chat: el test ya no purga la BD compartida (30-sep, hallazgo pendiente de la revisión)
+`tests.test_bot_retencion` corría `purgar()` sin filtro sobre la BD compartida con producción: vencía los
+BORRADOR/ERROR reales de más de 60 días que el poller aún no había barrido (y su `send_fn` falso se tragaba
+el aviso 💤 del usuario), borraba los DESCARTADO reales de más de 30 días con sus evidencias y los
+`bot_messages` de más de 90, aunque producción tuviera `BOT_RETENCION_ACTIVA=0`. Corrección:
+`purgar(send_fn, conn=None, chat_link_id=None)` — con `chat_link_id` las tres etapas llevan
+`AND chat_link_id = %s`; sin él nada cambia (el poller sigue llamando `purgar(send_message)` cada hora;
+las tres sentencias de ese camino se validaron con `EXPLAIN` contra la BD, sin ejecutarlas). El test pasa
+siempre su `chat_link_id`, los conteos pasaron de `>=` a exactos y hay un test nuevo con dos chats
+`test-ret-…`: purgar uno deja el otro intacto (ni borrado, ni vencido, ni aviso registrado) y purgar el otro
+sí lo barre. `tests.test_bot_retencion` 6/6 (~19 s); la BD quedó sin filas `test-ret-` residuales.
+Kill-switch intacto. Sin push (lo hace Andrés).
+
 ### Pendiente al cierre
 Prueba real CA-09G-13 (Andrés, en su chat): responder de nuevo al #237 —su concepto quedó
 contaminado por el defecto ya corregido— con el concepto y `Tercero: … cc …`, tocar 💾 y repetir

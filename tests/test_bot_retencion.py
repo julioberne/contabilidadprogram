@@ -5,6 +5,11 @@ Crean borradores y mensajes con fechas viejas bajo un chat de prueba, corren
 purgar() con un send_fn falso y limpian lo que quede. Jamás tocan CONFIRMADOS
 reales: el CONFIRMADO del test es propio (sin transacción asociada).
 
+La BD es COMPARTIDA con producción: cada llamada a purgar() pasa
+`chat_link_id=self.link_id` para que la purga solo mire el chat `test-…` del
+test. Sin ese filtro el test vencería borradores reales que el poller aún no
+barrió y su send_fn falso se tragaría los avisos 💤 del usuario.
+
 Ejecutar:  .venv\\Scripts\\python.exe -m unittest tests.test_bot_retencion -v
 """
 import json
@@ -55,36 +60,47 @@ class TestRetencion(unittest.TestCase):
         self.get_conn, self.put_conn = get_conn, put_conn
         self.enviados = []
         self.send_fn = lambda chat_id, text, buttons=None: self.enviados.append((chat_id, text))
-        self.draft_ids = []
-        self.msg_ids = []
+        self.links = []          # [(link_id, chat_id)] — todos se limpian en tearDown
         os.environ["BOT_RETENCION_ACTIVA"] = "1"
         conn = self.get_conn()
         try:
             cur = conn.cursor()
             cur.execute("SELECT id FROM hub_users ORDER BY created_at LIMIT 1")
             self.uid = str(cur.fetchone()[0])
-            self.chat_id = f"test-ret-{uuid.uuid4().hex[:8]}"
-            cur.execute("""
-                INSERT INTO bot_chat_links (channel, chat_id, hub_user_id, default_portfolio, status)
-                VALUES ('telegram', %s, %s, 'Personal', 'ACTIVO') RETURNING id
-            """, (self.chat_id, self.uid))
-            self.link_id = cur.fetchone()[0]
-            conn.commit()
         finally:
             self.put_conn(conn)
+        self.link_id, self.chat_id = self._nuevo_link()
 
     def tearDown(self):
         conn = self.get_conn()
         try:
             cur = conn.cursor()
-            cur.execute("DELETE FROM transaction_drafts WHERE chat_link_id = %s", (self.link_id,))
-            cur.execute("DELETE FROM bot_messages WHERE chat_link_id = %s", (self.link_id,))
-            cur.execute("DELETE FROM bot_chat_links WHERE id = %s", (self.link_id,))
+            for link_id, _chat in self.links:
+                cur.execute("DELETE FROM transaction_drafts WHERE chat_link_id = %s", (link_id,))
+                cur.execute("DELETE FROM bot_messages WHERE chat_link_id = %s", (link_id,))
+                cur.execute("DELETE FROM bot_chat_links WHERE id = %s", (link_id,))
             conn.commit()
         finally:
             self.put_conn(conn)
 
-    def _draft(self, status, dias):
+    def _nuevo_link(self):
+        """Crea un chat `test-ret-…` propio y lo apunta para el tearDown."""
+        chat_id = f"test-ret-{uuid.uuid4().hex[:8]}"
+        conn = self.get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO bot_chat_links (channel, chat_id, hub_user_id, default_portfolio, status)
+                VALUES ('telegram', %s, %s, 'Personal', 'ACTIVO') RETURNING id
+            """, (chat_id, self.uid))
+            link_id = cur.fetchone()[0]
+            conn.commit()
+        finally:
+            self.put_conn(conn)
+        self.links.append((link_id, chat_id))
+        return link_id, chat_id
+
+    def _draft(self, status, dias, link_id=None):
         conn = self.get_conn()
         try:
             cur = conn.cursor()
@@ -95,15 +111,14 @@ class TestRetencion(unittest.TestCase):
                         NOW() - INTERVAL '%s days', NOW() - INTERVAL '%s days')
                 RETURNING id
             """ % ("%s", "%s", "%s", int(dias), int(dias)),
-                (self.link_id, status, json.dumps({"amount": 1, "concept": "t"})))
+                (link_id or self.link_id, status, json.dumps({"amount": 1, "concept": "t"})))
             did = cur.fetchone()[0]
             conn.commit()
-            self.draft_ids.append(did)
             return did
         finally:
             self.put_conn(conn)
 
-    def _msg(self, dias, draft_id=None):
+    def _msg(self, dias, draft_id=None, link_id=None):
         conn = self.get_conn()
         try:
             cur = conn.cursor()
@@ -112,10 +127,9 @@ class TestRetencion(unittest.TestCase):
                                           content, draft_id, created_at)
                 VALUES (%s, %s, 'IN', 'sms', 'sms_prueba', 'viejo', %s, NOW() - INTERVAL '%s days')
                 RETURNING id
-            """ % ("%s", "%s", "%s", int(dias)), (self.link_id, self.uid, draft_id))
+            """ % ("%s", "%s", "%s", int(dias)), (link_id or self.link_id, self.uid, draft_id))
             mid = cur.fetchone()[0]
             conn.commit()
-            self.msg_ids.append(mid)
             return mid
         finally:
             self.put_conn(conn)
@@ -139,11 +153,21 @@ class TestRetencion(unittest.TestCase):
         finally:
             self.put_conn(conn)
 
+    def _avisos_registrados(self, link_id):
+        conn = self.get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM bot_messages WHERE chat_link_id = %s AND kind = 'retencion_aviso'",
+                        (link_id,))
+            return cur.fetchone()[0]
+        finally:
+            self.put_conn(conn)
+
     def test_descartado_31_dias_se_borra_y_29_se_queda(self):
         viejo = self._draft("DESCARTADO", 31)
         joven = self._draft("DESCARTADO", 29)
-        res = bot_retencion.purgar(self.send_fn)
-        self.assertGreaterEqual(res["descartados_borrados"], 1)
+        res = bot_retencion.purgar(self.send_fn, chat_link_id=self.link_id)
+        self.assertEqual(res["descartados_borrados"], 1)
         self.assertIsNone(self._estado(viejo))
         self.assertEqual(self._estado(joven), "DESCARTADO")
 
@@ -151,7 +175,8 @@ class TestRetencion(unittest.TestCase):
         b = self._draft("BORRADOR", 61)
         e = self._draft("ERROR", 61)
         joven = self._draft("BORRADOR", 59)
-        bot_retencion.purgar(self.send_fn)
+        res = bot_retencion.purgar(self.send_fn, chat_link_id=self.link_id)
+        self.assertEqual(res["borradores_vencidos"], 2)
         self.assertEqual(self._estado(b), "DESCARTADO")
         self.assertEqual(self._estado(e), "DESCARTADO")
         self.assertEqual(self._estado(joven), "BORRADOR")
@@ -159,17 +184,19 @@ class TestRetencion(unittest.TestCase):
         self.assertEqual(len(avisos), 1)
         self.assertIn(f"#{b}", avisos[0])
         self.assertIn(f"#{e}", avisos[0])
+        self.assertEqual(self._avisos_registrados(self.link_id), 1)
 
     def test_confirmado_nunca_se_toca(self):
         c = self._draft("CONFIRMADO", 400)
-        bot_retencion.purgar(self.send_fn)
+        bot_retencion.purgar(self.send_fn, chat_link_id=self.link_id)
         self.assertEqual(self._estado(c), "CONFIRMADO")
 
     def test_mensaje_91_dias_sin_borrador_se_borra_y_con_borrador_vivo_se_queda(self):
         suelto = self._msg(91)
         vivo = self._draft("BORRADOR", 1)
         con_draft = self._msg(91, draft_id=vivo)
-        bot_retencion.purgar(self.send_fn)
+        res = bot_retencion.purgar(self.send_fn, chat_link_id=self.link_id)
+        self.assertEqual(res["mensajes_borrados"], 1)
         self.assertFalse(self._msg_existe(suelto))
         self.assertTrue(self._msg_existe(con_draft))
 
@@ -177,11 +204,44 @@ class TestRetencion(unittest.TestCase):
         os.environ["BOT_RETENCION_ACTIVA"] = "0"
         try:
             viejo = self._draft("DESCARTADO", 40)
-            res = bot_retencion.purgar(self.send_fn)
+            res = bot_retencion.purgar(self.send_fn, chat_link_id=self.link_id)
             self.assertEqual(res, {"descartados_borrados": 0, "borradores_vencidos": 0, "mensajes_borrados": 0})
             self.assertEqual(self._estado(viejo), "DESCARTADO")
         finally:
             os.environ["BOT_RETENCION_ACTIVA"] = "1"
+
+    def test_alcance_por_chat_no_toca_otro_chat(self):
+        """Con chat_link_id, la purga es ciega a los demás chats (BD compartida con producción)."""
+        otro_id, otro_chat = self._nuevo_link()
+        # Lo mío: una fila vencida por cada etapa.
+        mio_desc = self._draft("DESCARTADO", 31)
+        mio_borr = self._draft("BORRADOR", 61)
+        mio_msg = self._msg(91)
+        # Lo del otro chat: igual de vencido en las tres etapas.
+        otro_desc = self._draft("DESCARTADO", 31, link_id=otro_id)
+        otro_borr = self._draft("BORRADOR", 61, link_id=otro_id)
+        otro_err = self._draft("ERROR", 61, link_id=otro_id)
+        otro_msg = self._msg(91, link_id=otro_id)
+
+        res = bot_retencion.purgar(self.send_fn, chat_link_id=self.link_id)
+
+        self.assertEqual(res, {"descartados_borrados": 1, "borradores_vencidos": 1, "mensajes_borrados": 1})
+        self.assertIsNone(self._estado(mio_desc))
+        self.assertEqual(self._estado(mio_borr), "DESCARTADO")
+        self.assertFalse(self._msg_existe(mio_msg))
+        # El otro chat queda exactamente como estaba: ni borrado, ni vencido, ni avisado.
+        self.assertEqual(self._estado(otro_desc), "DESCARTADO")
+        self.assertEqual(self._estado(otro_borr), "BORRADOR")
+        self.assertEqual(self._estado(otro_err), "ERROR")
+        self.assertTrue(self._msg_existe(otro_msg))
+        self.assertEqual([c for c, _ in self.enviados], [self.chat_id])
+        self.assertEqual(self._avisos_registrados(otro_id), 0)
+
+        # La purga del otro chat sí lo barre: el filtro selecciona, no bloquea.
+        self.enviados.clear()
+        res2 = bot_retencion.purgar(self.send_fn, chat_link_id=otro_id)
+        self.assertEqual(res2, {"descartados_borrados": 1, "borradores_vencidos": 2, "mensajes_borrados": 1})
+        self.assertEqual([c for c, _ in self.enviados], [otro_chat])
 
 
 if __name__ == "__main__":

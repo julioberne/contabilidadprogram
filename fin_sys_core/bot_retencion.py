@@ -13,6 +13,11 @@ Política (docs/reglas_proyecto.md, Regla 6b):
 Patrón analytics_log: sin scheduler — lo llama el poller una vez por hora y
 todo es idempotente (la BD manda). Kill-switch: BOT_RETENCION_ACTIVA=0.
 `purgar()` jamás lanza.
+
+Alcance: `purgar(send_fn)` a secas (el poller de producción) barre toda la BD.
+`purgar(send_fn, chat_link_id=N)` limita las tres etapas a las filas de ese
+chat: es lo que usan los tests, porque la BD es compartida con producción y
+una purga sin filtro vencería borradores reales y se tragaría sus avisos 💤.
 """
 import json
 import os
@@ -34,24 +39,37 @@ def _urls_evidencia(media_path, media_paths):
     return urls
 
 
-def purgar(send_fn=None, conn=None) -> dict:
-    """→ {"descartados_borrados", "borradores_vencidos", "mensajes_borrados"}."""
+def purgar(send_fn=None, conn=None, chat_link_id=None) -> dict:
+    """→ {"descartados_borrados", "borradores_vencidos", "mensajes_borrados"}.
+
+    `chat_link_id` (opcional): si se pasa, las tres etapas solo miran las filas
+    de ese `bot_chat_links.id` (borradores y mensajes de ese chat). Sin él, la
+    purga cubre toda la BD, como la corre el poller cada hora.
+    """
     res = {"descartados_borrados": 0, "borradores_vencidos": 0, "mensajes_borrados": 0}
     if not activa():
         return res
     from db_pool import get_conn, put_conn
     propia = conn is None
+    # Alcance: sin chat → toda la BD (producción); con chat → solo ese chat_link_id.
+    # Con `params` en None psycopg2 no interpreta '%' en el SQL (no hay placeholders).
+    if chat_link_id is None:
+        filtro_d, filtro_m, params = "", "", None
+    else:
+        filtro_d = " AND chat_link_id = %s"
+        filtro_m = " AND m.chat_link_id = %s"
+        params = (chat_link_id,)
     try:
         if propia:
             conn = get_conn()
         cur = conn.cursor()
 
         # 1. DESCARTADO > 30 días → borrar (evidencias best-effort)
-        cur.execute("""
+        cur.execute(f"""
             SELECT id, media_path, media_paths FROM transaction_drafts
              WHERE status = 'DESCARTADO'
-               AND COALESCE(updated_at, created_at) < NOW() - INTERVAL '%s days'
-        """ % int(DIAS_DESCARTADO))
+               AND COALESCE(updated_at, created_at) < NOW() - INTERVAL '{int(DIAS_DESCARTADO)} days'{filtro_d}
+        """, params)
         viejos = cur.fetchall()
         if viejos:
             try:
@@ -67,15 +85,15 @@ def purgar(send_fn=None, conn=None) -> dict:
             res["descartados_borrados"] = cur.rowcount
 
         # 2. BORRADOR/ERROR > 60 días → DESCARTADO + aviso por chat
-        cur.execute("""
+        cur.execute(f"""
             UPDATE transaction_drafts
                SET status = 'DESCARTADO',
-                   error = 'Vencido: %s días sin actividad (retención Regla 6b)',
+                   error = 'Vencido: {int(DIAS_BORRADOR)} días sin actividad (retención Regla 6b)',
                    updated_at = NOW()
              WHERE status IN ('BORRADOR', 'ERROR')
-               AND COALESCE(updated_at, created_at) < NOW() - INTERVAL '%s days'
+               AND COALESCE(updated_at, created_at) < NOW() - INTERVAL '{int(DIAS_BORRADOR)} days'{filtro_d}
             RETURNING id, chat_link_id
-        """ % (int(DIAS_BORRADOR), int(DIAS_BORRADOR)))
+        """, params)
         vencidos = cur.fetchall()
         res["borradores_vencidos"] = len(vencidos)
         por_chat = {}
@@ -101,12 +119,12 @@ def purgar(send_fn=None, conn=None) -> dict:
                     print(f"⚠️ [RETENCIÓN] aviso al chat {row[0]} falló: {e}")
 
         # 3. bot_messages > 90 días sin borrador vivo
-        cur.execute("""
+        cur.execute(f"""
             DELETE FROM bot_messages m
-             WHERE m.created_at < NOW() - INTERVAL '%s days'
+             WHERE m.created_at < NOW() - INTERVAL '{int(DIAS_MENSAJES)} days'
                AND (m.draft_id IS NULL
-                    OR NOT EXISTS (SELECT 1 FROM transaction_drafts d WHERE d.id = m.draft_id))
-        """ % int(DIAS_MENSAJES))
+                    OR NOT EXISTS (SELECT 1 FROM transaction_drafts d WHERE d.id = m.draft_id)){filtro_m}
+        """, params)
         res["mensajes_borrados"] = cur.rowcount
 
         conn.commit()
