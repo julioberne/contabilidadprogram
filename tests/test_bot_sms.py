@@ -267,6 +267,52 @@ class TestConstruirBorrador(unittest.TestCase):
         self.assertNotIn("⚠️", enc)
 
 
+class TestRedDeSeguridad(unittest.TestCase):
+    """R-09F-13: plantilla cambiada/nueva e informativos."""
+
+    RETIRO = ("Bancolombia: Retiraste $200.000,00 en CAJERO CC ANDINO de tu T.Deb *7706 "
+              "el 01/10/2026 a las 09:15. Dudas: 018000931987.")
+    INFO = ("Bancolombia: Muy bien. Inscribiste la cuenta de un tercero desde APP Bancolombia. "
+            "Si no fuiste tu, llamanos ahora: 6045109095 o 018000931987.")
+
+    def test_plantilla_nueva_con_dinero_lee_monto_fecha_y_mi_cuenta(self):
+        cur = _FakeCursor(accounts=CUENTAS)
+        res = bot_sms.construir_borrador_sms(cur, self.RETIRO, "85540", "Finanzas personales")
+        p = res["payload"]
+        self.assertFalse(res["reconocido"])
+        self.assertTrue(res["plantilla_nueva"])
+        self.assertFalse(res["informativo"])
+        self.assertEqual(p["amount"], 200000.0)
+        self.assertEqual(p["transaction_date"], "2026-10-01")
+        self.assertEqual(p["account_id"], 2)                      # *7706 = tarjeta registrada
+        for campo in ("amount", "payment_method", "type"):
+            self.assertIn(campo, p["inferred_fields"])            # todo a revisión
+        self.assertEqual(p["concept"], "")
+        self.assertEqual(p["missing_fields"], ["concepto"])       # no confirmable sin concepto
+        self.assertIn("PLANTILLA NUEVA", bot_sms.encabezado_sms(res))
+        self.assertTrue(p["sms"]["plantilla_nueva"])
+
+    def test_plantilla_nueva_sin_cuenta_mia_queda_sin_cuenta(self):
+        cur = _FakeCursor(accounts=[CUENTAS[0]])
+        res = bot_sms.construir_borrador_sms(cur, self.RETIRO, "85540", "Finanzas personales")
+        self.assertIsNone(res["payload"]["account_id"])
+        self.assertIn("cuenta", res["payload"]["missing_fields"])
+        self.assertEqual(res["payload"]["amount"], 200000.0)
+
+    def test_plantilla_nueva_con_dos_cuentas_mias_no_elige(self):
+        cur = _FakeCursor(accounts=CUENTAS)
+        texto = "Bancolombia: Moviste $50,000.00 de *3037 a *6625 el 02/10/26."
+        res = bot_sms.construir_borrador_sms(cur, texto, "85540", "Finanzas personales")
+        self.assertIsNone(res["payload"]["account_id"])           # ambiguo = pregunta
+
+    def test_informativo_no_es_movimiento(self):
+        cur = _FakeCursor(accounts=CUENTAS)
+        res = bot_sms.construir_borrador_sms(cur, self.INFO, "85540", "Finanzas personales")
+        self.assertTrue(res["informativo"])
+        self.assertFalse(res["plantilla_nueva"])
+        self.assertIsNone(res["payload"]["amount"])
+
+
 class TestDedupe(unittest.TestCase):
 
     def test_clave_estable_32_chars(self):

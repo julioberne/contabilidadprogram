@@ -71,6 +71,17 @@ RE_RECIBISTE = re.compile(
     re.IGNORECASE,
 )
 
+# Variante Bre-B (10-ago-2026): "Bancolombia: Andres, recibiste una transferencia
+#  de LEIDY DANIELA MOLINA MARTINEZ por $505,000.00 en tu cuenta *3037 conectada
+#  a la llave 1007365480 el 10/08/26 a las 19:41." — nombre ANTES del monto.
+RE_RECIBISTE_LLAVE = re.compile(
+    r"recibiste\s+una\s+transferencia\s+de\s+(?P<remitente>.+?)\s+por\s+" + _MONEDA + _MONTO
+    + r"\s+en\s+tu\s+cuenta\s+\*{0,3}(?P<cuenta>\d{2,6})"
+    + r"(?:\s+conectada\s+a\s+la\s+llave\s+(?P<llave>\S+?))?"
+    + r",?\s+el\s+" + _FECHA + _HORA,
+    re.IGNORECASE,
+)
+
 # "…: NOMBRE DEL TITULAR pagaste $30,000.00 por codigo QR desde tu cuenta *3037
 #  a la llave 0087671656 el …" — la llave Bre-B puede ser celular, cédula,
 #  correo o alfanumérica: se captura hasta el siguiente espacio.
@@ -183,6 +194,9 @@ def _build_recibida(nombre, m, texto):
     d = _base(nombre, m, texto, "INGRESO", False)    # "Recibiste" ES un ingreso
     d.update(origen_last4=last4(m.group("cuenta")),   # MI cuenta (la que recibe)
              contraparte_nombre=_limpiar_nombre(m.group("remitente")))
+    llave = (m.groupdict().get("llave") or "").rstrip(".,;")
+    if llave:
+        d["mi_llave"] = llave                         # llave Bre-B de MI cuenta (auditoría)
     return d
 
 
@@ -200,9 +214,53 @@ FAMILIAS = (
     ("transferencia_enviada", RE_TRANSFERISTE, _build_transferencia),
     ("compra_tarjeta", RE_COMPRASTE, _build_compra),
     ("transferencia_recibida", RE_RECIBISTE, _build_recibida),
+    ("transferencia_recibida", RE_RECIBISTE_LLAVE, _build_recibida),
     ("pago_qr", RE_PAGO_QR, _build_pago_qr),
     # ("retiro", RE_RETIRASTE, _build_retiro),    # pendiente de muestra real
 )
+
+
+# ── Red de seguridad para plantillas que cambian (R-09F-13) ─────────────────
+# Si NINGUNA familia casa, no se adivina la familia; pero hay dos hechos que
+# se pueden leer literalmente de cualquier texto:
+#   · ¿trae dinero?  Sin un monto ($ / COP / USD + número) NO es un movimiento
+#     (avisos de seguridad, claves, inscripción de cuentas): no genera borrador.
+#   · Si trae dinero: el primer monto, la primera fecha dd/mm/aa y los *NNNN
+#     enmascarados. El llamador los usa como propuesta marcada "inferido".
+
+_RE_DINERO = re.compile(r"(?P<moneda>\$|\bCOP|\bUSD)\s?" + _MONTO, re.IGNORECASE)
+_RE_FECHA_SUELTA = re.compile(r"(?<![\d/])(\d{1,2}/\d{1,2}/\d{2}(?:\d{2})?)(?![\d/])")
+_RE_HORA_SUELTA = re.compile(r"a\s+las\s+(\d{1,2}:\d{2})", re.IGNORECASE)
+_RE_ENMASCARADO = re.compile(r"\*{1,3}(\d{4})(?!\d)")
+
+
+def tiene_dinero(texto) -> bool:
+    """¿El texto menciona un monto? ($11,900.00 · COP 50.000 · USD1,00)"""
+    return bool(_RE_DINERO.search(texto or ""))
+
+
+def extraer_generico(texto) -> dict:
+    """Lectura LITERAL de un SMS de plantilla desconocida. No decide tipo,
+    familia ni contraparte. → {amount, currency, fecha, hora, last4_candidatos}"""
+    t = texto or ""
+    m = _RE_DINERO.search(t)
+    fecha = None
+    for f in _RE_FECHA_SUELTA.findall(t):
+        fecha = normalizar_fecha(f)
+        if fecha:
+            break
+    h = _RE_HORA_SUELTA.search(t)
+    vistos = []
+    for l4 in _RE_ENMASCARADO.findall(t):
+        if l4 not in vistos:
+            vistos.append(l4)
+    return {
+        "amount": normalizar_monto(m.group("monto")) if m else None,
+        "currency": "USD" if m and (m.group("moneda") or "").upper() == "USD" else "COP",
+        "fecha": fecha,
+        "hora": h.group(1) if h else None,
+        "last4_candidatos": vistos,
+    }
 
 
 def parsear(texto):

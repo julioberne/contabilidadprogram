@@ -118,8 +118,21 @@ class TestWebhook(unittest.TestCase):
         self.assertEqual(r.status_code, 413)
 
     def test_content_type_raro_415(self):
-        r = self._post(raw=b"hola", ctype="text/plain")
+        r = self._post(raw=b"<x/>", ctype="application/xml")
         self.assertEqual(r.status_code, 415)
+
+    def test_text_plain_con_cabecera_x_sms_from_202(self):
+        # Lo recomendado para MacroDroid: cuerpo = SMS crudo, remitente en cabecera
+        r = self.client.post("/api/webhooks/sms", content=SMS.encode("utf-8"),
+                             headers={"X-SMS-Token": "bueno", "X-SMS-From": "85540",
+                                      "Content-Type": "text/plain; charset=utf-8"})
+        self.assertEqual(r.status_code, 202)
+        self.assertEqual(self.encolados, [("85540", SMS, None)])
+
+    def test_text_plain_sin_remitente_403(self):
+        r = self._post(raw=SMS.encode("utf-8"), ctype="text/plain")
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(self.encolados, [])
 
     def test_json_invalido_400(self):
         self.assertEqual(self._post(raw=b"{no json", ctype="application/json").status_code, 400)

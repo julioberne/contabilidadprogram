@@ -273,6 +273,15 @@ def handle_message(msg: dict):
                 conn.commit()
                 return "No pude transcribir la nota de voz. Intenta de nuevo o escríbeme el movimiento."
 
+        # ── SMS del banco pegado o reenviado al chat (etapa 09.F, plan B sin
+        #    túnel): mismo parser determinista del webhook, jamás el LLM ──
+        if msg.get("kind") == "text":
+            from bot_sms import borrador_desde_chat
+            reply = borrador_desde_chat(cur, link, texto, msg, msg_row_id)
+            if reply is not None:
+                conn.commit()
+                return reply
+
         reply = _crear_borrador(cur, link, texto, msg, msg_row_id)
         conn.commit()
         return reply

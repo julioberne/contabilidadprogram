@@ -139,6 +139,75 @@ class TestFamiliasNuevas(unittest.TestCase):
         self.assertEqual(r["origen_campo"], "last4_cuenta")
         self.assertIsNone(r["contraparte_nombre"])
 
+    # ── Captura del 30-sep (SMS de agosto 2026) ──
+
+    def test_recibida_variante_llave_nombre_antes_del_monto(self):
+        r = sms.parsear("Bancolombia: Andres, recibiste una transferencia de LEIDY DANIELA MOLINA "
+                        "MARTINEZ por $505,000.00 en tu cuenta *3037 conectada a la llave 1007365480 "
+                        "el 10/08/26 a las 19:41. Con llaves es de una y gratis. Dudas al 018000912345.")
+        self.assertEqual(r["familia"], "transferencia_recibida")
+        self.assertEqual(r["tipo_sugerido"], "INGRESO")
+        self.assertEqual(r["amount"], 505000.0)
+        self.assertEqual(r["contraparte_nombre"], "LEIDY DANIELA MOLINA MARTINEZ")
+        self.assertEqual(r["origen_last4"], "3037")
+        self.assertEqual(r["mi_llave"], "1007365480")
+        self.assertEqual((r["fecha"], r["hora"]), ("2026-08-10", "19:41"))
+
+    def test_recibida_clasica_otro_remitente(self):
+        r = sms.parsear("Bancolombia: Recibiste una transferencia por $398,000 de CAROLL HUERTAS en tu "
+                        "cuenta **3037, el 19/08/2026 a las 11:37. Si tienes dudas, hablemos: 018000931987.")
+        self.assertEqual((r["amount"], r["contraparte_nombre"]), (398000.0, "CAROLL HUERTAS"))
+        self.assertNotIn("mi_llave", r)
+
+    def test_transferiste_cuenta_origen_sin_asterisco(self):
+        r = sms.parsear("Bancolombia: Transferiste $60,000.00 desde tu cuenta 3037 a la cuenta "
+                        "*3214892005 el 12/08/2026 a las 17:46. ¿Dudas? Llamanos al 018000931987.")
+        self.assertEqual((r["amount"], r["origen_last4"], r["destino"]), (60000.0, "3037", "3214892005"))
+        self.assertTrue(r["destino_es_celular"])
+
+    def test_compra_de_agosto(self):
+        r = sms.parsear("Bancolombia: Compraste $66.200,00 en MERCA EXPRESS RP con tu T.Deb *5379, el "
+                        "12/08/2026 a las 20:38. Si tienes dudas, encuentranos aqui: 6045109095.")
+        self.assertEqual((r["amount"], r["contraparte_nombre"], r["origen_last4"]),
+                         (66200.0, "MERCA EXPRESS RP", "5379"))
+
+
+class TestRedDeSeguridad(unittest.TestCase):
+    """R-09F-13: qué pasa cuando el banco cambia una plantilla o llega una nueva."""
+
+    INFORMATIVO = ("Bancolombia: Muy bien. Inscribiste la cuenta de un tercero desde APP Bancolombia. "
+                   "Si no fuiste tu, llamanos ahora: 6045109095 o 018000931987. Juntos en cada paso.")
+    DESCONOCIDO_CON_DINERO = ("Bancolombia: Retiraste $200.000,00 en CAJERO CC ANDINO de tu T.Deb *5379 "
+                              "el 01/10/2026 a las 09:15. Dudas: 018000931987.")
+
+    def test_informativo_sin_dinero_no_es_movimiento(self):
+        self.assertIsNone(sms.parsear(self.INFORMATIVO))
+        self.assertFalse(sms.tiene_dinero(self.INFORMATIVO))       # los teléfonos no son dinero
+        self.assertFalse(sms.tiene_dinero("Tu clave dinamica es 123456"))
+
+    def test_tiene_dinero(self):
+        self.assertTrue(sms.tiene_dinero("pagaste $30,000.00 por"))
+        self.assertTrue(sms.tiene_dinero("por COP 50.000 en"))
+        self.assertTrue(sms.tiene_dinero("Compraste USD1,00 en"))
+
+    def test_plantilla_desconocida_con_dinero_lectura_literal(self):
+        self.assertIsNone(sms.parsear(self.DESCONOCIDO_CON_DINERO))   # sin muestra real, sin familia
+        g = sms.extraer_generico(self.DESCONOCIDO_CON_DINERO)
+        self.assertEqual(g["amount"], 200000.0)
+        self.assertEqual(g["fecha"], "2026-10-01")
+        self.assertEqual(g["hora"], "09:15")
+        self.assertEqual(g["last4_candidatos"], ["5379"])
+
+    def test_generico_ignora_numeros_largos_enmascarados_y_fechas_invalidas(self):
+        g = sms.extraer_generico("Algo por $5,000 a la cuenta *3214892005 y *3037 el 45/13/26 o 02/10/26.")
+        self.assertEqual(g["last4_candidatos"], ["3037"])
+        self.assertEqual(g["fecha"], "2026-10-02")
+        self.assertIsNone(g["hora"])
+
+    def test_generico_sin_nada(self):
+        g = sms.extraer_generico("hola")
+        self.assertEqual((g["amount"], g["fecha"], g["last4_candidatos"]), (None, None, []))
+
 
 class TestNoReconocido(unittest.TestCase):
 

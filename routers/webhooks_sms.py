@@ -59,8 +59,14 @@ def _leer_cuerpo(request: Request, body: bytes) -> dict:
     if ctype == "application/x-www-form-urlencoded":
         return {k: v[0] for k, v in parse_qs(body.decode("utf-8", "replace"),
                                              keep_blank_values=True).items()}
+    if ctype == "text/plain":
+        # Lo más robusto desde MacroDroid: el cuerpo ES el SMS tal cual (sin
+        # escapar nada) y el remitente viaja en la cabecera X-SMS-From.
+        return {"text": body.decode("utf-8", "replace"),
+                "from": request.headers.get("x-sms-from") or ""}
     raise HTTPException(status_code=415,
-                        detail="Content-Type debe ser application/json o application/x-www-form-urlencoded.")
+                        detail="Content-Type debe ser text/plain, application/json o "
+                               "application/x-www-form-urlencoded.")
 
 
 @router.post("/api/webhooks/sms", status_code=202)

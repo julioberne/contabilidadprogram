@@ -29,7 +29,7 @@ import re
 from datetime import date
 
 from draft_builder import build_payload, compute_missing, resolver_portafolio
-from sms_bancolombia import REMITENTE_DEFAULT, parsear
+from sms_bancolombia import REMITENTE_DEFAULT, extraer_generico, parsear, tiene_dinero
 
 # ── Esquema propio (self-heal en server._startup + scripts/migrate_sms_bancolombia.py) ──
 DDL_SMS_TOKENS = """
@@ -223,6 +223,22 @@ def construir_borrador_sms(cur, texto_sms, remitente, portafolio_preferido):
             # ¿El destino es otra cuenta MÍA? → transferencia entre cuentas (determinista)
             dest_account_id, _ = resolver_cuenta_por_last4(cur, sms["destino_last4"])
 
+    # Plantilla DESCONOCIDA pero con dinero (R-09F-13): lectura literal de
+    # monto, fecha y de MI cuenta si exactamente UNO de los *NNNN del texto
+    # está registrado (cuenta o tarjeta). Todo queda marcado "inferido" y el
+    # concepto vacío: el borrador exige revisión humana antes de confirmar.
+    generico = None
+    if sms is None and tiene_dinero(texto_sms):
+        generico = extraer_generico(texto_sms)
+        mias = {}
+        for l4 in generico["last4_candidatos"]:
+            for campo in _CAMPOS_LAST4:
+                aid, nom = resolver_cuenta_por_last4(cur, l4, campo=campo)
+                if aid:
+                    mias[aid] = nom
+        if len(mias) == 1:
+            account_id, cuenta_nombre = next(iter(mias.items()))
+
     parsed = mapear_a_parsed(sms, cuenta_nombre, tercero,
                              transferencia_propia=bool(dest_account_id))
     payload, inferred = build_payload(parsed, portafolio)
@@ -240,14 +256,21 @@ def construir_borrador_sms(cur, texto_sms, remitente, portafolio_preferido):
         payload["account_id"] = None
     payload["dest_account_id"] = dest_account_id
 
+    fuente = sms or generico or {}
+    if generico:
+        payload["amount"] = generico.get("amount")
+        inferred.append("amount")
+        if account_id:
+            inferred.append("payment_method")   # no se sabe si es origen o destino
+
     # Fecha del SMS (build_payload siempre pone hoy)
-    if sms and sms.get("fecha"):
-        payload["transaction_date"] = sms["fecha"]
+    if fuente.get("fecha"):
+        payload["transaction_date"] = fuente["fecha"]
     else:
         payload["transaction_date"] = date.today().isoformat()
         inferred.append("transaction_date")
-    if sms and sms.get("currency") and sms["currency"] != "COP":
-        payload["transaction_currency"] = sms["currency"]
+    if fuente.get("currency") and fuente["currency"] != "COP":
+        payload["transaction_currency"] = fuente["currency"]
 
     missing = compute_missing(payload)
     if not account_id:
@@ -265,16 +288,25 @@ def construir_borrador_sms(cur, texto_sms, remitente, portafolio_preferido):
         # queda a la vista para asignar el tercero a mano si no hubo igualdad.
         "contraparte": sms.get("contraparte_nombre") if sms else None,
         "origen_campo": sms.get("origen_campo") if sms else None,
+        "plantilla_nueva": bool(generico),
     }
     return {"payload": payload, "inferred_fields": inferred, "missing_fields": missing,
-            "sms": sms, "reconocido": sms is not None, "account_id": account_id}
+            "sms": sms, "reconocido": sms is not None, "account_id": account_id,
+            # True = texto sin familia pero con dinero (se leyó monto/fecha literal)
+            "plantilla_nueva": bool(generico),
+            # True = ni familia ni dinero: aviso informativo, NO es un movimiento
+            "informativo": sms is None and not generico}
 
 
 def encabezado_sms(res) -> str:
     """Prefijo del resumen (mismo patrón que '📎 Evidencia adjunta.' en bot_driver)."""
     remitente = (res.get("payload") or {}).get("sms", {}).get("remitente") or REMITENTE_DEFAULT
     lineas = [f"📲 SMS Bancolombia ({remitente})"]
-    if not res.get("reconocido"):
+    if res.get("plantilla_nueva"):
+        lineas.append("⚠️ PLANTILLA NUEVA de SMS — leí monto y fecha tal cual aparecen; revisa el "
+                      "tipo y la cuenta, y responde \"Concepto: …\". Avisa para agregar esta "
+                      "plantilla al sistema (el texto completo queda guardado en el borrador).")
+    elif not res.get("reconocido"):
         lineas.append("⚠️ SMS no reconocido — completa monto y concepto en la Bandeja web")
     elif not res.get("account_id"):
         sms = res.get("sms") or {}
@@ -381,6 +413,14 @@ def _procesar_uno(conn, cur, fila, send_fn):
     link_id, chat_id, hub_user_id, portafolio, _ = link
 
     res = construir_borrador_sms(cur, texto, remitente, portafolio or "Personal")
+    if res.get("informativo"):
+        # Aviso sin dinero ("Inscribiste la cuenta de un tercero…", claves,
+        # alertas de seguridad): no es un movimiento → sin borrador y sin
+        # ruido en el chat. El texto queda en bot_messages (kind='sms_info',
+        # retención 90 días) por si hay que revisarlo.
+        cur.execute("UPDATE bot_messages SET kind = 'sms_info' WHERE id = %s", (msg_id,))
+        conn.commit()
+        return False
     payload = res["payload"]
     cur.execute("""
         INSERT INTO transaction_drafts
@@ -396,11 +436,60 @@ def _procesar_uno(conn, cur, fila, send_fn):
 
     resumen = encabezado_sms(res) + render_summary(draft_id, payload,
                                                    res["inferred_fields"], res["missing_fields"])
+    if res.get("plantilla_nueva"):
+        resumen += f"\n\n📩 Texto del SMS:\n{texto[:600]}"
     mid = send_fn(str(chat_id), resumen, buttons=_botones_borrador(draft_id))
     if mid:
         guardar_summary_message_id(draft_id, mid)
     log_outbound("telegram", str(chat_id), resumen, link_id, draft_id)
     return True
+
+
+def borrador_desde_chat(cur, link, texto, msg, msg_row_id):
+    """SMS del banco PEGADO o REENVIADO al chat de Telegram (plan B cuando el
+    teléfono no pudo enviarlo al webhook: PC apagado, túnel caído).
+    Solo actúa si el texto es de una familia conocida; cualquier otra cosa
+    devuelve None y sigue el flujo normal del bot. Mismo parser determinista,
+    jamás el LLM. Si ese SMS ya había llegado por el webhook, no se duplica."""
+    texto = (texto or "").strip()
+    if parsear(texto) is None:
+        return None
+    from bot_driver import SCHEMA_VERSION, _botones_borrador, render_summary
+    clave = clave_dedupe(REMITENTE_DEFAULT, texto)
+    cur.execute("""
+        SELECT draft_id FROM bot_messages
+         WHERE channel = 'sms' AND direction = 'IN' AND external_message_id = %s
+           AND draft_id IS NOT NULL
+    """, (clave,))
+    ya = cur.fetchone()
+    if ya:
+        return f"Ese SMS ya llegó por el teléfono: es el borrador #{ya[0]} (/borradores)."
+    cur.execute("""
+        SELECT id FROM transaction_drafts
+         WHERE chat_link_id = %s AND raw_text = %s AND status <> 'DESCARTADO'
+         ORDER BY id DESC LIMIT 1
+    """, (link["id"], texto))
+    ya = cur.fetchone()
+    if ya:
+        return f"Ese SMS ya lo registraste: es el borrador #{ya[0]} (/borradores)."
+
+    res = construir_borrador_sms(cur, texto, REMITENTE_DEFAULT, link.get("default_portfolio") or "Personal")
+    payload = res["payload"]
+    cur.execute("""
+        INSERT INTO transaction_drafts
+            (chat_link_id, user_id, channel, portfolio_name, status, schema_version,
+             payload, raw_text, media_paths, external_message_id)
+        VALUES (%s, %s, %s, %s, 'BORRADOR', %s, %s, %s, '[]', %s)
+        RETURNING id
+    """, (link["id"], str(link["hub_user_id"]), msg.get("channel") or "telegram",
+          payload["portfolio_name"], SCHEMA_VERSION, json.dumps(payload), texto,
+          str(msg.get("external_message_id") or clave)))
+    draft_id = cur.fetchone()[0]
+    cur.execute("UPDATE bot_messages SET draft_id = %s, chat_link_id = %s WHERE id = %s",
+                (draft_id, link["id"], msg_row_id))
+    return {"text": encabezado_sms(res) + render_summary(draft_id, payload,
+                                                         res["inferred_fields"], res["missing_fields"]),
+            "draft_id": draft_id, "buttons": _botones_borrador(draft_id)}
 
 
 def _marcar_error(conn, cur, fila, error, send_fn):

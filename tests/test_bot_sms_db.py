@@ -181,22 +181,69 @@ class TestTickSms(_ConChatDePrueba):
         self.assertEqual((kind, link), ("sms", self.link_id))
         self.assertIsNotNone(draft_id)
 
-    def test_no_reconocido_crea_borrador_sin_monto(self):
-        mid = self._encolar("Bancolombia te informa: tu clave dinamica fue generada el 21/09/26.")
+    def test_informativo_sin_dinero_no_crea_borrador_ni_avisa(self):      # R-09F-13
+        mid = self._encolar("Bancolombia: Muy bien. Inscribiste la cuenta de un tercero desde APP "
+                            "Bancolombia. Si no fuiste tu, llamanos ahora: 6045109095 o 018000931987.")
+        bot_sms.procesar_pendientes(self.send_fn)
+        kind, draft_id, _ = self._fila(mid)
+        self.assertEqual(kind, "sms_info")
+        self.assertIsNone(draft_id)
+        self.assertEqual([e for e in self.enviados if e[0] == self.chat_id], [])
+        # y no se vuelve a tomar en la siguiente pasada
+        bot_sms.procesar_pendientes(self.send_fn)
+        self.assertEqual(self._fila(mid)[0], "sms_info")
+
+    def test_plantilla_nueva_con_dinero_crea_borrador_con_monto_y_texto(self):
+        sms = ("Bancolombia: Retiraste $200.000,00 en CAJERO CC ANDINO de tu T.Deb *0000 "
+               "el 01/10/2026 a las 09:15. Dudas: 018000931987.")
+        mid = self._encolar(sms)
         bot_sms.procesar_pendientes(self.send_fn)
         _, draft_id, _ = self._fila(mid)
+        self.assertIsNotNone(draft_id)
         conn = self.get_conn()
         try:
             cur = conn.cursor()
-            cur.execute("SELECT payload FROM transaction_drafts WHERE id = %s", (draft_id,))
-            payload = cur.fetchone()[0]
+            cur.execute("SELECT payload, raw_text FROM transaction_drafts WHERE id = %s", (draft_id,))
+            payload, raw = cur.fetchone()
         finally:
             self.put_conn(conn)
         payload = payload if isinstance(payload, dict) else json.loads(payload)
-        self.assertIsNone(payload["amount"])
-        self.assertIn("monto", payload["missing_fields"])
+        self.assertEqual(payload["amount"], 200000.0)
+        self.assertEqual(payload["transaction_date"], "2026-10-01")
+        self.assertIn("amount", payload["inferred_fields"])
+        self.assertIn("concepto", payload["missing_fields"])
+        self.assertEqual(raw, sms)
         texto = [e for e in self.enviados if e[0] == self.chat_id][0][1]
-        self.assertIn("no reconocido", texto)
+        self.assertIn("PLANTILLA NUEVA", texto)
+        self.assertIn("Retiraste $200.000,00", texto)               # el SMS viaja en el aviso
+
+    def test_sms_pegado_en_el_chat_usa_el_parser_y_no_duplica(self):
+        import bot_driver
+        sms = ("Bancolombia: Transferiste $13,000.00 desde tu cuenta *3037 a la cuenta *3017529506 "
+               "el 29/09/26 a las 23:31. ¿Dudas? Llamanos al 018000931987. Estamos cerca.")
+
+        def _msg():
+            ext = f"pegado-{uuid.uuid4().hex[:12]}"
+            self.ext_ids.append(ext)
+            return {"channel": "telegram", "chat_id": self.chat_id, "external_message_id": ext,
+                    "kind": "text", "text": sms, "media_path": None}
+        r = bot_driver.handle_message(_msg())
+        self.assertIsInstance(r, dict, r)
+        self.assertIn("📲 SMS Bancolombia", r["text"])
+        conn = self.get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT channel, payload FROM transaction_drafts WHERE id = %s", (r["draft_id"],))
+            canal, payload = cur.fetchone()
+        finally:
+            self.put_conn(conn)
+        payload = payload if isinstance(payload, dict) else json.loads(payload)
+        self.assertEqual(canal, "telegram")
+        self.assertEqual(payload["amount"], 13000.0)
+        self.assertEqual(payload["sms"]["familia"], "transferencia_enviada")
+        r2 = bot_driver.handle_message(_msg())                       # pegarlo otra vez
+        self.assertIsInstance(r2, str)
+        self.assertIn(f"#{r['draft_id']}", r2)
 
 
 @unittest.skipUnless(_DB_OK, "BD o tablas 09.F no disponibles")
