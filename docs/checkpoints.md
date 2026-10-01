@@ -1138,6 +1138,20 @@ enviada al chat con `sms_token.py --solo-url`; Andrés la pegó en MacroDroid y 
 apagó a las 17:25 (ya no hay ningún cloudflared corriendo; el PC dejó de estar en el camino del SMS). El formulario "Server Domain" de Settings es para el PANEL de Dokploy:
 con un segundo nombre de DuckDNS dejaría el panel en HTTPS y fijaría el correo de Let's Encrypt (opcional).
 
+### Por qué el celular no mandaba los SMS reales (30-sep 17:20–19:15)
+Con el dominio ya en HTTPS, ninguna transferencia real (17:23, 17:29, 18:11, 18:14, 18:25) llegó al servidor,
+pero cada "Probar macro" sí (17:47, 18:09, 18:22, 18:30; cuerpo "test message"). Diagnóstico por el log del
+backend de producción leído por el WebSocket de Dokploy (`scratchpad/dokploy_logs_ws.py`, `x-api-key` en el
+handshake; Traefik no tiene access.log) y por `sms_ingest_tokens.last_seen_at`. Callejones: permiso de SMS,
+ahorro de energía, inicio de apps de Huawei (todo quedó bien configurado), texto mágico en la URL (18:14: la
+petición ni salió). **Causa real, hallada por Andrés: MacroDroid gratis se desactiva solo pasado un tiempo y
+pide ver un anuncio o pagar Pro**: con la app "desactivada" los disparadores no corren pero la prueba manual
+sí. Al reactivarla y con el disparador cambiado a "Notificación recibida" de Mensajes (contiene
+"Bancolombia", cuerpo = texto de la notificación), el SMS real de las 19:13 llegó por
+`finsys-andres.duckdns.org` → `bot_messages` 1177 → borrador **#507** en Telegram. Token #5 (el #4 se revocó al
+reenviar los parámetros). El texto mágico de MacroDroid se inserta con el botón «…» y solo en el campo del
+contenido. Siguiente decisión: MacroDroid Pro (pago único) o migrar a SMS to URL Forwarder (F-Droid).
+
 ### Pendiente al cierre
 Prueba real CA-09G-13 (Andrés, en su chat): responder de nuevo al #237 —su concepto quedó
 contaminado por el defecto ya corregido— con el concepto y `Tercero: … cc …`, tocar 💾 y repetir
