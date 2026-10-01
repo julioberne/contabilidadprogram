@@ -11,14 +11,23 @@
 3. Lee **solo** el frente de tu tarea en `docs/frentes/<nombre>.md`, si existe. No leas `docs/checkpoints.md` completo ni los demás frentes.
 4. Si la tarea no es obvia, confírmala en una frase.
 
-## 2. Contexto: lo que más tokens ahorra
+## 2. Contexto: corte por hito, no por número
 
-Cada turno reenvía todo el contexto acumulado. Una sesión de 900k paga 900k en cada turno.
+Cada turno reenvía todo el contexto acumulado: una sesión de 900k paga 900k en cada turno.
+En los mensajes, el 86% es tráfico de herramientas (navegador, ediciones, lecturas, terminal) y solo el 14% es la conversación. Ese tráfico de un hito ya cerrado es peso muerto.
 
-- **Una tarea = una sesión.** Al cambiar de tema, se cierra el frente y se abre otra sesión.
-- **Tope de ~200k.** Al acercarte, actualiza el frente (§5) y pide a Andrés abrir una sesión nueva. No estires hasta 1M.
-- **Archivos grandes por rangos.** Grep primero y Read con `offset`/`limit`. Nunca enteros: `fin_sys_core/bot_driver.py` (~2.000 líneas), `database_driver.py` (~2.100), `hub_driver.py`, `bot_sms.py`, `control_tower_driver.py`.
+- **La sesión crece lo que la tarea necesite.** No hay tope fijo: una tarea grande puede usar 400k o más si va a mitad de un hito.
+- **La señal de corte es el hito:** algo terminado y verificado (un commit, una etapa, un bug cerrado) o un cambio de subtarea.
+- **Al cerrar un hito:**
+  1. Actualiza el frente (§5) con lo que el siguiente hito necesita saber.
+  2. Limpia con la herramienta que corresponda:
+     - `/clear`: el siguiente hito arranca bien desde el frente. Lo deja en cero; la conversación queda guardada en `/resume`.
+     - `/rewind` (Esc Esc) → "Summarize from here" sobre el inicio del hito: condensa solo ese hito y conserva lo anterior.
+     - `/compact <qué conservar>`: condensa todo, guiado por la sección "Compact Instructions" de abajo.
+  3. Sigue desde el frente. Para ver qué ocupa el contexto: `/context`.
+- **Ampliar solo si hace falta:** primero el frente, luego la spec, luego el código. Archivos grandes con Grep y Read por rangos (`offset`/`limit`); enteros solo si la tarea lo exige.
 - **Lo verboso, a un subagente:** tests, logs, búsquedas amplias y, sobre todo, la verificación en el navegador.
+- **Referencia:** a 400k cada turno cuesta el doble que a 200k. Si estás ahí y no vas a mitad de un hito, toca cortar.
 
 ## 3. Quién hace qué
 
@@ -49,7 +58,7 @@ El subagente no ve esta conversación: pon en el brief todo lo que necesita.
 `docs/frentes/<nombre>.md` (plantilla en `docs/frentes/README.md`): objetivo, estado, próximo paso, decisiones, archivos clave, cómo verificar.
 
 - Se **sobrescribe**, no se anexa (≤60 líneas); el historial está en `git log`.
-- Se actualiza al cerrar, antes de pasar de ~200k y antes de un `/compact`.
+- Se actualiza **al cerrar cada hito**, antes de un `/clear` o `/compact` y al cerrar la sesión.
 - El índice de memoria (`MEMORY.md`) lleva **una línea por entrada**; el estado vivo va en el frente, no en el índice.
 
 ## 6. Reglas del proyecto que no se negocian
@@ -64,6 +73,16 @@ El subagente no ve esta conversación: pon en el brief todo lo que necesita.
 - **Zero-impact:** funcionalidad nueva en archivos o routers nuevos (`routers/*.py` + `include_router`); módulos nuevos se registran en `frontend/src/registry/moduleRegistry.js`.
 - **Plan antes de código:** lista de archivos a tocar → aprobación de Andrés → cambios.
 - La terminal de Andrés es **PowerShell 5.1**: comandos para él con `;` y `curl.exe`, nunca `&&`.
+
+## Compact Instructions
+
+Al compactar (manual o automático), conserva:
+- El frente activo: objetivo, próximo paso y decisiones tomadas con su porqué.
+- Archivos modificados y commits del trabajo en curso (sha y qué cambió), y lo pendiente de push o deploy.
+- Errores sin resolver, con su mensaje exacto y dónde aparecen.
+- Las instrucciones y aprobaciones explícitas de Andrés en esta sesión.
+
+Descarta: salida de tests que pasaron, contenido de archivos ya commiteados, capturas y páginas del navegador, resultados de búsquedas ya usados y caminos de diagnóstico descartados.
 
 ## 7. Mapa: leer bajo demanda, por sección
 
