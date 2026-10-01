@@ -1247,16 +1247,43 @@ sesión sobre `master` (`d51afb5`, rebasada sobre `09325ce` al cerrar). Push: An
   nuevos en `ContextPanel.jsx` (20 heredados, antes 22), build OK. Servidor de verificación
   `finsys-backend-verify` en `:8001` con el build nuevo: la pantalla de login es de Andrés.
 
-### Hallazgo aparte (tarea propuesta, no hecha aquí)
-Mismo hueco en **Tags y Tasas**: `PUT/DELETE /api/tags/{id}` y `DELETE /api/custom-taxes/{id}`
-no existen (405) aunque `database_driver` tiene `actualizar_tag`, `eliminar_tag`,
-`actualizar_custom_tax`, `eliminar_custom_tax` sin router; el ✎ de Tasas no hace nada visible.
-Con el aviso nuevo el fallo por lo menos se ve.
+### Segunda parte (1-oct) — Tags y Tasas tenían el mismo hueco
+Hallado al auditar el 🗑 de Terceros y hecho aquí mismo por pedido de Andrés: `PUT/DELETE
+/api/tags/{id}` y `DELETE /api/custom-taxes/{id}` no existían (405 verificado con TestClient)
+aunque `database_driver` tiene `actualizar_tag`, `eliminar_tag`, `actualizar_custom_tax`,
+`eliminar_custom_tax` sin router; el ✎ de Tasas solo marcaba la fila (no había modo edición).
+- Auditoría: `tag_definitions` (`name UNIQUE`) no tiene FKs; las etiquetas viven por NOMBRE en
+  `transactions.tags TEXT[]` y en `payload.tags` de los borradores (el bot las ofrece por id →
+  nombre). 8 etiquetas: `dfghj`/`nm` sin uso, `bnm,` 1 TX, `Oficina` 2 TX + 2 borradores,
+  `Operativo` 4, `Recurrente` 2 + 1, `PERROS` 2 + 1, `ingreso` 3 + 2; 1 TX con la huérfana
+  `prueba`. `custom_taxes_templates` sin FKs ni consumidor aparte de la lista (0 plantillas).
+- **Decisiones de Andrés**: borrar una etiqueta en uso → `409` con conteo y **segunda
+  confirmación** en la web que repite con `?forzar=1` (la quita de `transactions.tags` y de los
+  borradores abiertos, y borra la definición); **renombrar NO propaga** (las transacciones
+  conservan el nombre anterior). Plantillas de impuesto: editar/borrar libre, con validación.
+- `fin_sys_core/etiquetas.py` (NUEVO: `validar`, `uso_de_etiqueta`, `actualizar`, `eliminar`;
+  cursor del llamador, `FOR UPDATE`, sin commit; reutiliza `describir_uso` de
+  `terceros_borrado`). `routers/tags_taxes.py`: las 4 rutas (`_con_transaccion` para etiquetas;
+  tasas vía `actualizar_custom_tax`/`eliminar_custom_tax` + `_validar_impuesto`: 422/400/404;
+  acepta `type` y `tax_type`). `database_driver.py` intacto.
+- Web: `ContextPanel.deleteItem` acepta `{confirmarReintento, reintentarCon}` (solo Etiquetas lo
+  usa); `updateItem` deja de tragarse errores (cierra la fila solo con OK, `detail` al aviso);
+  `ImpuestosTab` con fila de edición (nombre, tasa con `NumInput maxDecimals=4`, tipo, ✓/✕).
+- Verificación: `tests.test_etiquetas` (16 puros, en CI: validar, renombrar sin tocar
+  transacciones, duplicado por comprobación y por UNIQUE, 409/forzar, 4 rutas con guards) +
+  `tests.test_etiquetas_db` (4 con BD: editar/duplicado/borrar por el endpoint, forzar quita de
+  TX y borrador abierto sin tocar el descartado, renombrar no propaga, tasas crear→editar→borrar;
+  los casos con TX corren en rollback). CI puros 277. Vitest 80 (6 nuevos: 409→segunda
+  confirmación→`?forzar=1`, rechazo de la segunda, sin uso directo, ✓ de Tags con 409 y 200,
+  fila de Tasas → PUT, 🗑 de Tasas con 404). Lint sin hallazgos nuevos, build OK. Restos en BD: 0.
+- Pendiente anotado (no tocado, endpoint existente): `POST /api/custom-taxes` lee `tax_type`
+  pero la web manda `type` → toda plantilla nace `ADDITIVE` aunque se elija DED. Una línea,
+  cuando Andrés lo autorice.
 
 ### Pendiente al cierre
 Push (Andrés) → deploy + sonda (`DELETE /api/third-parties/0` sin token: `401` = código nuevo,
-`405` = viejo) → Andrés borra el #34 con el 🗑 (prueba real) → sincronizar `master` local y el
-build de `:8000`.
+`405` = viejo) → Andrés borra el #34 con el 🗑 y las etiquetas basura (`dfghj`, `nm`, `bnm,`)
+→ sincronizar `master` local y el build de `:8000`.
 
 ## Checkpoint 2026-10-05 — Análisis 13.4: motor de libros contables .xlsx (y specs del módulo 13)
 

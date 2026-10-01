@@ -7,7 +7,7 @@ export default function ImpuestosTab({
   panelTaxes,
   editingId, setEditingId,
   editData, setEditData,
-  deleteItem, fetchTaxes,
+  deleteItem, updateItem, fetchTaxes,
   newTaxName, setNewTaxName,
   newTaxRate, setNewTaxRate,
   newTaxType, setNewTaxType,
@@ -50,13 +50,24 @@ export default function ImpuestosTab({
         <tbody className="divide-y divide-gray-200">
           {panelTaxes.map(t => (
             <tr key={t.id} className="hover:bg-brutalBg">
-              <td className="p-1 border-r border-black font-bold">{t.name}</td>
-              <td className="p-1 border-r border-black text-right">{Number(t.rate).toFixed(2)}%</td>
-              <td className="p-1 border-r border-black text-center"><span className={`px-1 py-0.5 text-[7px] font-bold border ${t.type==='ADDITIVE'?'bg-green-50 border-green-400':'bg-red-50 border-red-400'}`}>{t.type==='ADDITIVE'?'+ADD':'−DED'}</span></td>
-              <td className="p-1 text-center whitespace-nowrap">
-                <button onClick={()=>{setEditingId(t.id);setEditData({name:t.name,rate:t.rate,type:t.type});}} className="text-[9px] text-gray-400 hover:text-black font-bold">✎</button>
-                <button onClick={()=>deleteItem('custom-taxes',t.id,fetchTaxes)} className="text-[9px] text-gray-300 hover:text-red-500 font-bold ml-1">🗑</button>
-              </td>
+              {editingId === t.id ? (<>
+                {/* Fila de edición (1-oct-2026): antes el ✎ solo marcaba la fila y no pasaba nada */}
+                <td className="p-0.5 border-r border-black"><input type="text" value={editData.name||''} onChange={e=>setEditData({...editData,name:e.target.value})} aria-label="Nombre de la tasa" className="w-full border border-black px-1 py-0.5 text-[10px] font-mono outline-none" autoFocus /></td>
+                <td className="p-0.5 border-r border-black"><NumInput value={editData.rate ?? ''} onChange={e=>setEditData({...editData,rate:e.target.value})} maxDecimals={4} aria-label="Tasa %" className="w-full border border-black px-1 py-0.5 text-[10px] font-mono outline-none text-right" /></td>
+                <td className="p-0.5 border-r border-black"><select value={editData.type||'ADDITIVE'} onChange={e=>setEditData({...editData,type:e.target.value})} aria-label="Tipo de tasa" className="border border-black px-0.5 py-0.5 text-[10px] font-mono"><option value="ADDITIVE">ADITIVO</option><option value="DEDUCTIVE">DED</option></select></td>
+                <td className="p-0.5 text-center whitespace-nowrap">
+                  <button onClick={()=>updateItem('custom-taxes',t.id,{name:editData.name,rate:parseFloat(editData.rate),type:editData.type},fetchTaxes)} title="Guardar" className="bg-brutalGreen border border-black px-1 py-0.5 text-[8px] font-bold mr-0.5">✓</button>
+                  <button onClick={()=>setEditingId(null)} title="Cerrar" className="bg-gray-200 border border-black px-1 py-0.5 text-[8px] font-bold">✕</button>
+                </td>
+              </>) : (<>
+                <td className="p-1 border-r border-black font-bold">{t.name}</td>
+                <td className="p-1 border-r border-black text-right">{Number(t.rate).toFixed(2)}%</td>
+                <td className="p-1 border-r border-black text-center"><span className={`px-1 py-0.5 text-[7px] font-bold border ${t.type==='ADDITIVE'?'bg-green-50 border-green-400':'bg-red-50 border-red-400'}`}>{t.type==='ADDITIVE'?'+ADD':'−DED'}</span></td>
+                <td className="p-1 text-center whitespace-nowrap">
+                  <button onClick={()=>{setEditingId(t.id);setEditData({name:t.name,rate:t.rate,type:t.type});}} title="Editar la tasa" className="text-[9px] text-gray-400 hover:text-black font-bold">✎</button>
+                  <button onClick={()=>deleteItem('custom-taxes',t.id,fetchTaxes)} title="Eliminar la tasa" className="text-[9px] text-gray-300 hover:text-red-500 font-bold ml-1">🗑</button>
+                </td>
+              </>)}
             </tr>
           ))}
         </tbody>

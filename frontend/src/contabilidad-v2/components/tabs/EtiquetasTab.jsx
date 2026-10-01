@@ -61,7 +61,12 @@ export default function EtiquetasTab({
               </div>
               <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button onClick={()=>{setEditingId(tag.id);setEditData({name:tag.name,color:tag.color});}} className="text-[9px] text-gray-400 hover:text-black font-bold">✎</button>
-                <button onClick={()=>deleteItem('tags',tag.id,fetchTags)} className="text-[9px] text-gray-300 hover:text-red-500 font-bold">🗑</button>
+                {/* En uso → el servidor responde 409 con el conteo; la segunda
+                    confirmación la quita de esas transacciones y borradores (?forzar=1) */}
+                <button onClick={()=>deleteItem('tags',tag.id,fetchTags,{
+                  confirmarReintento: (detalle) => `${detalle}\n\n¿Quitarla también de ahí y borrarla?`,
+                  reintentarCon: 'forzar=1',
+                })} title="Eliminar la etiqueta" className="text-[9px] text-gray-300 hover:text-red-500 font-bold">🗑</button>
               </div>
             </>)}
           </div>

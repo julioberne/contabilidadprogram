@@ -670,3 +670,24 @@ en lugar del `X-Frame-Options: SAMEORIGIN` global, para que Telegram Web (iframe
 - `DELETE /api/accounting-files/{id}` (admin) → `{ eliminado, id, folio, nombre }`.
 - `GET/POST /api/accounting-folders` · `PATCH/DELETE /api/accounting-folders/{id}` (DELETE admin) — `{ nombre, color, parent_id?, portfolio_id? }`; borrar una carpeta no borra sus archivos (quedan en su lugar automático).
 - `GET/POST /api/accounting-doc-types` · `PATCH/DELETE /api/accounting-doc-types/{id}` (DELETE admin) — `{ nombre, icono?, color?, orden? }`; los default no se borran (`400`).
+
+---
+
+## 11. Etiquetas y plantillas de impuesto — editar y borrar (`/api/tags/{id}`, `/api/custom-taxes/{id}`)
+
+> Desde el 1-oct-2026 · Router: `routers/tags_taxes.py` (junto a los `GET`/`POST` de siempre) · Lógica de etiquetas: `fin_sys_core/etiquetas.py` · Consumidor: pestañas 🏷️ Tags y 📈 Tasas del panel (`ContextPanel.updateItem` / `deleteItem`, que muestran el `detail` en el aviso del panel).
+> Las etiquetas viven **por nombre** en `transactions.tags` (TEXT[]) y en `payload.tags` de los borradores del bot; `tag_definitions` (`name UNIQUE`) es solo el catálogo. Las plantillas de impuesto no tienen historia: solo precargan el formulario.
+
+### `PUT /api/tags/{tag_id}` (admin)
+- **Body**: `{ "name"?: "Oficina central", "color"?: "#FF9800" }`. Cambia **solo la definición**: las transacciones que ya la llevan conservan el nombre anterior (decisión de Andrés, 1-oct-2026; no se propaga).
+- **Respuestas**: `200 {"status":"OK","tag":{id,name,color}}` · `404` no existe · `409` ya hay otra etiqueta con ese nombre · `422` nombre vacío/largo o color que no es `#RRGGBB` · `400` body sin `name` ni `color`.
+
+### `DELETE /api/tags/{tag_id}[?forzar=1]` (admin)
+- Sin `forzar`: si la etiqueta está en transacciones o en borradores abiertos del bot → `409` con el conteo (`La etiqueta «Oficina» está en 2 transacciones y 1 borrador abierto del bot (#236).`) y nada se toca. Sin uso → se borra.
+- Con `forzar=1` (la web lo manda tras una **segunda confirmación** con ese mismo texto): la quita de `transactions.tags` (`array_remove`) y del `payload.tags` de los borradores abiertos, y borra la definición.
+- **Respuestas**: `200 {"status":"ELIMINADO","id","name","transacciones_actualizadas","borradores_actualizados"}` · `404` no existe · `409` en uso sin `forzar`.
+
+### `PUT /api/custom-taxes/{tax_id}` (admin)
+- **Body**: `{ "name"?: "ReteICA", "rate"?: 0.966, "type"?: "DEDUCTIVE" }` (`tax_type` también vale). `422` nombre vacío, tasa no numérica o negativa, tipo distinto de `ADDITIVE`/`DEDUCTIVE` · `400` sin campos · `404` no existe · `200 {"status":"OK","id",…campos}`.
+
+### `DELETE /api/custom-taxes/{tax_id}` (admin) → `200 {"status":"ELIMINADO","id"}` · `404` no existe.

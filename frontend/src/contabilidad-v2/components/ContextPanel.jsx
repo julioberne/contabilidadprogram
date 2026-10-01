@@ -89,13 +89,27 @@ export default function ContextPanel({
   // durante semanas a un endpoint que no existía (405) y "no hacía nada".
   // Ahora el `detail` del servidor (p. ej. el 409 "tiene 18 transacciones")
   // se muestra en el aviso fijo del panel.
-  const deleteItem = async (ep, id, fn) => {
+  // `opciones.confirmarReintento(detail)` → texto de una SEGUNDA confirmación
+  // cuando el servidor responde 409; si la persona acepta, se repite el
+  // DELETE con `opciones.reintentarCon` en la query (Etiquetas: `forzar=1`
+  // quita la etiqueta de las transacciones y borradores antes de borrarla).
+  const deleteItem = async (ep, id, fn, opciones = {}) => {
     if (!confirm("¿Eliminar?")) return;
     setPanelError("");
-    let r;
-    try {
-      r = await fetch(`${API_BASE}/${ep}/${id}`, { method: 'DELETE' });
-    } catch {
+    const pedir = async (query) => {
+      try {
+        return await fetch(`${API_BASE}/${ep}/${id}${query ? `?${query}` : ''}`, { method: 'DELETE' });
+      } catch {
+        return null;
+      }
+    };
+    let r = await pedir('');
+    if (r && r.status === 409 && opciones.confirmarReintento) {
+      const d = await r.json().catch(() => ({}));
+      if (!confirm(opciones.confirmarReintento(d.detail ? String(d.detail) : ''))) return;
+      r = await pedir(opciones.reintentarCon);
+    }
+    if (!r) {
       setPanelError('No se pudo conectar con el servidor.');
       return;
     }
@@ -106,7 +120,25 @@ export default function ContextPanel({
     }
     fn();
   };
-  const updateItem = async (ep, id, d, fn) => { try { const r = await fetch(`${API_BASE}/${ep}/${id}`, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)}); if(r.ok){setEditingId(null);fn();}} catch(e){} };
+  // El ✓ de edición (Terceros, Tags, Tasas, Recursos): la fila se cierra solo
+  // si el servidor confirmó; cualquier error va al mismo aviso del panel.
+  const updateItem = async (ep, id, d, fn) => {
+    setPanelError("");
+    let r;
+    try {
+      r = await fetch(`${API_BASE}/${ep}/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) });
+    } catch {
+      setPanelError('No se pudo conectar con el servidor.');
+      return;
+    }
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      setPanelError(err.detail ? String(err.detail) : `Error ${r.status} al guardar`);
+      return;
+    }
+    setEditingId(null);
+    fn();
+  };
   const createItem = async (ep, d, fn) => { const r = await fetch(`${API_BASE}/${ep}`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)}); if(!r.ok){ const err = await r.json().catch(()=>({})); throw new Error(err.detail || 'Error al crear'); } await fn(); return await r.json(); };
 
   // --- Helpers ---
@@ -274,7 +306,7 @@ export default function ContextPanel({
           panelTaxes={panelTaxes}
           editingId={editingId} setEditingId={setEditingId}
           editData={editData} setEditData={setEditData}
-          deleteItem={deleteItem} fetchTaxes={fetchTaxes}
+          deleteItem={deleteItem} updateItem={updateItem} fetchTaxes={fetchTaxes}
           newTaxName={newTaxName} setNewTaxName={setNewTaxName}
           newTaxRate={newTaxRate} setNewTaxRate={setNewTaxRate}
           newTaxType={newTaxType} setNewTaxType={setNewTaxType}
