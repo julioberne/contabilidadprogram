@@ -15,7 +15,7 @@
 | `/api/transactions/voice` | Ingestión por Voz | POST |
 | `/api/accounts` | Cuentas Bancarias | GET, POST, PUT |
 | `/api/profile` | Perfil de Usuario | GET, PUT |
-| `/api/third-parties` | Terceros (CXC/CXP) | GET, POST |
+| `/api/third-parties` | Terceros (CXC/CXP) | GET, POST, PUT, DELETE |
 | `/api/cxc` | Cartera CXC/CXP | GET, POST, PUT |
 | `/api/assets` | Activos Patrimoniales | GET, POST |
 | `/api/balance` | Caja Viva Consolidada | GET |
@@ -575,3 +575,14 @@ Objeto `medio`: `{ id, third_party_id, tipo, valor, banco, etiqueta, origen, cre
 - **Respuestas**: `200 {"status":"MOVIDO","medios":[…]}` · `404` el tercero o el medio no existen · `422` tipo/valor inválido o tercero genérico.
 
 ### `DELETE /api/third-parties/{tp_id}/accounts/{medio_id}` (admin) → `{"status":"ELIMINADO","id"}` · `404` si ese medio no está en esta ficha.
+
+---
+
+## 7. Terceros (Contabilidad) — borrar una ficha (`DELETE /api/third-parties/{tp_id}`)
+
+> Desde el 30-sep-2026 · Router: `routers/cartera.py` (junto al `POST`/`PUT` de terceros) · Lógica: `fin_sys_core/terceros_borrado.py` · Consumidor: 👤 Terceros → 🗑 (`ContextPanel.deleteItem`, que muestra el `detail` en el aviso del panel).
+> Regla (decisión de Andrés): un tercero **con historia** no se borra; nada se reasigna ni se deja en NULL (`transactions.third_party_id` y `cxp_cxc_ledger.third_party_id` son `NOT NULL` + `ON DELETE RESTRICT`; Regla 5). `database_driver.eliminar_tercero` queda sin usar: intentaba poner esos FK en NULL.
+
+### `DELETE /api/third-parties/{tp_id}` (admin)
+- **Respuestas**: `200 {"status":"ELIMINADO","id","name"}` (sus medios de pago `third_party_accounts` caen en cascada) · `404` no existe · `409` es el genérico `999999999` («Sin especificar») · `409` tiene historia: el `detail` dice cuánta, p. ej. `No se puede eliminar a «X»: tiene 18 transacciones y 1 cuenta de cartera (CXC/CXP). …`.
+- **Historia** = transacciones, cuentas de cartera (CXC/CXP), movimientos de inventario (el FK los dejaría en NULL en silencio) y **borradores abiertos del bot** (`transaction_drafts` en `BORRADOR`/`PROCESANDO`/`ERROR` cuyo `payload.third_party.identification_number` es el suyo: al confirmarse, el tercero reaparecería solo). Todo en una transacción con la fila bloqueada (`FOR UPDATE`).

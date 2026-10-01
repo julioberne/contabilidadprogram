@@ -1157,4 +1157,68 @@ Prueba real CA-09G-13 (Andrés, en su chat): responder de nuevo al #237 —su co
 contaminado por el defecto ya corregido— con el concepto y `Tercero: … cc …`, tocar 💾 y repetir
 la transferencia. Muestras de SMS de retiro y de compra por internet. HTTPS permanente para el
 webhook. En otra sesión (tarea abierta por Andrés el 30-sep): endpoint que falta para el 🗑 de
-Terceros.
+Terceros → hecho, ver el checkpoint 2026-09-30 (b).
+
+---
+
+## Checkpoint 2026-09-30 (b) — El 🗑 de Terceros por fin borra: `DELETE /api/third-parties/{id}`
+
+Sesión aparte (spawn de la de 09.G §10) en el worktree `intelligent-ellis-79a132`, rama de
+sesión sobre `master` (`d51afb5`, rebasada sobre `09325ce` al cerrar). Push: Andrés (`git push origin <rama>:master`); deploy después.
+
+### Auditoría antes de escribir código (solo lectura)
+- `database_driver.eliminar_tercero` prometía "desasociar transacciones primero" haciendo
+  `UPDATE … SET third_party_id = NULL`, pero en la BD real `transactions.third_party_id` y
+  `cxp_cxc_ledger.third_party_id` son `NOT NULL` + `ON DELETE RESTRICT`: con historia revienta
+  (habría sido un 500) y sin historia borraba sin proteger al genérico. Queda **sin usar** (🔴 no
+  se tocó `database_driver.py`; deuda: retirarla en limpieza técnica).
+- FKs reales hacia `third_parties`: `transactions` y `cxp_cxc_ledger` (RESTRICT, NOT NULL),
+  `inventory_movements` (SET NULL: perdería el vínculo en silencio), `third_party_accounts`
+  (CASCADE). Sin FK: los borradores del bot lo nombran por documento en
+  `payload.third_party.identification_number`; si se borrara la ficha y luego se confirmara el
+  borrador, `_asegurar_tercero` la volvería a crear sola.
+- Datos: 18 terceros; **#34 «TERCERO PRUEBA MODAL»** (CC 1122334455, "Calle Prueba 1-23") sin
+  ningún uso → borrable; genérico = #38 (2 TXs, 10 borradores abiertos); 15 con historia; #39
+  «Cloud Hosting SAS» tampoco tiene uso (no se tocó). Hoy el botón recibía `405` y callaba.
+
+### Decisión de Andrés y construcción
+- **Regla**: un tercero con historia (transacciones, cartera, inventario o borradores abiertos del
+  bot) **no se borra**: `409` con el conteo en el `detail`; nada se reasigna ni se deja en NULL
+  (Regla 5). Genérico `999999999` → `409`. Sin historia → `200` (medios de pago en cascada).
+  Descartó pasar la historia a «Sin especificar» (se pierde a quién correspondía cada registro).
+- `fin_sys_core/terceros_borrado.py` (NUEVO): mitad pura (`describir_uso`, `mensaje_en_uso`) y
+  mitad con BD (`uso_de_tercero`, `eliminar`: cursor del llamador, sin commit, fila bloqueada con
+  `FOR UPDATE` para que el conteo y el DELETE vean lo mismo; el FK RESTRICT queda de red).
+- `routers/cartera.py`: `DELETE /api/third-parties/{tp_id}` (`require_admin`) junto al `POST`/`PUT`
+  de terceros que ya vivían ahí; `server.py` intacto. Log `🗑 [TERCEROS] #id «nombre» … eliminado por`.
+- `ContextPanel.jsx`: `deleteItem` (Terceros, Tags, Tasas, Recursos) deja de tragarse el error:
+  el `detail` del servidor (o `Error NNN al eliminar` / "No se pudo conectar") sale en un aviso
+  fijo bajo las pestañas, fuera del área desplazable, con ✕ y se limpia al cambiar de pestaña.
+  `TercerosTab.jsx` no se tocó.
+
+### Verificación
+- `tests.test_terceros_borrado` (14 puros, en la lista de CI): mensajes, regla con cursor falso
+  (no existe / genérico / con historia / borrador abierto / limpio / FK de red) y el endpoint con
+  tokens reales (401 sin sesión, 403 member, 200/404/409/500 con la conexión parcheada).
+- `tests.test_terceros_borrado_db` (6 con BD real): borrado por el endpoint + cascada de
+  `third_party_accounts`, 404, genérico 409 y sigue ahí, transacción / cartera / borrador abierto
+  → 409 y borrador DESCARTADO no bloquea — estos últimos dentro de transacciones que siempre
+  hacen rollback. Restos en BD después: 0 (18 terceros, 0 medios).
+- Lista de CI completa: 258 puros en verde (244 + 14). Sonda sobre `server.app`:
+  `DELETE /api/third-parties/34` sin sesión → `401` (antes `405`); las rutas `…/accounts*` de
+  09.G siguen respondiendo.
+- Frontend: 74 vitest (68 + 6 de `ContextPanel.test.jsx`: 409 con detail, 405 sin detail, sin red,
+  200 refresca sin aviso, cancelar no llama, cambio de pestaña limpia), eslint sin hallazgos
+  nuevos en `ContextPanel.jsx` (20 heredados, antes 22), build OK. Servidor de verificación
+  `finsys-backend-verify` en `:8001` con el build nuevo: la pantalla de login es de Andrés.
+
+### Hallazgo aparte (tarea propuesta, no hecha aquí)
+Mismo hueco en **Tags y Tasas**: `PUT/DELETE /api/tags/{id}` y `DELETE /api/custom-taxes/{id}`
+no existen (405) aunque `database_driver` tiene `actualizar_tag`, `eliminar_tag`,
+`actualizar_custom_tax`, `eliminar_custom_tax` sin router; el ✎ de Tasas no hace nada visible.
+Con el aviso nuevo el fallo por lo menos se ve.
+
+### Pendiente al cierre
+Push (Andrés) → deploy + sonda (`DELETE /api/third-parties/0` sin token: `401` = código nuevo,
+`405` = viejo) → Andrés borra el #34 con el 🗑 (prueba real) → sincronizar `master` local y el
+build de `:8000`.

@@ -436,6 +436,50 @@ def update_third_party(tp_id: int, body: dict, _admin: dict = Depends(require_ad
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── DELETE /api/third-parties/{tp_id} ──
+_HTTP_BORRAR_TERCERO = {"no_existe": 404, "generico": 409, "en_uso": 409}
+
+
+@router.delete("/api/third-parties/{tp_id}")
+def delete_third_party(tp_id: int, _admin: dict = Depends(require_admin)):
+    """Borra la ficha de un tercero SIN historia (👤 Terceros → 🗑; hasta el
+    30-sep-2026 el botón llamaba a un endpoint inexistente). La regla y el SQL
+    viven en fin_sys_core/terceros_borrado.py: 404 no existe · 409 genérico o
+    con transacciones / cartera / inventario / borradores abiertos del bot (el
+    detail dice cuántos) · 200 borrado (sus medios de pago caen en cascada)."""
+    from fin_sys_core.database_driver import get_db_connection, release_db_connection
+    from fin_sys_core.terceros_borrado import eliminar
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        r = eliminar(cur, tp_id)
+        if not r["ok"]:
+            raise HTTPException(status_code=_HTTP_BORRAR_TERCERO.get(r["codigo"], 409),
+                                detail=r["error"])
+        conn.commit()
+        cur.close()
+        print(f"🗑 [TERCEROS] #{tp_id} «{r['name']}» ({r['identification_type']} "
+              f"{r['identification_number']}) eliminado por {_admin.get('name') or _admin.get('uid')}")
+        return {"status": "ELIMINADO", "id": tp_id, "name": r["name"]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Sin commit (404/409/500) el rollback suelta el bloqueo de la fila y
+        # deshace cualquier DELETE abortado antes de devolver la conexión
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            try:
+                release_db_connection(conn)
+            except Exception:
+                pass
+
+
 # ── GET /api/cartera/alerts ──
 @router.get("/api/cartera/alerts")
 def get_cartera_alerts(_u: dict = Depends(require_auth)):

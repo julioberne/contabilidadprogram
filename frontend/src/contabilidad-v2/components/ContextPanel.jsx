@@ -66,9 +66,11 @@ export default function ContextPanel({
   const [newAccType, setNewAccType] = useState("Ahorros");
   const [newAccCurrency, setNewAccCurrency] = useState("COP");
   const [newAccBalance, setNewAccBalance] = useState("");
+  // Aviso del panel: el error del último 🗑 (Terceros, Tags, Tasas, Recursos)
+  const [panelError, setPanelError] = useState("");
 
   useEffect(() => {
-    setSearch(""); setEditingId(null);
+    setSearch(""); setEditingId(null); setPanelError("");
     if (activeTab === 'etiquetas') fetchTags();
     if (activeTab === 'impuestos') fetchTaxes();
     if (activeTab === 'activos') fetchAssets();
@@ -83,7 +85,27 @@ export default function ContextPanel({
   const fetchCartera = async () => { try { const r = await fetch(`${API_BASE}/cartera`); if (r.ok) setPanelCartera(await r.json()); } catch(e) {} };
   const refreshTP = async () => { const r = await fetch(`${API_BASE}/third-parties`); if (r.ok) setAllThirdParties(await r.json()); };
 
-  const deleteItem = async (ep, id, fn) => { if (!confirm("¿Eliminar?")) return; try { const r = await fetch(`${API_BASE}/${ep}/${id}`, {method:'DELETE'}); if(r.ok) fn(); } catch(e){} };
+  // Antes cualquier fallo se tragaba (`catch(e){}`): el 🗑 de Terceros llamó
+  // durante semanas a un endpoint que no existía (405) y "no hacía nada".
+  // Ahora el `detail` del servidor (p. ej. el 409 "tiene 18 transacciones")
+  // se muestra en el aviso fijo del panel.
+  const deleteItem = async (ep, id, fn) => {
+    if (!confirm("¿Eliminar?")) return;
+    setPanelError("");
+    let r;
+    try {
+      r = await fetch(`${API_BASE}/${ep}/${id}`, { method: 'DELETE' });
+    } catch {
+      setPanelError('No se pudo conectar con el servidor.');
+      return;
+    }
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      setPanelError(d.detail ? String(d.detail) : `Error ${r.status} al eliminar`);
+      return;
+    }
+    fn();
+  };
   const updateItem = async (ep, id, d, fn) => { try { const r = await fetch(`${API_BASE}/${ep}/${id}`, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)}); if(r.ok){setEditingId(null);fn();}} catch(e){} };
   const createItem = async (ep, d, fn) => { const r = await fetch(`${API_BASE}/${ep}`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)}); if(!r.ok){ const err = await r.json().catch(()=>({})); throw new Error(err.detail || 'Error al crear'); } await fn(); return await r.json(); };
 
@@ -175,6 +197,14 @@ export default function ContextPanel({
           >{tab.icon} {tab.label}</button>
         ))}
       </div>
+
+      {/* ═══ AVISO ═══ fuera del área desplazable: se ve aunque la tabla sea larga */}
+      {panelError && (
+        <div role="alert" className="shrink-0 flex items-start gap-2 border-b-2 border-black bg-red-500 text-white px-2 py-1 text-[9px] font-mono font-bold">
+          <span className="flex-1">⚠ {panelError}</span>
+          <button type="button" onClick={() => setPanelError("")} aria-label="Cerrar aviso" className="hover:text-black">✕</button>
+        </div>
+      )}
 
       {/* ═══ CONTENT ═══ */}
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
