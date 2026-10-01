@@ -1,7 +1,7 @@
 # 🧭 WORKFLOW.md — Metodología de Trabajo para Agentes IA
 ## FIN-SYS OS v2.0 · Última actualización: 30 Sep 2026 (nota "Estado real"; el resto del documento es de julio)
 
-> **Este archivo es de lectura obligatoria para cualquier agente IA al inicio de cada sesión.**
+> **Desde el 01-oct-2026 el arranque de sesión lo define `CLAUDE.md` (raíz), que se carga solo.** Este archivo se consulta por secciones; la que manda es "Estado real".
 > Describe el flujo completo: desarrollo local → git → producción vía Dokploy.
 > Complementa a `AGENTS.md` (reglas del proyecto) con el **cómo trabajamos**.
 
@@ -196,9 +196,10 @@ perf(hub): NotesApp convertido a lazy() + Suspense (code splitting)
 
 ### FASE 0 — Inicio de sesión (SIEMPRE)
 ```
-1. Leer AGENTS.md completo
-2. Leer CHECKLIST.md (estado, pendientes) + último checkpoint de docs/checkpoints.md
-3. Correr: python scripts/health_check.py
+(Reemplazado el 01-oct-2026 por CLAUDE.md §1 "Arranque de sesión".)
+1. Seguir CLAUDE.md §1: git status + fetch, leer solo el frente de la tarea (docs/frentes/)
+2. AGENTS.md y CHECKLIST.md solo por la sección que la tarea necesite
+3. Si hace falta salud del sistema: scripts/health_check.py vía el subagente corredor-tests
 4. Revisar: git status (¿hay cambios pendientes sin commitear?)
 5. Confirmar con el usuario qué módulo o tarea se trabajará hoy
 ```

@@ -1,6 +1,6 @@
 # FIN-SYS OS v2.0 — Instrucciones para el Agente de IA
 
-> Leer este archivo COMPLETO al inicio de cada sesión antes de hacer cualquier cambio.
+> **Desde el 01-oct-2026 se consulta por secciones.** Las reglas de sesión están en `CLAUDE.md` (raíz), que se carga solo; ahí está el mapa de qué sección leer según la tarea.
 
 ---
 

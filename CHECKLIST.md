@@ -157,6 +157,6 @@ Funcionalidad nueva = archivos nuevos. **Prohibido sin aprobación explícita**:
 
 ### Cierre de sesión (obligatorio)
 
-1. Agregar checkpoint a `docs/checkpoints.md` (qué se hizo, cómo se verificó).
+1. Actualizar el frente de la tarea en `docs/frentes/<nombre>.md` (se sobrescribe; ver `CLAUDE.md` §5). Checkpoint en `docs/checkpoints.md` solo al cerrar una etapa o un frente, en pocas líneas.
 2. Actualizar **este archivo**: tabla de estado, pendientes cerrados/nuevos.
 3. Nada más — los demás .md no se tocan por rutina (los históricos viven en `docs/archive/`).
