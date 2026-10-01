@@ -27,7 +27,7 @@ Todo spec nuevo se crea copiando [`_plantilla.md`](_plantilla.md). Un spec de m�
 
 | Módulo | Spec de módulo | Etapas |
 |---|---|---|
-| 09 Bot IA | [09-bot-ia/SPEC.md](09-bot-ia/SPEC.md) | [09.F SMS Bancolombia](09-bot-ia/09.F-sms-bancolombia.md) · [09.G Completar borrador](09-bot-ia/09.G-completar-borrador.md) · [09.H OCR de comprobantes](09-bot-ia/09.H-ocr-comprobantes.md) |
+| 09 Bot IA | [09-bot-ia/SPEC.md](09-bot-ia/SPEC.md) | [09.F SMS Bancolombia](09-bot-ia/09.F-sms-bancolombia.md) · [09.G Completar borrador](09-bot-ia/09.G-completar-borrador.md) · [09.H OCR de comprobantes](09-bot-ia/09.H-ocr-comprobantes.md) · [09.I/J Ficha de tercero con anclas](09-bot-ia/09.I-ficha-tercero-anclas.md) |
 
 Módulos sin spec todavía (se crean cuando se abra una etapa nueva sobre ellos): 01–06 Contabilidad (referencia histórica: `docs/D02_FIN_spec.md`, formato anterior), 07 Control Tower, 08 Project Hub / RRHH, 12 Contadores, 13 Análisis Inteligente (plan en `~/.claude/plans/merry-finding-storm.md`).
 
