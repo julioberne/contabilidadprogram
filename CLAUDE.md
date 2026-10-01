@@ -18,7 +18,7 @@ En los mensajes, el 86% es tráfico de herramientas (navegador, ediciones, lectu
 
 - **La sesión crece lo que la tarea necesite.** No hay tope fijo: una tarea grande puede usar 400k o más si va a mitad de un hito.
 - **La señal de corte es el hito:** algo terminado y verificado (un commit, una etapa, un bug cerrado) o un cambio de subtarea.
-- **Al cerrar un hito:**
+- **Al cerrar un hito** (la skill `/cerrar-hito` hace todo esto: verificar, commit, frente, medir, limpiar):
   1. Actualiza el frente (§5) con lo que el siguiente hito necesita saber.
   2. Limpia con la herramienta que corresponda:
      - `/clear`: el siguiente hito arranca bien desde el frente. Lo deja en cero; la conversación queda guardada en `/resume`.
@@ -31,16 +31,23 @@ En los mensajes, el 86% es tráfico de herramientas (navegador, ediciones, lectu
 
 ## 3. Quién hace qué
 
-| Rol | Quién | Para qué |
-|---|---|---|
-| Orquestador y **único que edita** | Sesión principal | Decidir, diagnosticar, editar, commitear |
-| `lector` (Haiku) | Subagente | "¿Dónde/cómo se hace X?": devuelve `archivo:línea` + resumen |
-| `corredor-tests` (Haiku) | Subagente | Tests, `health_check.py`, `npm run build`: devuelve solo los fallos |
-| `verificador-visual` (Sonnet) | Subagente | Probar un flujo en el navegador: veredicto con evidencia |
-| Explore / Plan | Subagentes nativos | Exploración amplia y diseño |
+La sesión principal orquesta y es la **única que edita**: decide, diagnostica, edita, commitea. Para lo demás:
+
+| Para… | Usa |
+|---|---|
+| "¿Dónde/cómo se hace X?", resumir un archivo grande | subagente `lector` (Haiku): `archivo:línea` + resumen |
+| Tests, `health_check.py`, `npm run build`, logs largos | subagente `corredor-tests` (Haiku): solo los fallos |
+| Probar un flujo en el navegador | subagente `verificador-visual` (Sonnet): veredicto con evidencia |
+| Exploración amplia o diseño de un plan | subagentes nativos Explore / Plan |
+| Cerrar un hito y soltar contexto | skill `/cerrar-hito` |
+| Contexto y cuota de esta sesión | herramienta de uso de sesión de la app (`self`) o `/context` |
+| Dudas sobre Claude Code (hooks, skills, ajustes) | subagente `claude-code-guide` |
+| Planes de prueba automáticos | MCP TestSprite, solo si Andrés lo pide |
+| Investigación con fuentes verificadas | `/deep-research`, solo si Andrés lo pide (gasta mucho) |
 
 - El diagnóstico de bugs y todas las ediciones quedan en la sesión principal; los subagentes juntan evidencia.
 - Dos sesiones no editan los mismos archivos. Si un frente activo ya los toca, coordina con Andrés.
+- **Kit automático** (instalado en `~/.claude`, fuente en `scripts/claude_kit/`): al arrancar, tras `/clear` y tras compactar, un hook te muestra los frentes activos y el resumen del tablero del agente de mantenimiento (`scratch/tablero.md`); desde ~350k, otro hook te avisa una vez por tramo para proponer `/cerrar-hito`.
 
 ## 4. Brief para delegar (las 4 partes, siempre)
 
