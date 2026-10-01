@@ -180,6 +180,8 @@ Cómo funciona por dentro: `bot_driver._botones_borrador` emite el dato `webapp:
 lo vuelve un botón `web_app`; `GET /api/bot/drafts/{id}` y `PUT …/drafts/{id}` con `avisar_chat`
 (`routers/bot.py`); el tick `bot_driver.avisar_chat_pendientes` en el bucle del poller. Componentes:
 `frontend/src/tg/TelegramTerceroApp.jsx`, `TerceroForm.jsx`, `TerceroFicha.jsx` (+ `TerceroMediosPago`).
-Límite conocido v1: en **Telegram Web** (navegador) la página no abre por el `X-Frame-Options: SAMEORIGIN`
-global de nginx; en las apps de Android, iOS y escritorio sí. Variable opcional del bot: `FINSYS_PUBLIC_URL`
-(base HTTPS; por defecto `https://finsys-andres.duckdns.org`).
+Abre en las apps de Android, iOS y escritorio y, desde la revisión del 1-oct, también en Telegram Web
+(nginx sirve `/tg.html` con `frame-ancestors` para `*.telegram.org`). Variable opcional del bot:
+`FINSYS_PUBLIC_URL` (base HTTPS; por defecto `https://finsys-andres.duckdns.org`). Si se guarda la ficha del
+tercero ya asignado (p. ej. se formaliza el documento de un provisional), la pantalla vuelve a sincronizar el
+borrador, y al confirmar el bot usa siempre los datos vigentes de la ficha.

@@ -31,9 +31,13 @@ class TestBotones(unittest.TestCase):
         planos = [data for fila in filas for _, data in fila]
         for esperado in ("ok:43", "no:43", "emp:43", "tags:43", "hold:43"):
             self.assertIn(esperado, planos)
-        # límite de Telegram: callback_data ≤ 64 bytes
+        # límite de Telegram: callback_data ≤ 64 bytes (el dato webapp: es la
+        # URL de un botón web_app, etapa 09.I — no es callback)
         for d in planos:
+            if d.startswith("webapp:"):
+                continue
             self.assertLessEqual(len(d.encode()), 64)
+        self.assertTrue(any(d.startswith("webapp:https://") for d in planos))
 
     def test_resumen_muestra_tags_y_ubicacion(self):
         payload = {"type": "GASTO", "amount": 1000, "concept": "x",

@@ -10,7 +10,9 @@
    Sesión: la MISMA de la web (usuario y clave; useGlobalSession).
    Al asignar, el borrador se edita por el mismo endpoint de la
    bandeja web con `avisar_chat`: el bot reenvía el resumen al chat
-   en su siguiente vuelta (el backend no habla con Telegram).
+   en su siguiente vuelta (el backend no habla con Telegram). Si se
+   guarda la ficha del tercero ya asignado, el borrador se vuelve a
+   sincronizar (el documento o el nombre pudieron cambiar).
    ============================================================ */
 import { useCallback, useEffect, useState } from 'react';
 import { API } from '../config';
@@ -29,6 +31,7 @@ const cop = (n) => {
 };
 const norm = (s) => (s || '').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 const digitos = (s) => (s || '').toString().replace(/\D/g, '');
+const esNumerico = (s) => s.trim() !== '' && /^[\d\s.\-+()]+$/.test(s.trim());
 
 function Login({ login, loading, error }) {
   const [email, setEmail] = useState('');
@@ -75,17 +78,21 @@ export default function TelegramTerceroApp() {
   const draftId = tgParam('draft');
   const [draft, setDraft] = useState(null);
   const [cargaError, setCargaError] = useState('');
-  const [terceros, setTerceros] = useState([]);
+  const [terceros, setTerceros] = useState(null);     // null = aún no cargados
   const [q, setQ] = useState('');
   const [vista, setVista] = useState('inicio');   // inicio | crear | ficha
   const [fichaDe, setFichaDe] = useState(null);
   const [aviso, setAviso] = useState('');
   const [ocupado, setOcupado] = useState(false);
+  const [eliminadoId, setEliminadoId] = useState(null);
 
   const cargarTerceros = useCallback(async () => {
     const r = await fetch(`${API}/third-parties`);
-    if (r.status === 401) { logout(); return; }
-    if (r.ok) setTerceros(await r.json());
+    if (r.status === 401) { logout(); return []; }
+    if (!r.ok) return [];
+    const lista = await r.json();
+    setTerceros(lista);
+    return lista;
   }, [logout]);
 
   useEffect(() => {
@@ -107,31 +114,47 @@ export default function TelegramTerceroApp() {
     return () => { vivo = false; };
   }, [user, draftId, logout, cargarTerceros]);
 
+  const lista = terceros || [];
+  // Siempre la ficha COMPLETA: la lista aporta los campos que falten (el 409 y
+  // el payload traen objetos parciales) y lo recibido manda (es lo más reciente,
+  // p. ej. lo que se acaba de guardar en la ficha).
+  const completo = (t) => {
+    if (!t || !t.id) return t;
+    const base = lista.find(x => String(x.id) === String(t.id));
+    return base ? { ...base, ...t } : t;
+  };
+
   const actual = draft?.payload?.third_party || null;
-  const tieneTercero = actual && actual.identification_number && actual.identification_number !== GENERICO;
-  const terceroActual = tieneTercero
-    ? (terceros.find(t => actual.id && String(t.id) === String(actual.id))
-       || terceros.find(t => t.identification_number === actual.identification_number)
-       || actual)
+  const tieneTercero = !!(actual && actual.identification_number && actual.identification_number !== GENERICO);
+  const asignadoEliminado = tieneTercero && actual.id && eliminadoId && String(eliminadoId) === String(actual.id);
+  const enLista = tieneTercero
+    ? (lista.find(t => actual.id && String(t.id) === String(actual.id))
+       || lista.find(t => t.identification_number === actual.identification_number))
     : null;
+  // Sin lista aún se muestra lo que dice el borrador; con lista y sin ficha, el tercero ya no existe
+  const terceroActual = tieneTercero && !asignadoEliminado ? (enLista || (terceros === null ? actual : null)) : null;
+  const asignadoFaltante = tieneTercero && !asignadoEliminado && terceros !== null && !enLista;
 
   const asignar = async (t) => {
     if (!draft) return;
+    const ficha = completo(t);
     setOcupado(true); setAviso('');
     try {
       const r = await fetch(`${API}/bot/drafts/${draft.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          third_party: { id: t.id, identification_type: t.identification_type || 'CC',
-                         identification_number: t.identification_number, name: t.name },
+          third_party: { id: ficha.id, identification_type: ficha.identification_type || 'CC',
+                         identification_number: ficha.identification_number, name: ficha.name },
           avisar_chat: true,
         }),
       });
       const cuerpo = await r.json().catch(() => ({}));
+      if (r.status === 401) { logout(); return; }
       if (!r.ok) { setAviso(`No se pudo asignar: ${cuerpo.detail || r.status}`); return; }
       setDraft({ ...draft, ...cuerpo, status: cuerpo.status || draft.status });
-      setAviso(`Asignado: ${t.name}. El bot te manda el resumen actualizado al chat en su siguiente vuelta (menos de un minuto).`);
-      setFichaDe(t); setVista('ficha'); setQ('');
+      setEliminadoId(null);
+      setAviso(`Asignado: ${ficha.name}. El bot te manda el resumen actualizado al chat en su siguiente vuelta (menos de un minuto).`);
+      setFichaDe(ficha); setVista('ficha'); setQ('');
     } catch {
       setAviso('Sin conexión con el servidor.');
     } finally {
@@ -139,17 +162,26 @@ export default function TelegramTerceroApp() {
     }
   };
 
-  const abrirFicha = (t) => { setFichaDe(t); setVista('ficha'); };
+  const abrirFicha = (t) => { setFichaDe(completo(t)); setVista('ficha'); };
 
   const candidatos = q.trim().length >= 2
-    ? terceros.filter(t => norm(t.name).includes(norm(q)) || (digitos(q) && (digitos(t.identification_number).includes(digitos(q)) || digitos(t.phone).includes(digitos(q))))).slice(0, 8)
+    ? lista.filter(t => norm(t.name).includes(norm(q)) || (digitos(q) && (digitos(t.identification_number).includes(digitos(q)) || digitos(t.phone).includes(digitos(q))))).slice(0, 8)
     : [];
+
+  // Prellenado de «Crear»: lo buscado va al nombre solo si es texto; si son
+  // dígitos, al celular (10 dígitos) o al documento. El celular del SMS manda.
+  const celSms = digitos(draft?.payload?.sms?.destino).length === 10 ? digitos(draft.payload.sms.destino) : '';
+  const qDig = digitos(q);
+  const inicialCrear = esNumerico(q)
+    ? { name: '', phone: celSms || (qDig.length === 10 ? qDig : ''), idNumber: qDig.length === 10 && !celSms ? '' : (qDig.length === 10 ? '' : qDig) }
+    : { name: q.trim(), phone: celSms };
 
   if (!user) {
     return <div className="p-3 max-w-md mx-auto"><Login login={login} loading={loading} error={error} /></div>;
   }
 
   const btn = 'border-2 border-black px-2 py-2 text-sm font-bold uppercase hover:bg-black hover:text-white';
+  const fichaEsLaAsignada = fichaDe && tieneTercero && actual.id && String(actual.id) === String(fichaDe.id);
 
   return (
     <div className="p-2 max-w-md mx-auto space-y-2 font-mono">
@@ -179,8 +211,10 @@ export default function TelegramTerceroApp() {
                 <div className="text-sm font-bold truncate">{terceroActual.name}
                   <span className="font-normal text-gray-500 text-xs"> · {terceroActual.identification_type} {terceroActual.identification_number}</span>
                 </div>
-                {terceroActual.id && <button type="button" onClick={() => abrirFicha(terceroActual)} className={`${btn} bg-white text-xs py-1`}>Ficha</button>}
+                {enLista && <button type="button" onClick={() => abrirFicha(enLista)} aria-label={`Ficha de ${terceroActual.name}`} className={`${btn} bg-white text-xs py-1`}>Ficha</button>}
               </div>
+            ) : (asignadoEliminado || asignadoFaltante) ? (
+              <div className="text-sm text-red-700">El tercero asignado ya no existe. Asigna otro.</div>
             ) : (
               <div className="text-sm text-gray-500">Sin tercero. Búscalo abajo o créalo.</div>
             )}
@@ -194,8 +228,8 @@ export default function TelegramTerceroApp() {
               <div key={t.id} className="flex items-center justify-between gap-1 border-b border-gray-200 py-1">
                 <div className="text-xs truncate"><span className="font-bold">{t.name}</span><span className="text-gray-500"> · {t.identification_type} {t.identification_number}</span></div>
                 <div className="flex gap-1 shrink-0">
-                  <button type="button" onClick={() => abrirFicha(t)} className={`${btn} bg-white text-[10px] py-1 px-1.5`}>Ficha</button>
-                  {draft.editable && <button type="button" onClick={() => asignar(t)} disabled={ocupado} className={`${btn} bg-brutalGreen text-[10px] py-1 px-1.5 disabled:opacity-50`}>Asignar</button>}
+                  <button type="button" onClick={() => abrirFicha(t)} aria-label={`Ficha de ${t.name}`} className={`${btn} bg-white text-[10px] py-1 px-1.5`}>Ficha</button>
+                  {draft.editable && <button type="button" onClick={() => asignar(t)} disabled={ocupado} aria-label={`Asignar ${t.name}`} className={`${btn} bg-brutalGreen text-[10px] py-1 px-1.5 disabled:opacity-50`}>Asignar</button>}
                 </div>
               </div>
             ))}
@@ -206,7 +240,7 @@ export default function TelegramTerceroApp() {
 
       {vista === 'crear' && (
         <TerceroForm
-          inicial={{ name: q, phone: digitos(draft?.payload?.sms?.destino).length === 10 ? digitos(draft.payload.sms.destino) : '' }}
+          inicial={inicialCrear}
           onCancelar={() => setVista('inicio')}
           onCreado={async (t) => { await cargarTerceros().catch(() => {}); if (draft?.editable) await asignar(t); else abrirFicha(t); }}
           onUsarExistente={async (t) => { if (draft?.editable) await asignar(t); else abrirFicha(t); }}
@@ -215,14 +249,28 @@ export default function TelegramTerceroApp() {
 
       {vista === 'ficha' && fichaDe && (
         <TerceroFicha
+          key={fichaDe.id}
           tercero={fichaDe}
           onCerrar={() => setVista('inicio')}
-          onGuardado={async (t) => { setFichaDe(t); await cargarTerceros().catch(() => {}); }}
-          onEliminado={async () => { setFichaDe(null); setVista('inicio'); setAviso('Tercero eliminado. Si el borrador lo tenía asignado, asigna otro.'); await cargarTerceros().catch(() => {}); }}
+          onUsarExistente={async (t) => { if (draft?.editable) await asignar(t); else abrirFicha(t); }}
+          onGuardado={async (t) => {
+            setFichaDe(t);
+            await cargarTerceros().catch(() => {});
+            // La ficha asignada cambió (documento formalizado, nombre corregido):
+            // el borrador debe llevar los datos vigentes para que al confirmar
+            // no nazca otra ficha ni se pise un nombre.
+            if (draft?.editable && fichaEsLaAsignada) await asignar(t);
+          }}
+          onEliminado={async (t) => {
+            setFichaDe(null); setVista('inicio');
+            if (tieneTercero && actual.id && String(actual.id) === String(t.id)) setEliminadoId(t.id);
+            setAviso(`Tercero «${t.name}» eliminado.${fichaEsLaAsignada ? ' El borrador lo tenía asignado: asigna otro.' : ''}`);
+            await cargarTerceros().catch(() => {});
+          }}
         />
       )}
 
-      {vista === 'ficha' && fichaDe && draft?.editable && !(terceroActual && String(terceroActual.id) === String(fichaDe.id)) && (
+      {vista === 'ficha' && fichaDe && draft?.editable && !fichaEsLaAsignada && (
         <button type="button" onClick={() => asignar(fichaDe)} disabled={ocupado} className={`${btn} w-full bg-brutalGreen disabled:opacity-50`}>
           Asignar «{fichaDe.name}» a este borrador
         </button>

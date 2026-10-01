@@ -388,6 +388,76 @@ def create_cartera_entry(body: dict, _admin: dict = Depends(require_admin)):
 
 
 # ── POST /api/third-parties — Crear tercero standalone ──
+# ── Terceros: alta y edición con el contrato de la etapa 09.I ─────────────────
+# Mismo catálogo que ofrecen TerceroForm/TerceroFicha y el panel Terceros de la
+# web, y que admite ThirdPartyInput (routers/schemas.py) al registrar una TX.
+TIPOS_DOCUMENTO = ("NIT", "CC", "CE", "PP")
+_LIMITES_TERCERO = {"name": 100, "identification_type": 10, "identification_number": 30,
+                    "email": 100, "phone": 30, "website": 150}
+_CAMPOS_TERCERO = ("name", "identification_type", "identification_number", "email", "phone",
+                   "website", "address", "maps_link")
+
+
+def _normalizar_tercero(body: dict, parcial: bool = False) -> dict:
+    """Campos de la ficha como texto recortado; 422 si un tipo no es del catálogo
+    o un valor no cabe en la tabla (antes salía un 500 crudo de Postgres).
+    Con `parcial` (PUT) solo entran los campos presentes en el cuerpo."""
+    out = {}
+    for campo in _CAMPOS_TERCERO:
+        if parcial and campo not in (body or {}):
+            continue
+        v = (body or {}).get(campo)
+        if v is not None and not isinstance(v, (str, int, float)):
+            raise HTTPException(status_code=422, detail=f"{campo} debe ser texto.")
+        out[campo] = "" if v is None else str(v).strip()
+    if "identification_type" in out:
+        tipo = out["identification_type"].upper() or "NIT"
+        if tipo not in TIPOS_DOCUMENTO:
+            raise HTTPException(status_code=422,
+                                detail=f"Tipo de documento no válido: {tipo}. Use NIT, CC, CE o PP.")
+        out["identification_type"] = tipo
+    for campo, tope in _LIMITES_TERCERO.items():
+        if len(out.get(campo) or "") > tope:
+            raise HTTPException(status_code=422, detail=f"{campo} supera los {tope} caracteres.")
+    return out
+
+
+def _ficha_por_documento(numero: str, excluir_id=None):
+    """La ficha (completa) que ya tiene ese documento, o None."""
+    from fin_sys_core.database_driver import get_db_connection, release_db_connection
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, name, identification_type, identification_number, email, phone, website, address
+              FROM third_parties
+             WHERE identification_number = %s AND (%s::bigint IS NULL OR id <> %s)
+        """, (numero, excluir_id, excluir_id))
+        r = cur.fetchone()
+        cur.close()
+        conn.rollback()
+    finally:
+        release_db_connection(conn)
+    if not r:
+        return None
+    return {"id": r[0], "name": r[1], "identification_type": r[2], "identification_number": r[3],
+            "email": r[4], "phone": r[5], "website": r[6], "address": r[7]}
+
+
+def _respuesta_existe(ficha: dict = None):
+    """409 «existe»: el sistema informa de quién es el documento y el humano decide
+    (D-09I-08). `detail` es texto para que createItem/updateItem del panel lo muestren."""
+    from fastapi.responses import JSONResponse
+    if not ficha:
+        return JSONResponse(status_code=409, content={
+            "codigo": "existe", "detail": "Ese documento ya pertenece a otro tercero."})
+    return JSONResponse(status_code=409, content={
+        "codigo": "existe",
+        "detail": f"Ese documento ya pertenece a «{ficha['name']}» ({ficha['identification_type']} {ficha['identification_number']}).",
+        "tercero": ficha,
+    })
+
+
 @router.post("/api/third-parties")
 def create_third_party(body: dict, _admin: dict = Depends(require_admin)):
     """Alta de tercero desde la web (panel Terceros, Cartera, Mini App de Telegram).
@@ -397,43 +467,29 @@ def create_third_party(body: dict, _admin: dict = Depends(require_admin)):
     número chocaba con el UNIQUE y salía como un 500 crudo); un documento que
     ya es de otra ficha responde 409 con esa ficha — el sistema informa, nunca
     pisa ni duplica; decide el humano («Usar esa ficha» o corregir el número).
+    Tipo fuera del catálogo o valor que no cabe en la tabla → 422.
     """
     import time
-    from fastapi.responses import JSONResponse
     from fin_sys_core.database_driver import get_db_connection, release_db_connection
-    name = (body.get("name") or "").strip()
+    campos = _normalizar_tercero(body)
+    name = campos["name"]
     if not name:
         raise HTTPException(status_code=400, detail="Nombre requerido")
-    tipo = (body.get("identification_type") or "NIT").strip() or "NIT"
-    numero = str(body.get("identification_number") or "").strip() or f"SN-{int(time.time() * 1000):x}"
+    tipo = campos["identification_type"]
+    numero = campos["identification_number"] or f"SN-{int(time.time() * 1000):x}"
+    existente = _ficha_por_documento(numero)
+    if existente:
+        return _respuesta_existe(existente)
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("""
-            SELECT id, name, identification_type, identification_number, email, phone
-              FROM third_parties WHERE identification_number = %s
-        """, (numero,))
-        existente = cur.fetchone()
-        if existente:
-            conn.rollback()
-            cur.close()
-            release_db_connection(conn)
-            return JSONResponse(status_code=409, content={
-                "codigo": "existe",
-                "detail": f"Ese documento ya pertenece a «{existente[1]}» ({existente[2]} {existente[3]}).",
-                "tercero": {"id": existente[0], "name": existente[1],
-                            "identification_type": existente[2], "identification_number": existente[3],
-                            "email": existente[4], "phone": existente[5]},
-            })
-        cur.execute("""
             INSERT INTO third_parties (name, identification_type, identification_number,
                                        email, phone, website, address, maps_link)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
-        """, (name, tipo, numero,
-              body.get("email", ""), body.get("phone", ""),
-              body.get("website", ""), body.get("address", ""),
-              body.get("maps_link", "")))
+        """, (name, tipo, numero, campos["email"], campos["phone"],
+              campos["website"], campos["address"], campos["maps_link"]))
         new_id = cur.fetchone()[0]
         conn.commit()
         cur.close()
@@ -448,26 +504,43 @@ def create_third_party(body: dict, _admin: dict = Depends(require_admin)):
             try: release_db_connection(conn)
             except Exception: pass
         if type(e).__name__ == "UniqueViolation":   # carrera entre el SELECT y el INSERT
-            return JSONResponse(status_code=409, content={
-                "codigo": "existe", "detail": "Ese documento ya pertenece a otro tercero."})
+            return _respuesta_existe()
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── PUT /api/third-parties/{tp_id} ──
 @router.put("/api/third-parties/{tp_id}")
 def update_third_party(tp_id: int, body: dict, _admin: dict = Depends(require_admin)):
-    from fin_sys_core.database_driver import actualizar_tercero
+    """Edición deliberada de la ficha (panel Terceros y Mini App). Etapa 09.I:
+    el documento se recorta; vacío o el genérico no se aceptan (400); un
+    documento que ya es de otra ficha responde 409 con esa ficha (mismo
+    contrato que el POST, nunca un 500 crudo); un id inexistente, 404."""
+    from fin_sys_core.database_driver import actualizar_tercero, TERCERO_GENERICO_NUM
+    campos = _normalizar_tercero(body, parcial=True)
+    campos.pop("maps_link", None)            # actualizar_tercero no lo maneja
+    if not campos:
+        raise HTTPException(status_code=400, detail="Nada que actualizar.")
+    if "identification_number" in campos:
+        numero = campos["identification_number"]
+        if not numero:
+            raise HTTPException(status_code=400,
+                                detail="El documento no puede quedar vacío: deja el provisional o escribe el número.")
+        if numero == TERCERO_GENERICO_NUM:
+            raise HTTPException(status_code=400, detail="El número del tercero genérico no se asigna a una ficha.")
+        existente = _ficha_por_documento(numero, excluir_id=tp_id)
+        if existente:
+            return _respuesta_existe(existente)
+    if "name" in campos and not campos["name"]:
+        raise HTTPException(status_code=400, detail="El nombre no puede quedar vacío.")
     try:
-        result = actualizar_tercero(
-            tp_id, name=body.get("name"),
-            identification_type=body.get("identification_type"),
-            identification_number=body.get("identification_number"),
-            email=body.get("email"), phone=body.get("phone"),
-            website=body.get("website"), address=body.get("address")
-        )
-        return {"status": "OK", "updated": result}
+        result = actualizar_tercero(tp_id, **campos)
     except Exception as e:
+        if type(e).__name__ == "UniqueViolation":
+            return _respuesta_existe()
         raise HTTPException(status_code=500, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Ese tercero ya no existe.")
+    return {"status": "OK", "updated": True}
 
 
 # ── DELETE /api/third-parties/{tp_id} ──

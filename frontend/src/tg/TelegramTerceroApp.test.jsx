@@ -18,9 +18,26 @@ const BORRADOR = {
              sms: { familia: 'transferencia', destino: '3213795458' } },
 };
 const TERCEROS = [
-  { id: 12, name: 'Leidy Daniela Molina', identification_type: 'CC', identification_number: '1007289007', phone: '3213795458', email: '' },
-  { id: 13, name: 'Pedro Pérez', identification_type: 'CC', identification_number: '555', phone: '', email: '' },
+  { id: 12, name: 'Leidy Daniela Molina', identification_type: 'CC', identification_number: '1007289007', phone: '3213795458', email: '', address: 'Cra 5', website: '' },
+  { id: 13, name: 'Pedro Pérez', identification_type: 'CC', identification_number: '555', phone: '', email: '', address: '', website: '' },
+  { id: 14, name: 'Pedro Molano', identification_type: 'CC', identification_number: '556', phone: '', email: '', address: '', website: '' },
 ];
+
+function stubFetch(llamadas, { borrador = BORRADOR, terceros = TERCEROS } = {}) {
+  vi.stubGlobal('fetch', vi.fn((url, opts = {}) => {
+    const metodo = opts.method || 'GET';
+    llamadas.push([metodo, url, opts.body ? JSON.parse(opts.body) : null]);
+    if (url === `/api/bot/drafts/${borrador.id}` && metodo === 'GET') return respuesta(200, borrador);
+    if (url === '/api/third-parties' && metodo === 'GET') return respuesta(200, terceros);
+    if (url.endsWith('/accounts') && metodo === 'GET') return respuesta(200, []);
+    if (url.startsWith('/api/third-parties/') && metodo === 'PUT') return respuesta(200, { status: 'OK', updated: true });
+    if (url === `/api/bot/drafts/${borrador.id}` && metodo === 'PUT') {
+      const tp = JSON.parse(opts.body).third_party;
+      return respuesta(200, { ...borrador, payload: { ...borrador.payload, third_party: tp }, avisar_chat: true });
+    }
+    return respuesta(404, { detail: 'no' });
+  }));
+}
 
 describe('TelegramTerceroApp', () => {
   let llamadas;
@@ -29,18 +46,7 @@ describe('TelegramTerceroApp', () => {
     llamadas = [];
     window.history.replaceState({}, '', '/tg.html?draft=507');
     localStorage.clear();
-    vi.stubGlobal('fetch', vi.fn((url, opts = {}) => {
-      const metodo = opts.method || 'GET';
-      llamadas.push([metodo, url, opts.body ? JSON.parse(opts.body) : null]);
-      if (url === '/api/bot/drafts/507' && metodo === 'GET') return respuesta(200, BORRADOR);
-      if (url === '/api/third-parties' && metodo === 'GET') return respuesta(200, TERCEROS);
-      if (url.endsWith('/accounts') && metodo === 'GET') return respuesta(200, []);
-      if (url === '/api/bot/drafts/507' && metodo === 'PUT') {
-        const tp = JSON.parse(opts.body).third_party;
-        return respuesta(200, { ...BORRADOR, payload: { ...BORRADOR.payload, third_party: tp }, avisar_chat: true });
-      }
-      return respuesta(404, { detail: 'no' });
-    }));
+    stubFetch(llamadas);
   });
   afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
 
@@ -62,12 +68,37 @@ describe('TelegramTerceroApp', () => {
     expect(await screen.findByText('Leidy Daniela Molina')).toBeInTheDocument();
     expect(screen.queryByText('Pedro Pérez')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('Asignar'));
+    fireEvent.click(screen.getByRole('button', { name: 'Asignar Leidy Daniela Molina' }));
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Asignado: Leidy Daniela Molina'));
     const put = llamadas.find(([m, u]) => m === 'PUT' && u === '/api/bot/drafts/507');
     expect(put[2]).toMatchObject({ avisar_chat: true, third_party: { id: 12, identification_number: '1007289007', name: 'Leidy Daniela Molina' } });
-    // tras asignar se abre la ficha para completarla (cuentas, celulares, llaves)
+    // tras asignar se abre la ficha COMPLETA para completarla (cuentas, celulares, llaves)
     expect(await screen.findByText(/Ficha del tercero · #12/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Dirección')).toHaveValue('Cra 5');
+  });
+
+  it('guardar la ficha del tercero asignado vuelve a sincronizar el borrador', async () => {
+    localStorage.setItem('finsys_session', JSON.stringify(SESION));
+    render(<TelegramTerceroApp />);
+    await screen.findByText('Borrador #507');
+    fireEvent.change(screen.getByLabelText('Buscar tercero'), { target: { value: 'leidy' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Asignar Leidy Daniela Molina' }));
+    await screen.findByText(/Ficha del tercero · #12/);
+    llamadas.length = 0;
+    fireEvent.change(screen.getByLabelText('Número de documento'), { target: { value: '1007289008' } });
+    fireEvent.click(screen.getByText('✓ Guardar ficha'));
+    await waitFor(() => expect(llamadas.some(([m, u]) => m === 'PUT' && u === '/api/bot/drafts/507')).toBe(true));
+    const sync = llamadas.find(([m, u]) => m === 'PUT' && u === '/api/bot/drafts/507');
+    expect(sync[2]).toMatchObject({ avisar_chat: true, third_party: { id: 12, identification_number: '1007289008' } });
+  });
+
+  it('con varios candidatos cada botón dice a quién asigna', async () => {
+    localStorage.setItem('finsys_session', JSON.stringify(SESION));
+    render(<TelegramTerceroApp />);
+    await screen.findByText('Borrador #507');
+    fireEvent.change(screen.getByLabelText('Buscar tercero'), { target: { value: 'pedro' } });
+    expect(await screen.findByRole('button', { name: 'Asignar Pedro Pérez' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Asignar Pedro Molano' })).toBeInTheDocument();
   });
 
   it('busca también por documento o celular', async () => {
@@ -80,12 +111,25 @@ describe('TelegramTerceroApp', () => {
     expect(await screen.findByText('Pedro Pérez')).toBeInTheDocument();
   });
 
-  it('abre el formulario de crear con el celular del SMS prellenado', async () => {
+  it('crear nuevo prellena el celular del SMS y no pone dígitos como nombre', async () => {
     localStorage.setItem('finsys_session', JSON.stringify(SESION));
     render(<TelegramTerceroApp />);
     await screen.findByText('Borrador #507');
+    fireEvent.change(screen.getByLabelText('Buscar tercero'), { target: { value: '3001112233' } });
     fireEvent.click(screen.getByText('➕ Crear tercero nuevo'));
+    expect(screen.getByLabelText('Nombre')).toHaveValue('');
     expect(screen.getByLabelText('Teléfono')).toHaveValue('3213795458');
+  });
+
+  it('si el tercero asignado ya no está en la lista lo dice en vez de inventar una ficha', async () => {
+    localStorage.setItem('finsys_session', JSON.stringify(SESION));
+    const conAsignado = { ...BORRADOR, payload: { ...BORRADOR.payload,
+      third_party: { id: 99, identification_type: 'CC', identification_number: '777', name: 'Fantasma' } } };
+    stubFetch(llamadas, { borrador: conAsignado });
+    render(<TelegramTerceroApp />);
+    await screen.findByText('Borrador #507');
+    expect(await screen.findByText(/ya no existe/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Ficha de Fantasma/ })).not.toBeInTheDocument();
   });
 
   it('con un borrador ajeno o inexistente explica el error', async () => {

@@ -610,3 +610,19 @@ reenvía al chat el resumen actualizado con sus botones (latencia ≤ 45 s). El 
 - Si el documento ya es de otra ficha: **`409 {"codigo":"existe","detail":"Ese documento ya pertenece a «X» (CC N).","tercero":{id,name,identification_type,identification_number,email,phone}}`**.
   El sistema informa, nunca pisa ni duplica (D-09I-08); el formulario ofrece «Usar esa ficha».
 - Respuesta `200`: `{id, name, identification_type, identification_number, provisional, status:"CREADO"}`.
+- Tipo de documento fuera del catálogo (`NIT|CC|CE|PP`), valor que no es texto o que no cabe en la tabla → `422` (antes 500 crudo).
+  El `tercero` del 409 trae la ficha completa (`email, phone, website, address`).
+
+### `PUT /api/third-parties/{tp_id}` (admin) — mismo contrato que el POST (revisión 1-oct)
+Edición deliberada de la ficha (panel Terceros y Mini App). Solo entran los campos presentes en el cuerpo, recortados.
+`identification_number` vacío o `999999999` → `400`; documento de otra ficha → `409 {codigo:"existe", tercero}`;
+tipo fuera del catálogo o valor demasiado largo → `422`; id inexistente → `404`; nombre vacío → `400`. Respuesta `200 {status:"OK", updated:true}`.
+
+### Confirmar un borrador con la ficha vigente
+`bot_driver._ejecutar_confirmacion` relee la ficha por `payload.third_party.id` antes de registrar la transacción: si el documento o el
+nombre cambiaron después de asignarla (p. ej. un provisional `SN-` formalizado desde la Mini App) mandan los datos vigentes y no nace otra ficha.
+`DELETE /api/third-parties/{id}` cruza los borradores abiertos también por `payload.third_party.id`.
+
+### `tg.html` en Telegram Web
+`frontend/nginx.conf` sirve `/tg.html` con `Content-Security-Policy: frame-ancestors 'self' https://web.telegram.org https://webk.telegram.org https://webz.telegram.org`
+en lugar del `X-Frame-Options: SAMEORIGIN` global, para que Telegram Web (iframe) también la abra.

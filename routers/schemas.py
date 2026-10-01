@@ -15,7 +15,9 @@ class PortfolioInput(BaseModel):
     sub_industry_type: str = ""
 
 class ThirdPartyInput(BaseModel):
-    identification_type: str = Field(..., pattern="^(NIT|CC)$")
+    # Etapa 09.I: la web y la Mini App ofrecen CE y PP desde siempre; con el
+    # patrón viejo un tercero CE dejaba el borrador en ERROR al confirmar.
+    identification_type: str = Field(..., pattern="^(NIT|CC|CE|PP)$")
     identification_number: str
     name: str
     email: Optional[str] = None

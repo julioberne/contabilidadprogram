@@ -5,40 +5,56 @@
    del ContextPanel: hoy la abre la Mini App de Telegram.
 
    Guardar = PUT /api/third-parties/{id} (edición deliberada de la
-   ficha, D-09I-08). Eliminar = DELETE /api/third-parties/{id}, que
-   responde 409 si el tercero tiene historia (transacciones/cartera).
+   ficha, D-09I-08). Si el documento escrito ya es de otra ficha el
+   servidor responde 409 y aquí se ofrece «Usar esa ficha». Un
+   provisional (SN-…) conserva su número mientras no se escriba otro.
+   Eliminar = DELETE /api/third-parties/{id}, que responde 409 si el
+   tercero tiene historia (transacciones/cartera/borradores).
    ============================================================ */
 import { useState } from 'react';
 import { API } from '../../config';
 import TerceroMediosPago from './TerceroMediosPago';
 
 const TIPOS = ['NIT', 'CC', 'CE', 'PP'];
+const esProvisional = (num) => (num || '').startsWith('SN-');
 
-export default function TerceroFicha({ tercero, onGuardado, onEliminado, onCerrar }) {
+export default function TerceroFicha({ tercero, onGuardado, onEliminado, onCerrar, onUsarExistente }) {
   const [f, setF] = useState({
     name: tercero.name || '', identification_type: tercero.identification_type || 'CC',
-    identification_number: tercero.identification_number || '', email: tercero.email || '',
-    phone: tercero.phone || '', address: tercero.address || '', website: tercero.website || '',
+    // El SN- no se muestra: el campo queda libre para escribir el documento real
+    identification_number: esProvisional(tercero.identification_number) ? '' : (tercero.identification_number || ''),
+    email: tercero.email || '', phone: tercero.phone || '', address: tercero.address || '', website: tercero.website || '',
   });
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState('');
   const [error, setError] = useState('');
+  const [existe, setExiste] = useState(null);   // {mensaje, tercero} tras un 409
 
-  const provisional = (f.identification_number || '').startsWith('SN-');
+  const provisional = esProvisional(tercero.identification_number) && f.identification_number.trim() === '';
   const campo = (k) => (e) => setF({ ...f, [k]: e.target.value });
 
   const guardar = async () => {
     if (!f.name.trim()) { setError('El nombre es obligatorio.'); return; }
-    setGuardando(true); setError(''); setAviso('');
+    setGuardando(true); setError(''); setAviso(''); setExiste(null);
+    const num = f.identification_number.trim();
+    const cuerpo = {
+      name: f.name.trim(), identification_type: f.identification_type,
+      // vacío → se conserva el número que tenía (el SN- del provisional, o el real)
+      identification_number: num || tercero.identification_number,
+      email: f.email.trim(), phone: f.phone.trim(), address: f.address.trim(), website: f.website.trim(),
+    };
     try {
       const r = await fetch(`${API}/third-parties/${tercero.id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...f, name: f.name.trim() }),
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo),
       });
-      const cuerpo = await r.json().catch(() => ({}));
-      if (!r.ok) { setError(cuerpo.detail || 'No se pudo guardar la ficha.'); return; }
+      const resp = await r.json().catch(() => ({}));
+      if (r.status === 409 && resp.codigo === 'existe') {
+        setExiste({ mensaje: resp.detail, tercero: resp.tercero });
+        return;
+      }
+      if (!r.ok) { setError(resp.detail || 'No se pudo guardar la ficha.'); return; }
       setAviso('Ficha guardada.');
-      onGuardado?.({ ...tercero, ...f, name: f.name.trim() });
+      onGuardado?.({ ...tercero, ...cuerpo });
     } catch {
       setError('Sin conexión con el servidor.');
     } finally {
@@ -51,8 +67,8 @@ export default function TerceroFicha({ tercero, onGuardado, onEliminado, onCerra
     setError(''); setAviso('');
     try {
       const r = await fetch(`${API}/third-parties/${tercero.id}`, { method: 'DELETE' });
-      const cuerpo = await r.json().catch(() => ({}));
-      if (!r.ok) { setError(cuerpo.detail || 'No se pudo eliminar.'); return; }
+      const resp = await r.json().catch(() => ({}));
+      if (!r.ok) { setError(resp.detail || 'No se pudo eliminar.'); return; }
       onEliminado?.(tercero);
     } catch {
       setError('Sin conexión con el servidor.');
@@ -80,14 +96,24 @@ export default function TerceroFicha({ tercero, onGuardado, onEliminado, onCerra
         <select value={f.identification_type} onChange={campo('identification_type')} aria-label="Tipo de documento" className={input}>
           {TIPOS.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
-        <input type="text" inputMode="numeric" value={provisional ? '' : f.identification_number}
-          onChange={campo('identification_number')} placeholder={provisional ? 'Número de documento' : 'Número'}
-          aria-label="Número de documento" className={`${input} col-span-2`} />
+        <input type="text" inputMode="numeric" value={f.identification_number} onChange={campo('identification_number')}
+          placeholder="Número de documento" aria-label="Número de documento" className={`${input} col-span-2`} />
       </div>
       <input type="tel" value={f.phone} onChange={campo('phone')} placeholder="Celular / teléfono de contacto" aria-label="Teléfono" className={input} />
       <input type="email" value={f.email} onChange={campo('email')} placeholder="Email" aria-label="Email" className={input} />
       <input type="text" value={f.address} onChange={campo('address')} placeholder="Dirección" aria-label="Dirección" className={input} />
       <input type="text" value={f.website} onChange={campo('website')} placeholder="Sitio web" aria-label="Sitio web" className={input} />
+      {existe && (
+        <div role="status" className="border-2 border-black bg-brutalAmber p-2 text-xs font-mono space-y-1">
+          <div>{existe.mensaje}</div>
+          {existe.tercero && onUsarExistente && (
+            <button type="button" onClick={() => onUsarExistente(existe.tercero)}
+              className="w-full border-2 border-black bg-white px-2 py-1 text-xs font-bold uppercase hover:bg-black hover:text-white">
+              Usar esa ficha
+            </button>
+          )}
+        </div>
+      )}
       {aviso && <div role="status" className="text-xs text-green-700 font-mono">{aviso}</div>}
       {error && <div role="alert" className="text-xs text-red-600 font-mono">{error}</div>}
       <div className="flex gap-1">

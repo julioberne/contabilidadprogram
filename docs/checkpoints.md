@@ -1164,7 +1164,19 @@ componentes compartidos `TerceroForm`/`TerceroFicha`. Decisiones de simplicidad:
 backend (sesión web), sin compose, sin `database_driver.py`, aviso al chat por el poller. Verificado: 96
 tests puros + 6 con BD (cola de chat 'whatsapp' para que el poller real no los vea), 83 vitest, build con
 `dist/tg.html` y carga inicial igual (295 KB), lint limpio en los archivos nuevos (195 errores previos del
-proyecto, ajenos). Pendiente: push de Andrés, deploy, prueba real CA-09I-01.
+proyecto, ajenos). Verificado también en el navegador contra la API real (servidor propio en :8002 porque
+:8000/:8001 los ocupaban servidores de otra sesión con código viejo): borrador #507 y ficha #224 con su medio.
+
+### Revisión adversarial de la Mini App v1 (1-oct, 26 agentes, 27 min)
+Tres dimensiones (seguridad/API, bot+BD compartida, frontend) y un escéptico por hallazgo: 16 confirmados,
+7 descartados. Corregidos todos en el mismo día: `_tercero_vigente` al confirmar (formalizar un provisional ya
+asignado creaba otra ficha); `PUT /api/third-parties/{id}` con el contrato del POST (409 «existe», 400 vacío o
+genérico, 404, 422 tipo/longitud) y validación de tipo/longitud en el POST; `ThirdPartyInput` admite CE/PP;
+`uso_de_tercero` cruza borradores por id; tick `avisar_chat_pendientes` atómico (UPDATE … RETURNING) y sin contar
+envíos fallidos; `frame-ancestors` para Telegram Web; pantalla: fichas siempre completas, re-sincroniza el
+borrador al guardar la ficha asignada, avisa si el asignado fue eliminado, no prellena dígitos como nombre,
+aria-labels; `test_bot_etapa_e` excluye el dato `webapp:`. Tests: 130 puros, 16 con BD, 90 vitest, build OK.
+Pendiente: push de Andrés, deploy, prueba real CA-09I-01.
 
 ### Pendiente al cierre
 Prueba real CA-09G-13 (Andrés, en su chat): responder de nuevo al #237 —su concepto quedó

@@ -1767,7 +1767,7 @@ def _ejecutar_confirmacion(conn, cur, draft_id, payload, media_path,
         concept=payload["concept"],
         payment_method=payload["payment_method"],
         category=payload["category"],
-        third_party=payload["third_party"],
+        third_party=_tercero_vigente(cur, payload["third_party"]),
         transaction_date=payload["transaction_date"],
         apply_iva=bool(payload.get("apply_iva")),
         apply_gmf=bool(payload.get("apply_gmf")),
@@ -1981,7 +1981,7 @@ def avisar_chat_pendientes(send_fn, conn=None, limite=20, canal="telegram") -> i
     try:
         cur = conn.cursor()
         cur.execute("""
-            SELECT d.id, d.payload, l.chat_id, l.id
+            SELECT d.id, l.chat_id, l.id
               FROM transaction_drafts d
               JOIN bot_chat_links l ON l.id = d.chat_link_id
              WHERE d.status = 'BORRADOR' AND l.status = 'ACTIVO' AND l.channel = %s
@@ -1989,18 +1989,32 @@ def avisar_chat_pendientes(send_fn, conn=None, limite=20, canal="telegram") -> i
              ORDER BY d.id LIMIT %s
         """, (canal, int(limite)))
         filas = cur.fetchall()
-        for did, payload, chat_id, link_id in filas:
-            payload = payload if isinstance(payload, dict) else json.loads(payload)
-            cur.execute("UPDATE transaction_drafts SET payload = payload - 'avisar_chat' WHERE id = %s", (did,))
+        for did, chat_id, link_id in filas:
+            # Quitar la marca y leer el payload en UNA sentencia: si el humano
+            # volvió a editar entre el SELECT y aquí, se envía la versión más
+            # reciente y no se pierde ningún aviso (revisión 1-oct).
+            cur.execute("""
+                UPDATE transaction_drafts SET payload = payload - 'avisar_chat'
+                 WHERE id = %s AND status = 'BORRADOR' AND payload->>'avisar_chat' = 'true'
+             RETURNING payload
+            """, (did,))
+            fila = cur.fetchone()
             conn.commit()
+            if not fila:
+                continue
+            payload = fila[0] if isinstance(fila[0], dict) else json.loads(fila[0])
             try:
-                payload.pop("avisar_chat", None)
                 pendiente = _medio_pendiente(cur, payload)
                 texto = ("✏️ Borrador actualizado desde la ficha del tercero.\n\n"
                          + render_summary(did, payload))
                 mid = send_fn(chat_id, texto, _botones_con_medio(did, pendiente))
-                if mid:
-                    guardar_summary_message_id(did, mid)
+                if not mid:
+                    # El adaptador devuelve None ante un error de Telegram: no se
+                    # cuenta ni se audita como enviado; la marca ya se quitó (el
+                    # humano puede reabrir la ficha) y no se reintenta en bucle.
+                    print(f"⚠️ [BOT] el aviso del borrador #{did} no salió (Telegram devolvió error).")
+                    continue
+                guardar_summary_message_id(did, mid)
                 log_outbound("telegram", chat_id, texto, chat_link_id=link_id, draft_id=did)
                 conn.commit()
                 n += 1
@@ -2021,6 +2035,29 @@ def avisar_chat_pendientes(send_fn, conn=None, limite=20, canal="telegram") -> i
         if propia:
             put_conn(conn)
     return n
+
+
+def _tercero_vigente(cur, tp):
+    """Etapa 09.I: el borrador guarda el `id` de la ficha. Si la ficha cambió
+    después de asignarla (documento formalizado o nombre corregido en la Mini
+    App o en la web), al confirmar mandan los datos VIGENTES de third_parties:
+    `_asegurar_tercero` resuelve solo por número y con el número viejo (un
+    `SN-…` que ya no existe) crearía OTRA ficha. El contacto dictado
+    (phone/email/address) del payload se conserva. Sin id, o si la ficha ya no
+    existe, se devuelve tal cual (comportamiento anterior)."""
+    tp = dict(tp or {})
+    tp_id = tp.get("id")
+    if not tp_id:
+        return tp
+    try:
+        cur.execute("SELECT identification_type, identification_number, name "
+                    "FROM third_parties WHERE id = %s", (tp_id,))
+        fila = cur.fetchone()
+    except Exception:
+        return tp
+    if fila:
+        tp["identification_type"], tp["identification_number"], tp["name"] = fila[0], fila[1], fila[2]
+    return tp
 
 
 def _cuenta_existente(cur, account_id):

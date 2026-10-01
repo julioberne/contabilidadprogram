@@ -76,7 +76,9 @@ def mensaje_en_uso(nombre, uso) -> str:
 def uso_de_tercero(cur, tp_id, numero) -> dict:
     """Cuánta historia tiene el tercero. → {"transacciones", "cartera",
     "inventario": int, "borradores": [ids abiertos que lo nombran]}.
-    Los borradores lo referencian por documento (payload.third_party), no por id."""
+    Los borradores lo referencian por documento (payload.third_party) y, desde
+    la etapa 09.I, también por `id` (así el cruce sobrevive a que el documento
+    de la ficha cambie después de asignarla)."""
     cur.execute("""
         SELECT (SELECT COUNT(*) FROM transactions WHERE third_party_id = %(id)s),
                (SELECT COUNT(*) FROM cxp_cxc_ledger WHERE third_party_id = %(id)s),
@@ -84,8 +86,9 @@ def uso_de_tercero(cur, tp_id, numero) -> dict:
                (SELECT COALESCE(array_agg(id ORDER BY id), '{}')
                   FROM transaction_drafts
                  WHERE status IN %(abiertos)s
-                   AND payload->'third_party'->>'identification_number' = %(numero)s)
-    """, {"id": tp_id, "numero": str(numero), "abiertos": ESTADOS_BORRADOR_ABIERTO})
+                   AND (payload->'third_party'->>'identification_number' = %(numero)s
+                        OR payload->'third_party'->>'id' = %(id_txt)s))
+    """, {"id": tp_id, "id_txt": str(tp_id), "numero": str(numero), "abiertos": ESTADOS_BORRADOR_ABIERTO})
     txs, cartera, inventario, borradores = cur.fetchone()
     return {"transacciones": int(txs), "cartera": int(cartera), "inventario": int(inventario),
             "borradores": [int(b) for b in (borradores or [])]}

@@ -139,6 +139,32 @@ class TestAvisoAlChat(_Base):
         self.assertEqual(self.bot.avisar_chat_pendientes(send_roto, canal="whatsapp"), 0)
         self.assertNotIn("avisar_chat", self._payload()[0])   # la marca ya no está: no se reintenta solo
 
+    def test_telegram_devuelve_none_no_cuenta_como_enviado(self):
+        """El adaptador real no lanza: devuelve None ante un error de Telegram."""
+        self.bot.marcar_aviso_chat(self.draft_id, hub_user_id=self.uid)
+        self.assertEqual(self.bot.avisar_chat_pendientes(lambda *a, **k: None, canal="whatsapp"), 0)
+        payload, mid = self._payload()
+        self.assertNotIn("avisar_chat", payload)
+        self.assertEqual(str(mid), f"m-{self.sufijo}")        # el resumen vigente no cambió
+        conn = get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM bot_messages WHERE chat_link_id = %s AND direction = 'OUT'", (self.link_id,))
+            self.assertEqual(cur.fetchone()[0], 0)              # nada se audita como enviado
+        finally:
+            put_conn(conn)
+
+    def test_la_segunda_edicion_no_se_pierde(self):
+        """Revisión 1-oct: la marca se quita y el payload se lee en una sola sentencia,
+        así que si el humano edita de nuevo antes del envío, sale la versión más reciente."""
+        self.bot.marcar_aviso_chat(self.draft_id, hub_user_id=self.uid)
+        self.bot.editar_draft(self.draft_id, {"concept": "segunda edición"}, hub_user_id=self.uid)
+        self.bot.marcar_aviso_chat(self.draft_id, hub_user_id=self.uid)
+        textos = []
+        self.assertEqual(self.bot.avisar_chat_pendientes(lambda c, t, b=None: textos.append(t) or 5, canal="whatsapp"), 1)
+        self.assertIn("segunda edición", textos[0])
+        self.assertEqual(self.bot.avisar_chat_pendientes(lambda c, t, b=None: 6, canal="whatsapp"), 0)
+
 
 class TestRouter(_Base):
 
@@ -185,6 +211,61 @@ class TestRouter(_Base):
         self.assertEqual(cuerpo["tercero"]["id"], r1.json()["id"])
         self.assertIn("ya pertenece", cuerpo["detail"])
         self.assertIn(self._nombre("Dueña"), cuerpo["detail"])
+
+    def test_editar_la_ficha_con_el_contrato_del_post(self):
+        numero = "9" + self.sufijo[1:].encode().hex()[:9]
+        a = self.client.post("/api/third-parties", json={"name": self._nombre("Dueña"), "identification_type": "CC",
+                                                         "identification_number": numero}).json()
+        self.terceros.append(a["id"])
+        b = self.client.post("/api/third-parties", json={"name": self._nombre("Provisional")}).json()
+        self.terceros.append(b["id"])
+        # documento de otra ficha → 409 con la ficha completa (nunca 500 crudo)
+        r = self.client.put(f"/api/third-parties/{b['id']}", json={"identification_number": numero})
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertEqual(r.json()["tercero"]["id"], a["id"])
+        self.assertIn("address", r.json()["tercero"])
+        # vacío y genérico → 400; tipo fuera del catálogo → 422
+        self.assertEqual(self.client.put(f"/api/third-parties/{b['id']}", json={"identification_number": "  "}).status_code, 400)
+        self.assertEqual(self.client.put(f"/api/third-parties/{b['id']}", json={"identification_number": "999999999"}).status_code, 400)
+        self.assertEqual(self.client.put(f"/api/third-parties/{b['id']}", json={"identification_type": "PASAPORTE_X"}).status_code, 422)
+        # formalizar el provisional con un número nuevo, recortado
+        r = self.client.put(f"/api/third-parties/{b['id']}", json={"identification_number": f" {numero}1 ", "identification_type": "cc"})
+        self.assertEqual(r.status_code, 200, r.text)
+        conn = get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT identification_number, identification_type FROM third_parties WHERE id = %s", (b["id"],))
+            self.assertEqual(cur.fetchone(), (f"{numero}1", "CC"))
+            conn.rollback()
+        finally:
+            put_conn(conn)
+        # id inexistente → 404
+        self.assertEqual(self.client.put("/api/third-parties/999999999", json={"name": "x"}).status_code, 404)
+        # el POST también rechaza tipos y tamaños que antes acababan en 500
+        self.assertEqual(self.client.post("/api/third-parties", json={"name": "x", "identification_type": ["CC"]}).status_code, 422)
+        self.assertEqual(self.client.post("/api/third-parties", json={"name": "n" * 101}).status_code, 422)
+
+    def test_confirmar_usa_la_ficha_vigente(self):
+        """Formalizar el documento de un provisional ya asignado: al confirmar
+        mandan los datos vigentes de la ficha (no nace otra con el SN- viejo)."""
+        b = self.client.post("/api/third-parties", json={"name": self._nombre("Formal")}).json()
+        self.terceros.append(b["id"])
+        numero = "8" + self.sufijo[1:].encode().hex()[:9]
+        self.client.put(f"/api/third-parties/{b['id']}", json={"identification_number": numero})
+        conn = get_conn()
+        try:
+            cur = conn.cursor()
+            tp = self.bot._tercero_vigente(cur, {"id": b["id"], "identification_type": "CC",
+                                                  "identification_number": b["identification_number"],
+                                                  "name": "viejo", "phone": "3000000000"})
+            self.assertEqual((tp["identification_number"], tp["name"], tp["phone"]),
+                             (numero, self._nombre("Formal"), "3000000000"))
+            # sin id o con una ficha inexistente, se devuelve tal cual
+            self.assertEqual(self.bot._tercero_vigente(cur, {"name": "x"}), {"name": "x"})
+            self.assertEqual(self.bot._tercero_vigente(cur, {"id": 999999999, "name": "x"})["name"], "x")
+            conn.rollback()
+        finally:
+            put_conn(conn)
 
     def test_leer_borrador_y_editarlo_con_aviso(self):
         r = self.client.get(f"/api/bot/drafts/{self.draft_id}")
