@@ -271,6 +271,8 @@ class TestBotones(unittest.TestCase):
         self.assertIn("tp:123456", datas)
         self.assertIn("cpt:123456", datas)
         for d in datas:
+            if d.startswith("webapp:"):      # botón web_app (etapa 09.I): lleva URL, no callback
+                continue
             self.assertLessEqual(len(d.encode()), 64)
 
     def test_botones_terceros_muestran_documento_crear_y_volver(self):

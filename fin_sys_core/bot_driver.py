@@ -27,8 +27,13 @@ InboundMessage = {
 """
 import hashlib
 import json
+import os
 import re
 import time
+
+# Etapa 09.I — Mini App de Telegram: base pública HTTPS donde vive la web
+# (Telegram exige HTTPS en los botones web_app). Sin variable, producción.
+WEBAPP_BASE = os.environ.get("FINSYS_PUBLIC_URL", "https://finsys-andres.duckdns.org").rstrip("/")
 
 # Fuente ÚNICA de inferencia — compartida con la Ingestión por Voz de la web
 from draft_builder import (          # noqa: F401  (re-exportadas para tests)
@@ -499,6 +504,10 @@ def _botones_borrador(draft_id: int):
         # Etapa 09.G: completar el borrador sin salir del chat (Regla 6b: el
         # tercero sale de third_parties o lo crea el humano; nada se adivina)
         [("👤 Tercero", f"tp:{draft_id}"), ("📝 Concepto", f"cpt:{draft_id}")],
+        # Etapa 09.I: la Mini App de Telegram abre la MISMA ficha de la web
+        # (buscar/crear/editar/eliminar el tercero y sus medios de pago). El
+        # dato `webapp:<url>` lo traduce el adaptador a un botón web_app.
+        [("📝 Completar tercero", f"webapp:{WEBAPP_BASE}/tg.html?draft={draft_id}")],
         [("💤 Dejar en borrador", f"hold:{draft_id}")],
     ]
 
@@ -1929,6 +1938,89 @@ def editar_draft(draft_id: int, cambios: dict, hub_user_id=None) -> dict:
         }
     finally:
         put_conn(conn)
+
+
+def marcar_aviso_chat(draft_id: int, hub_user_id=None) -> bool:
+    """La Mini App (o la bandeja web) cambió el borrador: el poller reenvía el
+    resumen al chat en su siguiente vuelta (etapa 09.I, Mini App v1: el backend
+    no habla con Telegram; el único emisor sigue siendo el poller, D-09F-01).
+    Deja la marca en payload.avisar_chat. → True si el borrador era editable
+    y quedó marcado."""
+    from db_pool import get_conn, put_conn
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE transaction_drafts
+               SET payload = payload || '{"avisar_chat": true}'::jsonb
+             WHERE id = %s AND status IN ('BORRADOR', 'ERROR')
+               AND (%s::uuid IS NULL OR user_id = %s)
+        """, (draft_id, str(hub_user_id) if hub_user_id else None,
+              str(hub_user_id) if hub_user_id else None))
+        ok = cur.rowcount == 1
+        conn.commit()
+        cur.close()
+        return ok
+    finally:
+        put_conn(conn)
+
+
+def avisar_chat_pendientes(send_fn, conn=None, limite=20, canal="telegram") -> int:
+    """Tick del poller (etapa 09.I): reenvía al chat el resumen de los borradores
+    marcados con payload.avisar_chat (editados desde la Mini App). La marca se
+    quita ANTES de enviar: un fallo de Telegram no reenvía en bucle (el humano
+    sigue viendo el borrador en la bandeja y puede volver a abrir la ficha).
+    `canal` acota a los chats de ese canal (los tests con BD usan 'whatsapp':
+    la BD es compartida y el poller real solo atiende 'telegram').
+    Jamás lanza (patrón de bot_sms.procesar_pendientes). → cuántos avisó."""
+    from db_pool import get_conn, put_conn
+    propia = conn is None
+    if propia:
+        conn = get_conn()
+    n = 0
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT d.id, d.payload, l.chat_id, l.id
+              FROM transaction_drafts d
+              JOIN bot_chat_links l ON l.id = d.chat_link_id
+             WHERE d.status = 'BORRADOR' AND l.status = 'ACTIVO' AND l.channel = %s
+               AND d.payload->>'avisar_chat' = 'true'
+             ORDER BY d.id LIMIT %s
+        """, (canal, int(limite)))
+        filas = cur.fetchall()
+        for did, payload, chat_id, link_id in filas:
+            payload = payload if isinstance(payload, dict) else json.loads(payload)
+            cur.execute("UPDATE transaction_drafts SET payload = payload - 'avisar_chat' WHERE id = %s", (did,))
+            conn.commit()
+            try:
+                payload.pop("avisar_chat", None)
+                pendiente = _medio_pendiente(cur, payload)
+                texto = ("✏️ Borrador actualizado desde la ficha del tercero.\n\n"
+                         + render_summary(did, payload))
+                mid = send_fn(chat_id, texto, _botones_con_medio(did, pendiente))
+                if mid:
+                    guardar_summary_message_id(did, mid)
+                log_outbound("telegram", chat_id, texto, chat_link_id=link_id, draft_id=did)
+                conn.commit()
+                n += 1
+            except Exception as e:
+                print(f"⚠️ [BOT] aviso del borrador #{did} falló: {e}")
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+        cur.close()
+    except Exception as e:
+        print(f"⚠️ [BOT] tick de avisos falló: {e}")
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        if propia:
+            put_conn(conn)
+    return n
 
 
 def _cuenta_existente(cur, account_id):

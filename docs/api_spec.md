@@ -586,3 +586,27 @@ Objeto `medio`: `{ id, third_party_id, tipo, valor, banco, etiqueta, origen, cre
 ### `DELETE /api/third-parties/{tp_id}` (admin)
 - **Respuestas**: `200 {"status":"ELIMINADO","id","name"}` (sus medios de pago `third_party_accounts` caen en cascada) · `404` no existe · `409` es el genérico `999999999` («Sin especificar») · `409` tiene historia: el `detail` dice cuánta, p. ej. `No se puede eliminar a «X»: tiene 18 transacciones y 1 cuenta de cartera (CXC/CXP). …`.
 - **Historia** = transacciones, cuentas de cartera (CXC/CXP), movimientos de inventario (el FK los dejaría en NULL en silencio) y **borradores abiertos del bot** (`transaction_drafts` en `BORRADOR`/`PROCESANDO`/`ERROR` cuyo `payload.third_party.identification_number` es el suyo: al confirmarse, el tercero reaparecería solo). Todo en una transacción con la fila bloqueada (`FOR UPDATE`).
+
+## 8. Mini App de Telegram (09.I v1) — borrador + ficha del tercero desde el chat
+
+La Mini App es la misma web (`frontend/tg.html` → `src/tg/`), abierta dentro de Telegram por el botón
+`📝 Completar tercero` de cada borrador (`web_app` con URL `https://finsys-andres.duckdns.org/tg.html?draft=N`).
+Usa la **misma sesión** de la web (`POST /api/hub/users/login`, token Bearer) y los endpoints existentes de
+terceros (`GET /api/third-parties`, `PUT`, `DELETE`, `…/accounts*`). Lo nuevo:
+
+### `GET /api/bot/drafts/{draft_id}` (sesión) → borrador del usuario actual
+Mismos campos que la bandeja (`GET /api/bot/drafts`) más `chat_channel` (canal del chat al que pertenece) y
+`editable` (`true` si está en BORRADOR o ERROR). `404` si no existe o no es del usuario.
+
+### `PUT /api/bot/drafts/{draft_id}` (sesión) — campo nuevo `avisar_chat`
+Igual que antes (`editar_draft`, sin LLM). Con `"avisar_chat": true` en el cuerpo, además deja la marca
+`payload.avisar_chat` y la respuesta trae `"avisar_chat": true`. El **poller** (único proceso que habla con
+Telegram, D-09F-01) la recoge en su siguiente vuelta (`bot_driver.avisar_chat_pendientes`), quita la marca y
+reenvía al chat el resumen actualizado con sus botones (latencia ≤ 45 s). El backend NO necesita el token del bot.
+
+### `POST /api/third-parties` (admin) — cambios de 09.I
+- Sin `identification_number` (o vacío) el tercero nace **provisional** `SN-<epoch ms hex>`; antes se guardaba
+  `''` y el segundo tercero sin número chocaba con el UNIQUE y salía como un 500 crudo.
+- Si el documento ya es de otra ficha: **`409 {"codigo":"existe","detail":"Ese documento ya pertenece a «X» (CC N).","tercero":{id,name,identification_type,identification_number,email,phone}}`**.
+  El sistema informa, nunca pisa ni duplica (D-09I-08); el formulario ofrece «Usar esa ficha».
+- Respuesta `200`: `{id, name, identification_type, identification_number, provisional, status:"CREADO"}`.

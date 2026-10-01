@@ -4,9 +4,12 @@
 PROCESO ÚNICO por token: Telegram devuelve 409 Conflict si dos consumidores
 hacen getUpdates a la vez. Por eso:
   - En producción corre como servicio `bot` del docker-compose (misma imagen
-    del backend, command distinto) con SU PROPIO token de producción.
-  - En desarrollo se usa OTRO bot (token de dev en .env local):
-        .venv\\Scripts\\python.exe fin_sys_core\\bot_telegram.py
+    del backend, command distinto).
+  - El token es EL MISMO en local y en producción (decisión de Andrés,
+    22-sep-2026): NO se lanza este poller en local — chocaría con el
+    contenedor de producción. El bot se prueba con los tests
+    (bot_driver.handle_message / handle_callback) y, en el chat real, tras
+    el deploy.
 
 El adaptador es deliberadamente delgado: normaliza el update entrante,
 descarga la nota de voz si la hay, delega TODO en bot_driver.handle_message()
@@ -45,13 +48,21 @@ _AUDIO_EXTS = {"ogg", "opus", "mp3", "m4a", "wav", "webm", "flac"}
 
 
 def _markup(buttons):
-    """Botonera canal-agnóstica [(label, data)…] → InlineKeyboardMarkup."""
+    """Botonera canal-agnóstica [(label, data)…] → InlineKeyboardMarkup.
+    Un dato `webapp:<url https>` (etapa 09.I) se vuelve un botón web_app que
+    abre la Mini App dentro de Telegram; el resto es callback_data (≤ 64 B)."""
     if buttons is None:
         return None
-    return {"inline_keyboard": [
-        [{"text": lbl, "callback_data": data[:64]} for lbl, data in fila]
-        for fila in buttons
-    ]}
+    filas = []
+    for fila in buttons:
+        botones = []
+        for lbl, data in fila:
+            if isinstance(data, str) and data.startswith("webapp:"):
+                botones.append({"text": lbl, "web_app": {"url": data[len("webapp:"):]}})
+            else:
+                botones.append({"text": lbl, "callback_data": data[:64]})
+        filas.append(botones)
+    return {"inline_keyboard": filas}
 
 
 def send_message(chat_id: str, text: str, buttons=None):
@@ -308,6 +319,15 @@ def main():
                     print(f"📲 [TG] {n_sms} SMS convertido(s) en borrador.")
             except Exception as e:
                 print(f"⚠️ [TG] tick SMS falló (se reintenta): {e}")
+
+            # ── Mini App de Telegram (etapa 09.I): borradores editados desde
+            # la ficha → el poller reenvía el resumen con sus botones ────────
+            try:
+                n_av = bot_driver.avisar_chat_pendientes(send_message)
+                if n_av:
+                    print(f"✏️ [TG] {n_av} borrador(es) reenviado(s) tras editarlos en la Mini App.")
+            except Exception as e:
+                print(f"⚠️ [TG] tick de avisos de la Mini App falló (se reintenta): {e}")
 
             # ── Retención 30/60/90 (Regla 6b): una vez por hora ───────────
             if time.monotonic() >= proximo_purga:

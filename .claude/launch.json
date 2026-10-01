@@ -15,6 +15,21 @@
       "url": "http://localhost:8000"
     },
     {
+      "name": "finsys-backend-tg",
+      "runtimeExecutable": ".venv\\Scripts\\python.exe",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "server:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8002"
+      ],
+      "port": 8002,
+      "autoPort": false
+    },
+    {
       "name": "finsys-backend-verify",
       "runtimeExecutable": ".venv\\Scripts\\python.exe",
       "runtimeArgs": [

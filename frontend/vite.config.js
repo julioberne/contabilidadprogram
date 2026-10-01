@@ -13,6 +13,10 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
+      // Etapa 09.I: segunda página, la Mini App de Telegram (tg.html). No
+      // entra en la carga inicial de index.html (la guardia de peso del CI
+      // mide solo lo que precarga index.html).
+      input: { main: 'index.html', tg: 'tg.html' },
       output: {
         // Rolldown (Vite 8): advancedChunks es el mecanismo NATIVO — el shim
         // de manualChunks ignoraba módulos alcanzados estáticamente por el

@@ -1152,6 +1152,20 @@ sí. Al reactivarla y con el disparador cambiado a "Notificación recibida" de M
 reenviar los parámetros). El texto mágico de MacroDroid se inserta con el botón «…» y solo en el campo del
 contenido. Siguiente decisión: MacroDroid Pro (pago único) o migrar a SMS to URL Forwarder (F-Droid).
 
+### Mini App de Telegram 09.I v1 (1-oct, 14:30–16:00)
+Diseño con workflow de 13 agentes (4 lectores, 3 propuestas, 3 jueces, síntesis, 2 escépticos) → spec 09.I.
+Andrés decidió: Mini App ya, simple, modular, conectada a la web, con el mismo formulario; catálogo de
+entidades ampliado; nunca renombrar en silencio (todo por id); terceros solo con nombre válidos.
+Construido: etapa 0 (rama del 🗑 integrada con `git apply --3way`, solo chocó CHECKLIST.md; docstring del
+token corregida); backend `GET /api/bot/drafts/{id}`, `PUT` con `avisar_chat`, `POST /api/third-parties`
+con `SN-` y 409 «existe»; bot: botón `webapp:` → `web_app` en `_markup`, tick `avisar_chat_pendientes`;
+web: entrada `tg.html` + `src/tg/` (login de la web, borrador, buscar/asignar, crear, ficha, eliminar) y
+componentes compartidos `TerceroForm`/`TerceroFicha`. Decisiones de simplicidad: sin token del bot en el
+backend (sesión web), sin compose, sin `database_driver.py`, aviso al chat por el poller. Verificado: 96
+tests puros + 6 con BD (cola de chat 'whatsapp' para que el poller real no los vea), 83 vitest, build con
+`dist/tg.html` y carga inicial igual (295 KB), lint limpio en los archivos nuevos (195 errores previos del
+proyecto, ajenos). Pendiente: push de Andrés, deploy, prueba real CA-09I-01.
+
 ### Pendiente al cierre
 Prueba real CA-09G-13 (Andrés, en su chat): responder de nuevo al #237 —su concepto quedó
 contaminado por el defecto ya corregido— con el concepto y `Tercero: … cc …`, tocar 💾 y repetir

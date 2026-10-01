@@ -390,20 +390,47 @@ def create_cartera_entry(body: dict, _admin: dict = Depends(require_admin)):
 # ── POST /api/third-parties — Crear tercero standalone ──
 @router.post("/api/third-parties")
 def create_third_party(body: dict, _admin: dict = Depends(require_admin)):
+    """Alta de tercero desde la web (panel Terceros, Cartera, Mini App de Telegram).
+
+    Etapa 09.I (1-oct-2026, D-09I-02 / D-09I-08): sin documento el tercero
+    nace provisional `SN-…` (antes se guardaba '' y el SEGUNDO tercero sin
+    número chocaba con el UNIQUE y salía como un 500 crudo); un documento que
+    ya es de otra ficha responde 409 con esa ficha — el sistema informa, nunca
+    pisa ni duplica; decide el humano («Usar esa ficha» o corregir el número).
+    """
+    import time
+    from fastapi.responses import JSONResponse
     from fin_sys_core.database_driver import get_db_connection, release_db_connection
     name = (body.get("name") or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Nombre requerido")
+    tipo = (body.get("identification_type") or "NIT").strip() or "NIT"
+    numero = str(body.get("identification_number") or "").strip() or f"SN-{int(time.time() * 1000):x}"
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("""
+            SELECT id, name, identification_type, identification_number, email, phone
+              FROM third_parties WHERE identification_number = %s
+        """, (numero,))
+        existente = cur.fetchone()
+        if existente:
+            conn.rollback()
+            cur.close()
+            release_db_connection(conn)
+            return JSONResponse(status_code=409, content={
+                "codigo": "existe",
+                "detail": f"Ese documento ya pertenece a «{existente[1]}» ({existente[2]} {existente[3]}).",
+                "tercero": {"id": existente[0], "name": existente[1],
+                            "identification_type": existente[2], "identification_number": existente[3],
+                            "email": existente[4], "phone": existente[5]},
+            })
+        cur.execute("""
             INSERT INTO third_parties (name, identification_type, identification_number,
                                        email, phone, website, address, maps_link)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
-        """, (name, body.get("identification_type", "NIT"),
-              body.get("identification_number", ""),
+        """, (name, tipo, numero,
               body.get("email", ""), body.get("phone", ""),
               body.get("website", ""), body.get("address", ""),
               body.get("maps_link", "")))
@@ -411,11 +438,18 @@ def create_third_party(body: dict, _admin: dict = Depends(require_admin)):
         conn.commit()
         cur.close()
         release_db_connection(conn)
-        return {"id": new_id, "name": name, "status": "CREADO"}
+        return {"id": new_id, "name": name, "identification_type": tipo,
+                "identification_number": numero, "provisional": numero.startswith("SN-"),
+                "status": "CREADO"}
     except Exception as e:
         if conn:
+            try: conn.rollback()
+            except Exception: pass
             try: release_db_connection(conn)
             except Exception: pass
+        if type(e).__name__ == "UniqueViolation":   # carrera entre el SELECT y el INSERT
+            return JSONResponse(status_code=409, content={
+                "codigo": "existe", "detail": "Ese documento ya pertenece a otro tercero."})
         raise HTTPException(status_code=500, detail=str(e))
 
 

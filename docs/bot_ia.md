@@ -160,3 +160,26 @@ Qué dato se guarda según el SMS: transferencia a celular → el celular; trans
 número completo de la cuenta; pago con QR → la llave; transferencia recibida o compra con tarjeta →
 el nombre tal como lo escribe el banco. Siempre por igualdad exacta; nada se guarda ni se mueve sin
 tu toque (Regla 6b).
+
+## 11. Mini App de Telegram (09.I v1): la ficha del tercero sin salir del chat
+
+Debajo de cada borrador hay un botón **📝 Completar tercero**. Al tocarlo se abre dentro de Telegram una
+pantalla de la propia web (`tg.html?draft=N`) con el borrador que llegó y el tercero:
+
+1. **Primera vez:** pide el usuario y la clave de la web (misma sesión; queda guardada en el navegador de Telegram).
+2. **Buscar y asignar:** busca por nombre, documento o celular entre las fichas existentes y toca **Asignar**.
+3. **Crear nuevo:** el mismo formulario de la web (nombre obligatorio; documento, celular, correo y dirección
+   opcionales; el celular del SMS viene prellenado). Si el documento ya es de otra ficha, la pantalla lo dice y
+   ofrece **Usar esa ficha**; nunca se crea un duplicado.
+4. **Ficha:** datos completos + medios de pago (cuentas, celulares, llaves con los que el bot reconoce al tercero
+   en los SMS) + 🗑 eliminar (solo si no tiene transacciones).
+5. Al asignar, el borrador queda editado por el mismo camino de la bandeja web y **el bot reenvía el resumen
+   actualizado al chat en su siguiente vuelta** (menos de un minuto). Cierra con «Cerrar».
+
+Cómo funciona por dentro: `bot_driver._botones_borrador` emite el dato `webapp:<url>` y `bot_telegram._markup`
+lo vuelve un botón `web_app`; `GET /api/bot/drafts/{id}` y `PUT …/drafts/{id}` con `avisar_chat`
+(`routers/bot.py`); el tick `bot_driver.avisar_chat_pendientes` en el bucle del poller. Componentes:
+`frontend/src/tg/TelegramTerceroApp.jsx`, `TerceroForm.jsx`, `TerceroFicha.jsx` (+ `TerceroMediosPago`).
+Límite conocido v1: en **Telegram Web** (navegador) la página no abre por el `X-Frame-Options: SAMEORIGIN`
+global de nginx; en las apps de Android, iOS y escritorio sí. Variable opcional del bot: `FINSYS_PUBLIC_URL`
+(base HTTPS; por defecto `https://finsys-andres.duckdns.org`).

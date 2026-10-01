@@ -118,16 +118,58 @@ def list_drafts(status: str = "BORRADOR", user: dict = Depends(require_auth)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/api/bot/drafts/{draft_id}")
+def get_draft_endpoint(draft_id: int, user: dict = Depends(require_auth)):
+    """Un borrador del usuario actual, con el chat al que pertenece (etapa 09.I:
+    lo abre la Mini App de Telegram desde el botón «📝 Completar tercero»)."""
+    try:
+        from db_pool import get_conn, put_conn
+        conn = get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT d.id, d.status, d.channel, d.portfolio_name, d.payload, d.raw_text,
+                       d.media_path, d.error, d.confirmed_transaction_id, d.created_at,
+                       d.media_paths, l.channel
+                  FROM transaction_drafts d
+                  LEFT JOIN bot_chat_links l ON l.id = d.chat_link_id
+                 WHERE d.id = %s AND d.user_id = %s
+            """, (draft_id, _uid(user)))
+            r = cur.fetchone()
+            cur.close()
+        finally:
+            put_conn(conn)
+        if not r:
+            raise HTTPException(status_code=404, detail=f"El borrador #{draft_id} no existe o no es tuyo.")
+        return {
+            "id": r[0], "status": r[1], "channel": r[2], "portfolio_name": r[3],
+            "payload": r[4], "raw_text": r[5], "media_path": r[6], "error": r[7],
+            "confirmed_transaction_id": r[8], "created_at": str(r[9]),
+            "media_paths": r[10] or ([r[6]] if r[6] else []),
+            "chat_channel": r[11], "editable": r[1] in ("BORRADOR", "ERROR"),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.put("/api/bot/drafts/{draft_id}")
 def edit_draft_endpoint(draft_id: int, cambios: dict, user: dict = Depends(require_auth)):
     """Edición determinista desde la bandeja (Etapa C) — sin LLM.
     Campos: type, amount, concept, category, payment_method, transaction_date,
-    portfolio_name, apply_iva, apply_gmf, third_party{...}. Solo BORRADOR/ERROR."""
+    portfolio_name, apply_iva, apply_gmf, third_party{...}. Solo BORRADOR/ERROR.
+    `avisar_chat: true` (etapa 09.I, Mini App): además deja la marca para que el
+    poller reenvíe el resumen actualizado al chat en su siguiente vuelta."""
     try:
-        from bot_driver import editar_draft
-        resultado = editar_draft(draft_id, cambios or {}, hub_user_id=_uid(user))
+        from bot_driver import editar_draft, marcar_aviso_chat
+        cambios = dict(cambios or {})
+        avisar = bool(cambios.pop("avisar_chat", False))
+        resultado = editar_draft(draft_id, cambios, hub_user_id=_uid(user))
         if resultado.get("error"):
             raise HTTPException(status_code=409, detail=resultado["error"])
+        if avisar:
+            resultado["avisar_chat"] = marcar_aviso_chat(draft_id, hub_user_id=_uid(user))
         return resultado
     except HTTPException:
         raise
