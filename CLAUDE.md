@@ -38,7 +38,7 @@ La sesión principal orquesta y es la **única que edita**: decide, diagnostica,
 | "¿Dónde/cómo se hace X?", resumir un archivo grande | subagente `lector` (Haiku): `archivo:línea` + resumen |
 | Tests, `health_check.py`, `npm run build`, logs largos | subagente `corredor-tests` (Haiku): solo los fallos |
 | Probar un flujo en el navegador | subagente `verificador-visual` (Sonnet): veredicto con evidencia |
-| Exploración amplia o diseño de un plan | subagentes nativos Explore / Plan |
+| Exploración amplia o diseño de un plan | subagentes nativos Explore / Plan (corren en el modelo principal: no son baratos; para ubicar algo concreto, `lector`) |
 | Cerrar un hito y soltar contexto | skill `/cerrar-hito` |
 | Contexto y cuota de esta sesión | herramienta de uso de sesión de la app (`self`) o `/context` |
 | Dudas sobre Claude Code (hooks, skills, ajustes) | subagente `claude-code-guide` |

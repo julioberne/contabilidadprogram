@@ -1,6 +1,6 @@
 ---
 name: lector
-description: Lector de código de solo lectura y bajo costo. Úsalo para preguntas como "¿dónde se hace X?", "¿qué hace esta función?", "¿quién llama a Y?" o para resumir un archivo grande sin cargarlo en la sesión principal. Devuelve archivo:línea y un resumen corto, nunca archivos completos.
+description: Úsalo de forma proactiva antes de leer un archivo de más de 300 líneas y cada vez que necesites ubicar dónde o cómo se hace algo en el código ("¿dónde se hace X?", "¿quién llama a Y?", "¿qué hace esta función?"). Lector de solo lectura y bajo costo (Haiku), más barato que Explore, que corre en el modelo principal. Devuelve archivo:línea y un resumen corto, nunca archivos completos.
 tools: Read, Grep, Glob
 model: haiku
 maxTurns: 25

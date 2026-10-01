@@ -144,6 +144,7 @@ python scripts/claude_kit/instalar.py --desinstalar
 | 3 | Corte por hito + kit automático + agente de mantenimiento | Claude | HECHO 01-oct (falta probar en sesión nueva) |
 | 4 | Medir a la semana y a las dos semanas (8.3) | agente de mantenimiento + Claude | EN CURSO (diario) |
 | 5 | Revisor externo, solo si la fase 4 lo justifica (8.4) | Decide Andrés | EN ESPERA |
+| 6 | Herramientas especializadas de construcción (sección 9) | Claude, con aprobación | PROPUESTO 01-oct |
 
 ### 8.1 Fase 1 — Pendiente de Andrés
 1. Push de la rama de la guía: `git push origin claude/multi-model-mcp-orchestration-3d985e:master`; luego `git pull --ff-only` en el checkout principal.
@@ -173,3 +174,49 @@ No hay meta de contexto *pico*: una tarea grande puede necesitarlo. Lo que debe 
 
 ### 8.4 Fase 5 — Revisor externo (solo si hace falta)
 Si tras dos semanas se sigue agotando la cuota, o se quiere una revisión independiente antes de despliegues grandes: un script `scripts/segunda_opinion.py` que envíe un diff a otro modelo (Codex, Kimi…) y devuelva hallazgos. Solo lectura, sin `.env`, sin MCP de terceros. Antes, investigar precios, calidad en código y términos de uso (no lo cubrió la investigación del 30-sep).
+
+## 9. Herramientas especializadas de construcción (investigación del 01-oct-2026)
+
+Investigación profunda con 26 fuentes y 25 afirmaciones verificadas (21 confirmadas, 4 refutadas), más inspección del repo y medición local. Estado: **PROPUESTO**, pendiente de aprobación de Andrés.
+
+**Principio.** El proceso mejora menos por sumar agentes que por dos cosas:
+1. Convertir las reglas no negociables en mecanismos que se cumplen solos (hooks `PreToolUse`, reglas de permisos). Una regla en `CLAUDE.md`, en una skill o en el prompt de un subagente es una petición; un hook o un permiso lo hace cumplir Claude Code. Límites: los hooks fallan abiertos (si el script falla, la acción sigue) y actúan por llamada de herramienta (un `.py` escrito y luego ejecutado puede esquivarlos).
+2. Pocos agentes bien acotados, creados cuando un disparador se repite, con una descripción que diga **cuándo** actuar, herramientas restringidas y modelo explícito.
+
+**Qué pieza usar para qué** (documentación oficial):
+
+| Pieza | Cuándo |
+|---|---|
+| `CLAUDE.md` / `.claude/rules/` | Lo que debe saberse siempre (un error que se repite dos veces) |
+| Skill | Un procedimiento que se repite (el mismo pegado por tercera vez). Con `disable-model-invocation: true` si tiene efectos (deploy) |
+| Subagente | Tarea lateral con salida voluminosa, o para restringir herramientas |
+| Hook | Lo que debe pasar siempre, sin pedirlo |
+| Plugin | Empaquetar para otra máquina u otro repo |
+
+**Catálogo priorizado:**
+
+| # | Pieza | Tipo | Qué hace | Estado |
+|---|---|---|---|---|
+| 1 | `guardia` | Hook `PreToolUse`, script sin modelo | Bloquea `git push`, `session_maintenance.py` sin `--check`, `bot_telegram.py` local, `scripts/migrate_*.py`, SQL de escritura en comandos, `.env` y la API de Dokploy fuera de `deploy_prod.py`; pide confirmación para `database_driver.py` y `control_tower_driver.py`; registra en `scratch/guardia.log` | PROPUESTO |
+| 2 | `lint-al-editar` | Hook `PostToolUse` | ruff (errores graves) en `.py` y eslint en `.js`/`.jsx` del archivo recién editado; devuelve los errores a Claude. Además, ruff y `npm run lint` en el CI | PROPUESTO |
+| 3 | `auditor-spec` | Subagente Sonnet, solo lectura | Antes de marcar una etapa HECHA: cada `CA-` → CUMPLE / FALTA / SIN EVIDENCIA con `archivo:línea`, y casos borde sin test | PROPUESTO |
+| 4 | `/desplegar` | Skill que solo invoca Andrés | Chequeos previos (git limpio, `origin/master` = HEAD, CI en verde) → `deploy_prod.py` → sondas → línea para el frente | PROPUESTO |
+| 5 | Ajustes | — | `verificador-visual` sin Bash/PowerShell y descripciones con "cuándo" (HECHO 01-oct). Quitar `git push *` y `python -c ' *` de `.claude/settings.local.json` (decide Andrés) | PARCIAL |
+
+**Adoptar de terceros (copiar después de leer; no instalar colecciones):**
+- `systematic-debugging` y `verification-before-completion` de Superpowers (obra/superpowers, MIT, marketplace oficial, mantenido). Trae telemetría activa por defecto (`SUPERPOWERS_DISABLE_TELEMETRY` la apaga). Sus skills de git y worktrees chocan con las reglas de este repo.
+- `/code-review` y `/security-review` integrados antes del push en cambios de auth o de dinero, en vez de crear revisores propios.
+- Evaluar un plugin LSP para Python y JavaScript (señal: `bot_driver.py` releído 45 veces en 14 días), revisando antes su costo de contexto por turno.
+
+**No hacer:**
+- Instalar colecciones grandes de agentes o skills: más de 15k tokens de descripciones disparan una advertencia y la delegación se vuelve menos fiable.
+- Confiar la seguridad a `permissionMode` (se ignora si la sesión está en auto, bypass o acceptEdits), al texto de un prompt o a `disallowedTools` con especificador (quita la herramienta entera).
+- Usar `isolation: worktree` mientras `main` esté vacía; bajar Explore a Haiku para ahorrar (pesa ~1% del gasto).
+- Crear agentes para dependencias, APM o documentación: mejor herramientas deterministas (dependabot, `pip-audit`, `npm audit`) o el agente de mantenimiento.
+- Instalar sin revisión plugins con hooks o MCP: corren con tus privilegios y fuera del sandbox; en Windows no hay sandbox integrado. Un escaneo de Snyk (feb-2026) halló problemas críticos en el 13% de casi 4.000 skills públicas.
+
+**El dato que más pesa: el modelo de la sesión principal.** En 14 días, el 90% del contexto releído corrió en Fable 5 (51%) y Fable 5.1 (40%); Opus 5.5, solo el 1%. Lectura de caché por millón de tokens (precios de lista al 25-sep-2026; la cuota del plan puede contar distinto): Fable 5 US$1,00 · Fable 5.1 US$0,25 · Opus 5.5 US$0,20 · Sonnet 5.5 US$0,20. Entrada/salida: Fable US$10/50, Opus 5.5 US$4/20, Sonnet 5.5 US$2/10, Haiku 4.5 US$1/5 (ventana de 200k). Recomendación: no abrir sesiones nuevas en Fable 5; Opus 5.5 por defecto y Fable 5.1 para lo más difícil. Cambiar de modelo invalida la caché, así que conviene hacerlo justo después de `/cerrar-hito`.
+
+**Cómo medir cada pieza:** extender `medir_consumo_claude.py` para contar invocaciones de skills y bloqueos de la guardia; retirar lo que no se use en 14 días; para cada skill o agente, 10-20 prompts que deberían dispararlo y otros que no, corridos con y sin la pieza (`claude plugin eval` o skill-creator).
+
+**Preguntas abiertas:** cómo hacer real "nada escribe en la BD" si los hooks fallan abiertos (rol de Postgres de solo lectura para las sesiones, proyecto Supabase aparte para tests, credenciales separadas para migraciones); si un `ask` de `PreToolUse` sigue pidiendo confirmación en modo auto en la app de escritorio; si las skills de diseño (Impeccable, Taste, Claude Design) aportan a un ERP interno (sin evidencia verificada).

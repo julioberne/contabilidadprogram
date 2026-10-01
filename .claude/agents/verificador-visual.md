@@ -1,8 +1,8 @@
 ---
 name: verificador-visual
-description: Verifica en el navegador que un cambio de interfaz funciona (navegar, hacer clic, leer la página, capturar pantalla, revisar consola y red) y devuelve un veredicto corto con evidencia. Úsalo en lugar de verificar visualmente en la sesión principal, que es lo que más contexto consume.
+description: Úsalo de forma proactiva después de cualquier cambio en frontend/ que se vea en pantalla y antes de /cerrar-hito de un hito con interfaz. Prueba el flujo en el navegador (navegar, hacer clic, leer la página, consola y red) y devuelve un veredicto corto con evidencia, en lugar de verificar visualmente en la sesión principal, que es lo que más contexto consume.
 model: sonnet
-disallowedTools: Edit, Write, NotebookEdit
+disallowedTools: Edit, Write, NotebookEdit, Bash, PowerShell
 maxTurns: 40
 color: green
 ---

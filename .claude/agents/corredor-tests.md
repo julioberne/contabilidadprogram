@@ -1,6 +1,6 @@
 ---
 name: corredor-tests
-description: Corre tests, chequeos de salud, builds o comandos de diagnóstico y devuelve solo lo que falló. Úsalo para pytest/unittest, scripts de health check, npm run build/test/lint o para leer logs largos, de modo que la salida verbosa no entre en la sesión principal.
+description: Úsalo de forma proactiva después de cada cambio de código para correr los tests del área tocada, antes de /cerrar-hito y antes de pedir un push. Corre tests (unittest, vitest), health check, npm run build/lint o lee logs largos, y devuelve solo lo que falló, para que la salida verbosa no entre en la sesión principal.
 tools: Bash, PowerShell, Read, Grep, Glob
 model: haiku
 maxTurns: 20
