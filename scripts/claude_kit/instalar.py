@@ -18,7 +18,6 @@ La tarea programada del agente de mantenimiento (scripts/claude_kit/mantenimient
 se crea desde una sesión de Claude; ver docs/guia-trabajo-claude.md.
 """
 import argparse
-import filecmp
 import json
 import os
 import shutil
@@ -52,6 +51,12 @@ HOOKS = {
                      "hooks": [{"type": "command", "command": comando("arranque.py"), "timeout": 15}]},
     "UserPromptSubmit": {"hooks": [{"type": "command", "command": comando("medidor.py"), "timeout": 10}]},
 }
+
+
+def mismo_contenido(a, b):
+    """Compara ignorando el fin de línea: git en Windows deja CRLF en el repo y la copia puede tener LF."""
+    with open(a, "rb") as fa, open(b, "rb") as fb:
+        return fa.read().replace(b"\r\n", b"\n") == fb.read().replace(b"\r\n", b"\n")
 
 
 def es_nuestra(entrada):
@@ -100,7 +105,7 @@ def main():
     cfg = leer_settings()
     if args.check:
         for src, dst in COPIAS:
-            estado = "falta" if not os.path.exists(dst) else ("igual" if filecmp.cmp(src, dst, shallow=False) else "DISTINTO")
+            estado = "falta" if not os.path.exists(dst) else ("igual" if mismo_contenido(src, dst) else "DISTINTO")
             print(f"  {estado:<8} {dst}")
         al_dia = settings_con_hooks(cfg, True) == cfg
         print(f"  hooks en settings.json: {'al día' if al_dia else 'FALTAN o difieren'}")
