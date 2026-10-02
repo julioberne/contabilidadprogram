@@ -1176,7 +1176,16 @@ genérico, 404, 422 tipo/longitud) y validación de tipo/longitud en el POST; `T
 envíos fallidos; `frame-ancestors` para Telegram Web; pantalla: fichas siempre completas, re-sincroniza el
 borrador al guardar la ficha asignada, avisa si el asignado fue eliminado, no prellena dígitos como nombre,
 aria-labels; `test_bot_etapa_e` excluye el dato `webapp:`. Tests: 130 puros, 16 con BD, 90 vitest, build OK.
-Pendiente: push de Andrés, deploy, prueba real CA-09I-01.
+
+### Deploy de la Mini App v1 (2-oct 09:30–09:44)
+El push de Andrés fue rechazado (non-fast-forward): la otra sesión había subido el kit de sesión (3bd3cd5 y
+dos commits de docs). `git rebase origin/master` limpio, 62 tests clave en verde, push de Andrés → `b6c0e42`,
+CI verde. `scratch/deploy_prod.py` 09:37 → `done` 09:39; los tres contenedores recreados (el frontend por
+`nginx.conf` + `tg.html`), estables a los 5 min. Verificado desde fuera: `/tg.html` 200 con
+`Content-Security-Policy: frame-ancestors … telegram.org` y sin `X-Frame-Options` (el índice lo conserva),
+script `tg-*.js` 200, `GET /api/bot/drafts/1` → 401 (antes 404), `/api/health` con BD conectada. Los
+borradores anteriores al deploy (p. ej. #582) conservan su botonera vieja: el botón aparece en los
+resúmenes nuevos. Pendiente: prueba real CA-09I-01 (Andrés) → cerrar v1 y `/cerrar-hito`.
 
 ### Pendiente al cierre
 Prueba real CA-09G-13 (Andrés, en su chat): responder de nuevo al #237 —su concepto quedó
