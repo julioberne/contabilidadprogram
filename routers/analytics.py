@@ -8,6 +8,7 @@ Endpoints (todos exigen Bearer — son datos de dinero):
   POST /api/analytics/metric   → ejecuta UNA métrica del catálogo
   GET  /api/analytics/dataset  → tabla plana consolidada para Perspective (B2)
   POST /api/analytics/ask      → pregunta en español → texto + datos + gráfica (B3)
+  GET  /api/analytics/export.xlsx → libro contable .xlsx (spec 13.4; rol contador/admin)
 
 Criterios inmutables: ninguna cifra nace de la IA (solo del catálogo); la
 empresa va amarrada por código (el LLM jamás la decide); toda respuesta
@@ -16,10 +17,10 @@ lleva sello de origen; errores honestos.
 import datetime
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 
-from routers.auth_guard import require_auth
+from routers.auth_guard import require_auth, require_contador
 
 router = APIRouter(tags=["Analytics"])
 
@@ -194,3 +195,42 @@ def ask(req: AskRequest, _user: dict = Depends(require_auth)):
     except Exception as e:
         # Error honesto (criterio 4): jamás una respuesta rellenada.
         raise HTTPException(status_code=502, detail=f"El traductor de preguntas falló: {e}")
+
+
+# ── GET /api/analytics/export.xlsx ───────────────────────────
+# Spec 13.4: los libros del contador en Excel real. Puerta directa (curl, bot
+# a futuro); la interfaz de 13.5 archiva con folio. Solo owner/admin/contador.
+
+@router.get("/api/analytics/export.xlsx")
+def export_xlsx(modo: str = "periodo", portfolio_id: Optional[int] = None,
+                portfolios: Optional[str] = None, desde: Optional[str] = None,
+                hasta: Optional[str] = None, hojas: Optional[str] = None,
+                nivel_puc: Optional[str] = None, categorias: Optional[str] = None,
+                terceros: Optional[str] = None, tipos: Optional[str] = None,
+                moneda: Optional[str] = None, cuentas_puc: Optional[str] = None,
+                tx_ids: Optional[str] = None, nombre: Optional[str] = None,
+                user: dict = Depends(require_contador)):
+    from export_xlsx import MIME_XLSX, armar_libro
+    receta = {
+        "modo": modo, "portfolio_id": portfolio_id, "portfolios": portfolios,
+        "desde": desde, "hasta": hasta, "hojas": hojas, "nivel_puc": nivel_puc,
+        "tx_ids": tx_ids, "nombre": nombre,
+        "filtros": {"categorias": categorias, "terceros": terceros, "tipos": tipos,
+                    "moneda": moneda, "cuentas_puc": cuentas_puc},
+    }
+    try:
+        contenido, sello, archivo = armar_libro(receta, usuario=user)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"No pude armar el libro: {e}")
+    return Response(
+        content=contenido, media_type=MIME_XLSX,
+        headers={
+            "Content-Disposition": f'attachment; filename="{archivo}"',
+            "X-FinSys-Transacciones": str(sello["n_txs"]),
+            "X-FinSys-Asientos": str(sello["n_asientos"]),
+            "X-FinSys-Cuadra": "1" if sello["totales_control"]["cuadra"] else "0",
+            "X-FinSys-Advertencias": str(len(sello["advertencias"])),
+        },
+    )

@@ -9,3 +9,5 @@ gunicorn==23.0.0
 # Análisis Inteligente (B3): gráficas servidas por el backend (web y Telegram)
 matplotlib==3.10.6
 pillow==11.3.0
+# Análisis Inteligente (13.4): libros contables .xlsx (jamás el npm "xlsx": CVEs sin parche)
+openpyxl==3.1.5
