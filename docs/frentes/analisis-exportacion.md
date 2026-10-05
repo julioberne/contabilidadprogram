@@ -2,15 +2,15 @@
 Estado: BLOQUEADO (espera aprobación del plan) · Actualizado: 2026-10-05 · Rama/commit: claude/project-status-review-5e1694 @ (este commit, sobre origin/master aa99293)
 
 ## Objetivo
-Cerrar el último escalón del plan "Mejor que Excel" (B5): exportar los libros del contador a .xlsx real desde un submódulo desplegable 📦 EXPORTACIÓN dentro de ∑ Análisis — armado selectivo + 🗂 ARCHIVO tipo drive + 🗓 calendario de cierres. Termina cuando 13.4 y 13.5 están HECHOS y desplegados.
+Cerrar el último escalón del plan "Mejor que Excel" (B5): exportar los libros del contador a .xlsx real desde un submódulo desplegable 📦 EXPORTACIÓN dentro de ∑ Análisis, cuya casa es un **organizador contable con el patrón del de RRHH** (`project-hub/features/members/tabs/DocumentsTab.jsx`) + exportación por período o **por transacciones seleccionadas** (también desde el Libro Diario). Termina cuando 13.4 y 13.5 están HECHOS y desplegados.
 
 ## Estado actual
-- Hecho: specs escritos — `docs/specs/13-analisis/SPEC.md` (módulo), `13.4-export-xlsx.md` v1.1 (motor), `13.5-submodulo-exportacion.md` (interfaz + archivo). Cero código.
+- Hecho: specs escritos — `docs/specs/13-analisis/SPEC.md` (módulo), `13.4-export-xlsx.md` v1.1 (motor, con modo transacciones), `13.5-submodulo-exportacion.md` v1.1 (organizador + selección; aclaración de Andrés 05-oct). Maqueta mostrada en el chat. Cero código.
 - En producción: no (hitos 1–3 del módulo sí, desde 16 y 22-sep).
 - Pendiente de push: este commit de docs.
 
 ## Próximo paso (concreto, ejecutable sin releer todo)
-1. Andrés responde las 4 decisiones de §10 del spec 13.5 (almacenamiento bytea vs bucket privado; retención 90 días + fijados; quién ve el archivo; NIT desde Control Tower).
+1. Andrés responde las 5 decisiones de §10 del spec 13.5 (almacenamiento bytea vs bucket privado; retención 90 días para lo generado; quién ve el organizador; NIT desde Control Tower; ¿subir documentos externos en v1?).
 2. Con la aprobación: implementar en el orden de §9 de 13.5 — primero 13.4 motor (`fin_sys_core/export_xlsx.py`, `openpyxl==3.1.5` en requirements y en el `.venv`, `GET /api/analytics/export.xlsx`, `tests/test_export_xlsx.py`), verificable con curl.
 
 ## Decisiones tomadas (y por qué)
@@ -21,7 +21,8 @@ Cerrar el último escalón del plan "Mejor que Excel" (B5): exportar los libros 
 
 ## Archivos clave
 - `kernel/kernel_reports.py` (libro_mayor :34, balance_prueba :75, estado_resultados :157, balance_general :167)
-- `routers/analytics.py` (agregar endpoints) · `frontend/src/analisis/AnalisisApp.jsx` (montar el panel, 1 línea)
+- `routers/analytics.py` (endpoint del motor) · router NUEVO `routers/accounting_files.py` (organizador) · `frontend/src/analisis/AnalisisApp.jsx` (montar el panel, 1 línea) · `frontend/src/contabilidad-v2/modules/diario/LibroDiario.jsx` (casillas + barra de selección; hoy el clic de fila expande y el doble clic edita — la casilla no debe disparar ninguno)
+- Patrón a imitar (NO importar — paleta oscura y chunk con historia de import circular): `frontend/src/project-hub/features/members/tabs/DocumentsTab.jsx` + `docs/` (FolderCard, FileCard, PreviewModal, UploadModal, CategoryConfigModal)
 - `frontend/src/shell/useRoute.js:60` conserva subrutas → `/analisis/archivo` funciona
 
 ## Cómo verificar
