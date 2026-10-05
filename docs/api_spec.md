@@ -626,3 +626,23 @@ nombre cambiaron después de asignarla (p. ej. un provisional `SN-` formalizado 
 ### `tg.html` en Telegram Web
 `frontend/nginx.conf` sirve `/tg.html` con `Content-Security-Policy: frame-ancestors 'self' https://web.telegram.org https://webk.telegram.org https://webz.telegram.org`
 en lugar del `X-Frame-Options: SAMEORIGIN` global, para que Telegram Web (iframe) también la abra.
+
+---
+
+## 9. Análisis Inteligente (13) — `/api/analytics/*`
+
+> Spec: `docs/specs/13-analisis/` · Router: `routers/analytics.py` · Lógica: `fin_sys_core/metrics_catalog.py`, `analytics_qa.py`, `insight_engine.py`, `analytics_log.py`, `export_xlsx.py`.
+> Todos exigen sesión (Bearer). Ninguna cifra nace de una IA (R-13-01) y la empresa la elige el usuario, nunca el LLM (R-13-02).
+
+### `GET /api/analytics/catalog` (sesión) → `{ metricas: [...] }` — el menú whitelisted, con el SQL auditable de cada métrica.
+### `POST /api/analytics/metric` (sesión) — `{ metrica, params?, portfolio_id? }` → resultado con sello de origen · `400` métrica o parámetros fuera del catálogo.
+### `GET /api/analytics/dataset` (sesión) → `{ esquema, filas, n, generado }` — tabla plana consolidada para Perspective.
+### `POST /api/analytics/ask` (sesión) — `{ pregunta, portfolio_id? }` → texto + datos + gráfica PNG · `400` pregunta vacía · `502` falló el traductor.
+### `GET /api/analytics/insights?portfolio_id=` (sesión) → tarjetas `{alerta|info|ok}` con sello.
+### `GET /api/analytics/preguntas-log` (sesión) → `{ preguntas, retencion_dias }` — bitácora de preguntas sin responder (30 días).
+
+### `GET /api/analytics/export.xlsx` (owner, admin o contador) — libros contables en Excel (spec 13.4)
+- **Modo período** (default): `portfolio_id` o `portfolios=1,2` (vacío = consolidado) · `desde`, `hasta` (AAAA-MM-DD; `hasta` por defecto hoy en Colombia) · `hojas=` subconjunto de `caratula, diario, mayor, balance_prueba, estado_resultados, balance_general, movimientos, auxiliar_tercero, cartera, impuestos` (la carátula va siempre) · `nivel_puc=clase|grupo|cuenta|subcuenta` · filtros finos `categorias`, `terceros` (ids), `tipos`, `moneda`, `cuentas_puc` (prefijos para el Mayor). Los filtros solo tocan las hojas de transacciones; los libros oficiales no se filtran (D-134-07).
+- **Modo transacciones**: `modo=transacciones&tx_ids=12,15,20` (máx. 5000) `&nombre=` → Relación: carátula, relación, asientos, resumen, soportes.
+- **Respuesta `200`**: el `.xlsx` (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`) con `Content-Disposition: attachment; filename="FINSYS_<EMPRESA|CONSOLIDADO|VARIAS-n>_<desde>_<hasta>.xlsx"` (o `FINSYS_RELACION_<nombre>_<fecha>.xlsx`) y las cabeceras `X-FinSys-Transacciones`, `X-FinSys-Asientos`, `X-FinSys-Cuadra` (`1`/`0`), `X-FinSys-Advertencias` (cuántas trae la carátula).
+- **Errores**: `401` sin sesión · `403` rol sin permiso · `400` receta inválida (`detail` dice qué: hoja desconocida, fechas al revés, empresa inexistente, transacciones de otra empresa…) · `503` la base de datos no respondió (jamás un libro vacío que en realidad fue un error).

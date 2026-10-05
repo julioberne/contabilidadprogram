@@ -1,35 +1,46 @@
 # Frente: analisis-exportacion
-Estado: BLOQUEADO (espera aprobación del plan) · Actualizado: 2026-10-05 · Rama/commit: claude/project-status-review-5e1694 @ (este commit, sobre origin/master aa99293)
+Estado: ACTIVO · Actualizado: 2026-10-05 · Rama/commit: claude/project-status-review-5e1694 (sobre origin/master aa99293)
 
 ## Objetivo
-Cerrar el último escalón del plan "Mejor que Excel" (B5): exportar los libros del contador a .xlsx real desde un submódulo desplegable 📦 EXPORTACIÓN dentro de ∑ Análisis, cuya casa es un **organizador contable con el patrón del de RRHH** (`project-hub/features/members/tabs/DocumentsTab.jsx`) + exportación por período o **por transacciones seleccionadas** (también desde el Libro Diario). Termina cuando 13.4 y 13.5 están HECHOS y desplegados.
+Cerrar el último escalón del plan "Mejor que Excel" (B5): los libros del contador en .xlsx real (13.4, motor) y el
+submódulo desplegable 📦 EXPORTACIÓN dentro de ∑ Análisis (13.5): organizador contable con el patrón del de RRHH +
+exportación por período o por transacciones seleccionadas (también desde el Libro Diario). Termina con 13.4 y 13.5
+HECHOS y desplegados.
 
 ## Estado actual
-- Hecho: specs escritos — `docs/specs/13-analisis/SPEC.md` (módulo), `13.4-export-xlsx.md` v1.1 (motor, con modo transacciones), `13.5-submodulo-exportacion.md` v1.1 (organizador + selección; aclaración de Andrés 05-oct). Maqueta mostrada en el chat. Cero código.
-- En producción: no (hitos 1–3 del módulo sí, desde 16 y 22-sep).
-- Pendiente de push: este commit de docs.
+- 13.4 motor IMPLEMENTADO y verificado en local contra la BD real (05-oct): `fin_sys_core/export_xlsx.py` +
+  `GET /api/analytics/export.xlsx` (owner/admin/contador). 36 unit + 3 integración + e2e HTTP.
+- 13.5: spec v1.1 APROBADO (las 5 decisiones de §10 con las recomendaciones). Sin código.
+- En producción: no (prod hoy responde 404 en la ruta nueva).
+- Pendiente de push: el commit del motor + el de docs.
 
 ## Próximo paso (concreto, ejecutable sin releer todo)
-1. Andrés responde las 5 decisiones de §10 del spec 13.5 (almacenamiento bytea vs bucket privado; retención 90 días para lo generado; quién ve el organizador; NIT desde Control Tower; ¿subir documentos externos en v1?).
-2. Con la aprobación: implementar en el orden de §9 de 13.5 — primero 13.4 motor (`fin_sys_core/export_xlsx.py`, `openpyxl==3.1.5` en requirements y en el `.venv`, `GET /api/analytics/export.xlsx`, `tests/test_export_xlsx.py`), verificable con curl.
+1. Andrés: `git push origin claude/project-status-review-5e1694:master` → yo: `scratch/deploy_prod.py` → sonda
+   `GET /api/analytics/export.xlsx` sin token = 401 (antes 404) → Andrés abre un libro en Excel (CA-134-01).
+2. 13.5-a backend del organizador: `scripts/migrate_exports.py` (4 tablas `accounting_*` + paquetes, idempotente,
+   ANTES del deploy), `fin_sys_core/accounting_files_driver.py`, `routers/accounting_files.py` + include_router.
 
 ## Decisiones tomadas (y por qué)
-- openpyxl en el backend: el npm `xlsx` está congelado con CVEs; la verdad vive en Python; openpyxl escribe y lee (vista previa del archivo y tests).
-- El motor no inventa cifras: viste `kernel_reports` (mayor, balance de prueba, ER, BG) + `kernel_journal_entries` + `obtener_transacciones`.
-- Propuesto (sin aprobar): archivos en Postgres `bytea` — el bucket `hr-docs` es PÚBLICO y la llave de Storage es la anónima.
-- La parte Excel del módulo 11 la absorbe 13.5.
+- openpyxl en backend (npm `xlsx` congelado con CVEs). El motor no calcula: viste kernel_reports + diario + TXs.
+- Filtros finos solo en hojas de transacciones; los libros oficiales nunca se filtran (D-134-07).
+- Mayor = saldo anterior del balance + líneas del diario, sin una consulta por cuenta (D-134-08).
+- Nombres de cuenta: plan de cuentas de la empresa > PUC estándar > nombre del asiento (D-134-09). La lista PUC
+  vive en `shared/puc_estandar.py` (scripts/ no viaja en la imagen); `seed_puc.py` la importa.
+- 13.5: archivos en Postgres bytea (bucket `hr-docs` es PÚBLICO); mismo patrón UX que RRHH pero código propio.
 
 ## Archivos clave
-- `kernel/kernel_reports.py` (libro_mayor :34, balance_prueba :75, estado_resultados :157, balance_general :167)
-- `routers/analytics.py` (endpoint del motor) · router NUEVO `routers/accounting_files.py` (organizador) · `frontend/src/analisis/AnalisisApp.jsx` (montar el panel, 1 línea) · `frontend/src/contabilidad-v2/modules/diario/LibroDiario.jsx` (casillas + barra de selección; hoy el clic de fila expande y el doble clic edita — la casilla no debe disparar ninguno)
-- Patrón a imitar (NO importar — paleta oscura y chunk con historia de import circular): `frontend/src/project-hub/features/members/tabs/DocumentsTab.jsx` + `docs/` (FolderCard, FileCard, PreviewModal, UploadModal, CategoryConfigModal)
-- `frontend/src/shell/useRoute.js:60` conserva subrutas → `/analisis/archivo` funciona
+- `fin_sys_core/export_xlsx.py` (normalizar_receta → recolectar → construir_libro → armar_libro)
+- `routers/analytics.py` (export_xlsx al final) · `shared/puc_estandar.py` · `tests/test_export_xlsx*.py`
+- Para 13.5: `frontend/src/analisis/AnalisisApp.jsx`, `frontend/src/contabilidad-v2/modules/diario/LibroDiario.jsx`
+  (clic de fila expande, doble clic edita: la casilla no debe disparar ninguno), patrón a imitar (NO importar):
+  `frontend/src/project-hub/features/members/tabs/DocumentsTab.jsx` + `docs/`
 
 ## Cómo verificar
-- Motor: `curl.exe -H "Authorization: Bearer <token>" -o libro.xlsx "http://127.0.0.1:<puerto>/api/analytics/export.xlsx?desde=2026-09-01&hasta=2026-09-30"`
-- Puertos 8000/8001/8002 los usan otras sesiones: servidor de verificación con `autoPort`.
+- `python -m unittest tests.test_export_xlsx` (36) · `tests.test_export_xlsx_db` (3, necesita .env)
+- Worktree sin .env: lanzador de solo lectura del .env principal (ver checkpoint 2026-10-05) y servidor con autoPort.
 
 ## Bloqueos y riesgos
-- Bloqueo: aprobación de Andrés (protocolo de AGENTS.md).
-- Riesgo: `master` local de otra sesión lleva 2 commits de docs sin push (b44deb8, db4facc) que también tocan CHECKLIST.md → al integrarse, posible conflicto menor en CHECKLIST (filas distintas).
-- DT-30: cuentas sin código PUC → el Mayor/Balances las mostraría sin código; la carátula lo advierte.
+- Hallazgo contable abierto: reglas que mandan categorías a cuentas PUC de otro significado (519515, 513520,
+  417505) — ahora visible en los libros; tarea aparte.
+- master local de otra sesión tiene 2 commits de docs sin push (b44deb8, db4facc) que tocan CHECKLIST/checkpoints:
+  al integrarse, conflicto menor posible (secciones distintas).

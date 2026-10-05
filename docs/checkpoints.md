@@ -1248,3 +1248,48 @@ Con el aviso nuevo el fallo por lo menos se ve.
 Push (Andrés) → deploy + sonda (`DELETE /api/third-parties/0` sin token: `401` = código nuevo,
 `405` = viejo) → Andrés borra el #34 con el 🗑 (prueba real) → sincronizar `master` local y el
 build de `:8000`.
+
+## Checkpoint 2026-10-05 — Análisis 13.4: motor de libros contables .xlsx (y specs del módulo 13)
+
+Sesión en el worktree `admin-dashboard-user-credentials-2aab9b`, rama `claude/project-status-review-5e1694`
+rebasada sobre `origin/master` (`aa99293`). Push: Andrés (`git push origin <rama>:master`); deploy después.
+
+### Specs y decisiones (commits `a7345e3`, `28a6f9d`, ya en origin)
+- Módulo 13 entra al sistema de specs: `docs/specs/13-analisis/SPEC.md`, `13.4-export-xlsx.md` (motor) y
+  `13.5-submodulo-exportacion.md` (organizador contable con el patrón del de RRHH + exportar transacciones
+  seleccionadas desde el Libro Diario). Andrés aprobó las 5 decisiones de 13.5 §10 con las recomendaciones:
+  archivos en Postgres `bytea` (el bucket `hr-docs` es público), retención 90 días + fijados/subidos para
+  siempre, ver: owner/admin/contador, NIT desde Control Tower (`resource_ids` etiqueta NIT), subir
+  documentos externos en v1.
+
+### Motor 13.4 (este commit)
+- `fin_sys_core/export_xlsx.py`: `normalizar_receta` → `recolectar` (único punto con BD: `kernel_reports`,
+  `obtener_asientos_agrupados`, `obtener_transacciones`, `listar_cartera`, NIT y nombres de cuenta) →
+  `construir_libro` (pura). 10 hojas por período o relación de transacciones elegidas (5 hojas). Totales
+  `=SUM` reales y filas de VERIFICACIÓN (`IF(ROUND(a-b,2)=0,…)`, sin `TEXT()` que depende del idioma);
+  Mayor con saldo encadenado por fórmula; USD en bloque propio; un concepto que empiece por `=` se guarda
+  como texto (jamás fórmula).
+- `GET /api/analytics/export.xlsx` con `require_contador`. `openpyxl==3.1.5` en requirements (y en el `.venv`).
+- Hallazgo con datos reales: el kernel guarda en cada línea el nombre de la REGLA ("Crear CXC" en la
+  130505). D-134-09: el libro muestra el nombre del plan de cuentas de la empresa o del PUC estándar. La lista
+  PUC se movió **idéntica** (83 cuentas, verificado contra git) a `shared/puc_estandar.py` porque `scripts/`
+  no viaja en la imagen de producción; `scripts/seed_puc.py` la importa.
+- Hallazgo contable abierto (no se tocó): reglas que mandan categorías a cuentas de otro significado
+  ("Gastos Diversos" → 519515 *Elementos de Aseo y Cafetería*, "Servicios Públicos" → 513520 *Teléfono e
+  Internet*, "Ingreso Genérico" → 417505 *Asesoría y Consultoría*).
+
+### Verificación
+- `tests.test_export_xlsx` 36/36 (relee el archivo y evalúa las fórmulas) · lista completa del CI 300/300 ·
+  `import server` OK · `tests.test_export_xlsx_db` 3/3 contra Supabase (diario = balance de prueba del kernel
+  al centavo; Σ TXs por empresa = consolidado).
+- Libro real 2026 consolidado: 36 TXs, 42 asientos, 84 líneas, Σ Db = Σ Cr = 167.286.500,50, ecuación ✔,
+  4 advertencias honestas (13 TXs sin cuenta, 11 asientos en BORRADOR, 11 TXs sin asiento, cartera con saldos
+  actuales); 33 KB en ~5 s desde Colombia.
+- e2e HTTP en servidor local: sin sesión 401 · member 403 · hoja inválida 400 · owner 200 (septiembre, 3 s) ·
+  relación de 3 TXs reales + una inexistente → la carátula lo avisa.
+- CI de GitHub: el run de `aa99293` salió "Cancelled" por una caída de GitHub Actions (major outage, "The job
+  was not acquired by Runner"), no por el código; la lista del CI pasó completa en local.
+
+### Siguiente
+Push (Andrés) → deploy → sonda (`GET /api/analytics/export.xlsx` sin token: `401` = código nuevo, `404` =
+viejo) → Andrés abre un libro en Excel (CA-134-01) → 13.5-a: backend del organizador.
