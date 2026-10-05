@@ -458,3 +458,76 @@ CREATE INDEX IF NOT EXISTS idx_third_party_accounts_tercero ON third_party_accou
 - Lo escribe una persona: botón 💾 del bot (`origen='bot'`) o la ficha del tercero en la web (`origen='web'`). El bot lo lee por **igualdad** para traer el tercero ya puesto en el borrador de un SMS (Regla 6b: nada se memoriza solo).
 - Un número con forma de celular (`3` + 9 dígitos) es **un solo medio** aunque esté guardado como `celular`, `llave` o `cuenta` (`_equivalentes`): el `UNIQUE` no lo ve, así que `agregar` responde `de_otro` si otra ficha lo tiene en cualquiera de esas formas y `mover` se lleva todas sus filas.
 - El tercero genérico (`999999999`) no puede tener medios. No altera `third_parties`.
+
+## MÓDULO ANÁLISIS — Etapa 13.5 Organizador contable 📦 (Tablas nuevas — Zero-Impact)
+
+> Spec: `docs/specs/13-analisis/13.5-submodulo-exportacion.md` §4.4 · DDL (fuente única): `fin_sys_core/accounting_files_driver.py` (`DDL`) · Migración: `scripts/migrate_exports.py` (idempotente; correr ANTES del deploy). El server no las crea al arrancar: sin migración los endpoints responden `503`.
+
+### V. `accounting_doc_types` — Tipos documentales (las "categorías" de RRHH, versión contable)
+```sql
+CREATE TABLE IF NOT EXISTS accounting_doc_types (
+    id SERIAL PRIMARY KEY,
+    clave VARCHAR(30) UNIQUE,          -- solo los default: libros, estados, impuestos, cartera, bancos, relaciones, soportes
+    nombre VARCHAR(60) NOT NULL,       -- único sin mayúsculas/espacios (uq_accounting_doc_types_nombre)
+    icono VARCHAR(16), color VARCHAR(9) NOT NULL DEFAULT '#64748b',
+    orden SMALLINT NOT NULL DEFAULT 100,
+    es_default BOOLEAN NOT NULL DEFAULT FALSE,   -- los default se renombran, no se borran
+    creado_por VARCHAR(120), creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+### W. `accounting_folders` — Carpetas propias ("Para el banco 2026", "Auditoría")
+```sql
+CREATE TABLE IF NOT EXISTS accounting_folders (
+    id SERIAL PRIMARY KEY,
+    nombre VARCHAR(80) NOT NULL, color VARCHAR(9) NOT NULL DEFAULT '#64748b',
+    parent_id INTEGER REFERENCES accounting_folders(id) ON DELETE CASCADE,
+    portfolio_id INTEGER REFERENCES portfolios(id) ON DELETE SET NULL,   -- NULL = general
+    creado_por VARCHAR(120), creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+- Las carpetas **automáticas** (Empresa → Año → Mes) no son filas: salen de `accounting_files.portfolio_id` y `periodo_hasta`.
+
+### X. `accounting_files` — Un archivo del organizador (generado o subido)
+```sql
+CREATE SEQUENCE IF NOT EXISTS accounting_files_folio_seq;
+CREATE TABLE IF NOT EXISTS accounting_files (
+    id SERIAL PRIMARY KEY,
+    origen VARCHAR(10) NOT NULL CHECK (origen IN ('GENERADO', 'SUBIDO')),
+    folio VARCHAR(20) UNIQUE,                    -- solo generados: EXP-AAAA-NNNN (secuencia global)
+    nombre VARCHAR(160) NOT NULL,                -- visible
+    nombre_archivo VARCHAR(200) NOT NULL,        -- el de la descarga
+    tipo_documental_id INTEGER REFERENCES accounting_doc_types(id) ON DELETE SET NULL,
+    paquete VARCHAR(40),                         -- cierre_mes, banco, impuestos, cartera, movimientos, completo, relacion, personalizado
+    receta JSONB,                                -- receta normalizada del motor 13.4 (modo transacciones: tx_ids)
+    portfolio_id INTEGER REFERENCES portfolios(id) ON DELETE SET NULL,   -- NULL = consolidado / varias / sin empresa
+    periodo_desde DATE, periodo_hasta DATE,
+    folder_id INTEGER REFERENCES accounting_folders(id) ON DELETE SET NULL,
+    archivo BYTEA NOT NULL,                      -- el archivo exacto (D-135-01: nunca en el bucket público)
+    mime_type VARCHAR(100) NOT NULL, tamano_bytes INTEGER NOT NULL,
+    sha256 CHAR(64) NOT NULL,
+    hojas TEXT[], sello JSONB,                   -- sello del motor: conteos, totales de control, advertencias
+    huella_datos JSONB,                          -- §4.6: n_txs, suma_neto, max_tx, n_lineas, debitos, max_linea (+ tx_vivas)
+    creado_por VARCHAR(120), creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    fijado BOOLEAN NOT NULL DEFAULT FALSE, nota TEXT,
+    descargas INTEGER NOT NULL DEFAULT 0, ultima_descarga TIMESTAMPTZ,
+    reemplaza_a INTEGER REFERENCES accounting_files(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_accounting_files_empresa_periodo ON accounting_files (portfolio_id, periodo_hasta);
+CREATE INDEX IF NOT EXISTS idx_accounting_files_folder ON accounting_files (folder_id);
+CREATE INDEX IF NOT EXISTS idx_accounting_files_tipo ON accounting_files (tipo_documental_id);
+CREATE INDEX IF NOT EXISTS idx_accounting_files_purga ON accounting_files (creado_en) WHERE origen = 'GENERADO' AND NOT fijado;
+```
+- **Inmutable:** el contenido de un generado jamás se reescribe; regenerar crea otra fila con folio nuevo y `reemplaza_a`.
+- **Purga** (en cada INSERT, sin scheduler): borra lo `GENERADO` no `fijado` con más de `ANALYTICS_EXPORT_RETENCION_DIAS` (90). Fijados y subidos, nunca.
+- Tope `ANALYTICS_EXPORT_MAX_MB` (10) por archivo. Subidas: PDF, PNG, JPG, XLSX, CSV, decididos por la firma del contenido.
+
+### Y. `analytics_export_paquetes` — Recetas guardadas ("💾 Guardar como paquete")
+```sql
+CREATE TABLE IF NOT EXISTS analytics_export_paquetes (
+    id SERIAL PRIMARY KEY,
+    nombre VARCHAR(80) NOT NULL,
+    receta JSONB NOT NULL,                       -- puede llevar período relativo ("relativo": "mes_anterior")
+    creado_por VARCHAR(120), creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```

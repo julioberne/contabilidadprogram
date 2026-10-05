@@ -646,3 +646,27 @@ en lugar del `X-Frame-Options: SAMEORIGIN` global, para que Telegram Web (iframe
 - **Modo transacciones**: `modo=transacciones&tx_ids=12,15,20` (máx. 5000) `&nombre=` → Relación: carátula, relación, asientos, resumen, soportes.
 - **Respuesta `200`**: el `.xlsx` (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`) con `Content-Disposition: attachment; filename="FINSYS_<EMPRESA|CONSOLIDADO|VARIAS-n>_<desde>_<hasta>.xlsx"` (o `FINSYS_RELACION_<nombre>_<fecha>.xlsx`) y las cabeceras `X-FinSys-Transacciones`, `X-FinSys-Asientos`, `X-FinSys-Cuadra` (`1`/`0`), `X-FinSys-Advertencias` (cuántas trae la carátula).
 - **Errores**: `401` sin sesión · `403` rol sin permiso · `400` receta inválida (`detail` dice qué: hoja desconocida, fechas al revés, empresa inexistente, transacciones de otra empresa…) · `503` la base de datos no respondió (jamás un libro vacío que en realidad fue un error).
+
+## 10. Análisis 13.5 — Organizador contable 📦 (`/api/accounting-*`, `/api/analytics/export*`)
+
+> Spec: `docs/specs/13-analisis/13.5-submodulo-exportacion.md` · Router: `routers/accounting_files.py` · Lógica: `fin_sys_core/accounting_files_driver.py` (+ el motor `export_xlsx.py`).
+> **Permisos:** ver y generar = owner, admin o contador (`401` sin sesión, `403` otro rol); **borrar = solo admin**. **Errores comunes:** `400` dato inválido (`detail` dice cuál) · `404` no existe · `409` nombre repetido · `503` falta la migración o falló la BD.
+
+### Nueva exportación
+- `POST /api/analytics/export/preflight` — `{ receta, paquete? }` → `{ sello, paquete, tamano_bytes, excede_tope, max_mb }`: lo mismo que dirá la carátula (conteos, Σ Db = Σ Cr, advertencias), sin archivar.
+- `POST /api/analytics/export` — `{ receta, paquete?, folder_id?, tipo_documental_id? }` → `{ id, folio, nombre, nombre_archivo, paquete, tamano_bytes, sha256, sello, creado_en, purgados }`. La `receta` es la del motor 13.4 (`modo`, `portfolio_id|portfolios`, `desde`, `hasta`, `hojas`, `filtros`, `nivel_puc`, `tx_ids`, `nombre`, `relativo?`). `paquete` (`cierre_mes`, `banco`, `impuestos`, `cartera`, `movimientos`, `completo`) pone sus hojas si no vienen; hojas distintas a las del paquete → `personalizado`. Modo transacciones → `relacion`. La UI descarga enseguida con `/download`.
+- `GET /api/analytics/export/paquetes` → `{ predefinidos: [{clave, nombre, icono, tipo, hojas}], guardados: [{id, nombre, receta, creado_por, creado_en}] }` · `POST` `{ nombre, receta }` · `DELETE /api/analytics/export/paquetes/{id}` (admin).
+
+### Organizador
+- `GET /api/accounting-files?folder_id&portfolio_id&anio&mes&tipo&q&fijado&cambiaron&por_vencer&origen&limit=50&offset=0` → `{ items, total, limit, offset }`. Sin bytes. `portfolio_id=0` = consolidado/sin empresa · `tipo=0` = sin tipo. Cada item: `id, origen, folio, nombre, nombre_archivo, tipo_documental_id, paquete, modo, portfolio_id, empresa, portafolio, periodo_desde, periodo_hasta, folder_id, mime_type, tamano_bytes, sha256, hojas, creado_por, creado_en, fijado, nota, descargas, ultima_descarga, reemplaza_a, vence_el, vigencia{estado: VIGENTE|CAMBIO|SIN_HUELLA, detalles[]}` (vigencia en lote, una consulta; `null` en subidos).
+- `GET /api/accounting-files/resumen` → `{ archivos, bytes, fijados, por_vencer, subidos, cambiaron, por_tipo{id: n}, por_carpeta{id: n}, arbol[{portfolio_id, empresa, anio, mes, n}], retencion_dias, max_mb }` — cabecera, lateral y carpetas automáticas.
+- `GET /api/accounting-files/cierres?anio=2026&portfolio_id=` → `{ anio, portfolio_id, paquetes, celdas{paquete: {mes: {id, folio, fijado, creado_en, estado, detalles}}} }`: último folio de un mes exacto por paquete (vista 🗓).
+- `POST /api/accounting-files/upload` (multipart) — `archivo` + `nombre?, tipo_documental_id?, folder_id?, portfolio_id?, anio?, mes?, nota?` → `{ id, nombre, nombre_archivo, mime_type, tamano_bytes, sha256, creado_en, purgados }`. Tipo decidido por el contenido (PDF, PNG, JPG, XLSX, CSV) · `413` sobre el tope · por defecto va a 📎 Soportes.
+- `GET /api/accounting-files/{id}` → item + `sello, receta, reemplaza{id, folio}, reemplazado_por[{id, folio, creado_en}]` con la vigencia calculada en el momento.
+- `GET /api/accounting-files/{id}/download` → el archivo exacto (`Content-Disposition: attachment`, `X-FinSys-SHA256`, `Cache-Control: no-store`); suma una descarga.
+- `GET /api/accounting-files/{id}/preview?hoja=&limite=50` → xlsx/csv: `{ tipo: "tabla", hojas, hoja, columnas, filas, mas_filas }` (las fórmulas sin calcular se muestran como `=SUM(…)`); PDF/imagen: el binario `inline` para el visor.
+- `PATCH /api/accounting-files/{id}` — cualquiera de `nombre, nota, fijado, folder_id (null = sacarlo de la carpeta), tipo_documental_id` → la ficha.
+- `POST /api/accounting-files/{id}/regenerar` — `{ desde?, hasta? }` → como `POST /api/analytics/export`, con folio nuevo y `reemplaza_a`; el original queda intacto · `400` si es un subido.
+- `DELETE /api/accounting-files/{id}` (admin) → `{ eliminado, id, folio, nombre }`.
+- `GET/POST /api/accounting-folders` · `PATCH/DELETE /api/accounting-folders/{id}` (DELETE admin) — `{ nombre, color, parent_id?, portfolio_id? }`; borrar una carpeta no borra sus archivos (quedan en su lugar automático).
+- `GET/POST /api/accounting-doc-types` · `PATCH/DELETE /api/accounting-doc-types/{id}` (DELETE admin) — `{ nombre, icono?, color?, orden? }`; los default no se borran (`400`).
