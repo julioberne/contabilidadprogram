@@ -20,13 +20,12 @@ APROBADO 05-oct, decisiones §10). Termina con 13.5 HECHO, desplegado y visto en
 - Docs revisados: spec 13.5 v1.2 (D-135-05 = módulo 14), SPEC 13, `docs/specs/README.md`, CHECKLIST (fila 14), AGENTS.md
   (Estado de Módulos + permisos), `docs/api_spec.md` §10, `docs/reglas_proyecto.md` (Regla 2: navegación por el registry).
 - "📥 NUEVA EXPORTACIÓN" y la vista 🗓 están DESHABILITADOS (llegan en 13.5-c y 13.5-d).
-- origin/master = `df1047f` (push de Andrés 06-oct; CI verde): 13.5-a/b, módulo 14, etiquetas/tasas y auditoría PUC.
-  Sin push: `bb04826` (`scripts/publicar`).
-  Producción SIN deploy: `/api/accounting-files/cierres` y `/api/analytics/export/paquetes` daban 404.
+- **EN PRODUCCIÓN** desde el 06-oct 01:04 (deploy de `df1047f` con las funciones de `publicar`): rutas del organizador y
+  `PUT /api/tags/0` 404→401, `/exportacion` sirve `ExportacionApp-Cf7bNf5p.js` (= :8000). `:8000` al día (sync de Andrés).
+  Sin push: `bb04826` (`scripts/publicar`) + frentes. La 1.ª vez `publicar.cmd` se corre en el worktree (la principal aún no lo tiene).
 
 ## Próximo paso (concreto)
-0. Andrés: `scripts\publicar.cmd` en la terminal de esta sesión (push + CI + deploy con sonda + `:8000`); primero
-   `--sin-deploy` si prefiere ver `:8000` antes de producción. Sonda extra: `/exportacion` y `PUT /api/tags/0` sin token → 401.
+0. Diseño de 📥 NUEVA EXPORTACIÓN con el informe /deep-research (contador colombiano + Siigo/Alegra/World Office/QuickBooks/Xero) → aprobación de Andrés.
 1. 13.5-c: `exportacion/{paquetes,periodos}.js` (+ vitest): paquetes de `GET …/export/paquetes`; períodos relativos (ojo 1-ene).
 2. `exportacion/NuevaExportacion.jsx`: modo período con pre-vuelo (`POST …/export/preflight`) → `POST /api/analytics/export`
    → `api.descargar(id)`; modo transacciones con `SelectorTransacciones.jsx`. Habilitar el botón en `Organizador.jsx`.
