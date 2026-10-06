@@ -1,5 +1,5 @@
 # Frente: analisis-exportacion (hoy módulo 14 ⇩ Exportación)
-Estado: ACTIVO · Actualizado: 2026-10-06 · Rama/commit: claude/project-status-review-5e1694 (sobre origin/master df1047f; 1 commit SIN push)
+Estado: ACTIVO · Actualizado: 2026-10-06 · Rama/commit: claude/project-status-review-5e1694 = origin/master 0e2dda2 (+ este frente)
 
 ## Objetivo
 B5 de "Mejor que Excel": ⇩ EXPORTACIÓN, organizador contable (spec `docs/specs/13-analisis/13.5-submodulo-exportacion.md`,
@@ -24,12 +24,12 @@ APROBADO 05-oct, decisiones §10). Termina con 13.5 HECHO, desplegado y visto en
   Sin push: `bb04826` (`scripts/publicar`) + frentes. La 1.ª vez `publicar.cmd` se corre en el worktree (la principal aún no lo tiene).
 
 ## Próximo paso (concreto)
-- 13.5-c web HECHO (06-oct, sin push): franja 📥 en `ExportacionApp`, `NuevaExportacion.jsx` (📚 período: paquete →
+- 13.5-c web EN PRODUCCIÓN (06-oct 01:42, `0e2dda2`, con `publicar` de punta a punta; :8000 al día): franja 📥 en `ExportacionApp`, `NuevaExportacion.jsx` (📚 período: paquete →
   empresa → período con atajos → libros en 3 grupos → avanzado plegado + ★ guardar paquete; 🧾 transacciones con
   `SelectorTransacciones.jsx`), `periodos.js` + `paquetes.js` (+10 vitest), paquetes `revisor_fiscal` e `iva_bimestral`
   en el driver. Verificado en :8003 hasta el pre-vuelo (A–J LISTO); GENERAR no se probó en E2E para no gastar folio:
   la PRIMERA generación real la hace Andrés (será EXP-2026-0001).
-1. Andrés: `.\scripts\publicar.cmd` → generar un libro real y abrirlo en Excel (CA-134-01 + E2E de GENERAR).
+1. Andrés: generar un libro real y abrirlo en Excel (CA-134-01 + E2E de GENERAR).
 2. Casillas en `LibroDiario.jsx:105-110` + `SeleccionExportarBar.jsx` que abre NuevaExportacion en modo transacciones
    con la selección (CA-135-08/09).
 3. Compendio de entrega: elegir varios archivos del organizador → ZIP con índice y folio propio (backend nuevo).
