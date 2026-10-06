@@ -123,30 +123,46 @@ def actividad(limite: int = 10, _u: dict = Depends(require_contador)):
         _fallo(e)
 
 
-def _pdf(d: dict) -> bytes:
+FORMATOS = {"pdf": "application/pdf", "html": "text/html; charset=utf-8"}
+
+
+def _generar(d: dict, formato: str) -> bytes:
+    """⬇ PDF (13.6-d) o 💾 HTML offline (13.6-e), de la misma foto que el link."""
+    import compendio_offline
     import compendio_pdf
     drv = _drv()
-    return compendio_pdf.generar(d["snapshot"], d["urls"], lambda u: _traer(u, drv.max_bytes_soporte()),
-                                 drv.describir_soporte, d.get("expira_en"))
+    modulo = compendio_pdf if formato == "pdf" else compendio_offline
+    return modulo.generar(d["snapshot"], d["urls"], lambda u: _traer(u, drv.max_bytes_soporte()),
+                          drv.describir_soporte, d.get("expira_en"))
 
 
-def _respuesta_pdf(d: dict, contenido: bytes, publica: bool) -> Response:
+def _respuesta_archivo(d: dict, contenido: bytes, formato: str, publica: bool) -> Response:
     import compendio_pdf
-    nombre = compendio_pdf.nombre_archivo(d["snapshot"], "pdf")
+    nombre = compendio_pdf.nombre_archivo(d["snapshot"], formato)
     ascii_ = "".join(ch if 32 <= ord(ch) < 127 and ch not in '"\\' else "_" for ch in nombre)
     cab = {"Content-Disposition": f"attachment; filename=\"{ascii_}\"; filename*=UTF-8''{quote(nombre)}",
            "Cache-Control": "no-store"}
-    return Response(content=contenido, media_type="application/pdf", headers={**BASE, **cab} if publica else cab)
+    return Response(content=contenido, media_type=FORMATOS[formato], headers={**BASE, **cab} if publica else cab)
 
 
-@router.get("/api/compendios/{cid}/pdf")
-def pdf_interno(cid: int, _u: dict = Depends(require_contador)):
-    """⬇ PDF desde ⇩ Exportación (no cuenta como descarga del cliente)."""
+def _archivo_interno(cid: int, formato: str):
+    """⬇ PDF o 💾 HTML desde ⇩ Exportación (no cuenta como descarga del cliente)."""
     try:
         d = _drv().para_descarga(cid=cid)
-        return _respuesta_pdf(d, _pdf(d), publica=False)
+        return _respuesta_archivo(d, _generar(d, formato), formato, publica=False)
     except Exception as e:
         _fallo(e)
+
+
+# Rutas explícitas (no /{formato}): una genérica se tragaría /seguimiento.
+@router.get("/api/compendios/{cid}/pdf")
+def pdf_interno(cid: int, _u: dict = Depends(require_contador)):
+    return _archivo_interno(cid, "pdf")
+
+
+@router.get("/api/compendios/{cid}/html")
+def html_interno(cid: int, _u: dict = Depends(require_contador)):
+    return _archivo_interno(cid, "html")
 
 
 @router.get("/api/compendios/{cid}/seguimiento")
@@ -255,21 +271,30 @@ def ver(token: str, request: Request):
 
 @router.get("/api/publico/compendio/{token}/pdf", include_in_schema=False)
 def pdf_publico(token: str, request: Request):
-    """⬇ PDF del cliente (13.6-d): la misma foto que el link; cuenta la descarga (salvo ?previa=1)."""
-    if not _ritmo_ok(request, "pdf", limite=6):                 # armar un PDF es caro: 6 por minuto por IP
+    return _archivo_publico(token, "pdf", request)
+
+
+@router.get("/api/publico/compendio/{token}/html", include_in_schema=False)
+def html_publico(token: str, request: Request):
+    return _archivo_publico(token, "html", request)
+
+
+def _archivo_publico(token: str, formato: str, request: Request):
+    """⬇ PDF / 💾 HTML offline del cliente: la misma foto que el link; cuenta la descarga (salvo ?previa=1)."""
+    if not _ritmo_ok(request, "archivo", limite=6):             # armar un archivo es caro: 6 por minuto por IP
         return _demasiadas()
     drv = _drv()
     try:
         d = drv.para_descarga(token=token)
-        contenido = _pdf(d)
+        contenido = _generar(d, formato)
     except drv.NoDisponible:
         return _no_disponible()
     except Exception as e:
-        print(f"⚠️ [compendios] PDF falló: {e}")
+        print(f"⚠️ [compendios] {formato} falló: {e}")
         return _no_disponible(503)
     if request.query_params.get("previa") != "1":
-        _anotar_seguro(d["id"], "pdf", request)
-    return _respuesta_pdf(d, contenido, publica=True)
+        _anotar_seguro(d["id"], formato, request)
+    return _respuesta_archivo(d, contenido, formato, publica=True)
 
 
 class EventoIn(BaseModel):

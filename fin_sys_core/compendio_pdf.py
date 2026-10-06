@@ -84,14 +84,14 @@ def _paginas_pdf(datos: bytes) -> int:
 
 
 def _bajar(snapshot: Dict[str, Any], urls_por_tx: Dict[int, List[str]], traer: Callable[[str], Optional[bytes]],
-           describir: Callable[[str], Dict[str, Any]]) -> Dict[tuple, Dict[str, Any]]:
-    """(i, j) → {descr, datos}. Solo imágenes y PDF servibles; en paralelo."""
+           describir: Callable[[str], Dict[str, Any]], tipos=("imagen", "pdf")) -> Dict[tuple, Dict[str, Any]]:
+    """(i, j) → {descr, datos}. Solo los servibles de `tipos`; en paralelo (también lo usa el HTML offline)."""
     tareas = {}
     for t in snapshot.get("txs", []):
         for j, url in enumerate(urls_por_tx.get(t["id"]) or []):
             d = describir(url)
             tareas[(t["i"], j)] = {"descr": d, "url": url, "datos": None}
-    pedir = [(k, v["url"]) for k, v in tareas.items() if v["descr"]["servible"] and v["descr"]["tipo"] in ("imagen", "pdf")]
+    pedir = [(k, v["url"]) for k, v in tareas.items() if v["descr"]["servible"] and v["descr"]["tipo"] in tipos]
 
     def uno(par):
         k, url = par

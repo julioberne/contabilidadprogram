@@ -30,6 +30,14 @@
     return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : iso;
   }
   function sinTildes(s) { return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
+  function abrirData(uri) {
+    var partes = String(uri).split(',');
+    var bin = atob(partes[1] || '');
+    var bytes = new Uint8Array(bin.length);
+    for (var k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+    var mime = (partes[0] || '').slice(5).split(';')[0] || 'application/octet-stream';
+    window.open(URL.createObjectURL(new Blob([bytes], { type: mime })), '_blank');
+  }
   function urlSoporte(t, s) { return s.data || (D.base + '/soporte/' + t.i + '/' + s.j + (D.previa ? '?previa=1' : '')); }
 
   // ── Cabecera y totales ─────────────────────────────────────────────
@@ -41,7 +49,8 @@
       el('span', { text: 'Folio ' + (D.folio || '—') }),
       D.rango && D.rango.desde ? el('span', { text: dia(D.rango.desde) + ' a ' + dia(D.rango.hasta) }) : null,
       el('span', { text: D.n + ' transacción' + (D.n === 1 ? '' : 'es') }),
-      D.expira_en ? el('span', { text: 'Válido hasta el ' + dia(D.expira_en) }) : null,
+      D.expira_en && !D.offline ? el('span', { text: 'Válido hasta el ' + dia(D.expira_en) }) : null,
+      D.offline ? el('span', { class: 'chip', text: '💾 Copia offline generada el ' + dia(D.generado) + ' (no necesita internet)' }) : null,
       D.previa ? el('span', { class: 'chip', text: '👁 Vista previa interna: no cuenta como visita del cliente' }) : null,
     ]),
     D.nota ? el('div', { class: 'nota', text: D.nota }) : null,
@@ -110,7 +119,11 @@
       var titulo = 'Comprobante ' + (k + 1);
       var caja = el('figure', { class: 'soporte' });
       if (!s.servible) {
-        caja.appendChild(el('p', { class: 'no-disp', text: titulo + ': no disponible' }));
+        caja.appendChild(el('p', { class: 'no-disp', text: titulo + ': ' + (s.nota || 'no disponible') }));
+      } else if (s.tipo === 'pdf' && s.data) {
+        // Offline: Chrome no deja abrir un data: como página; se abre como blob en otra pestaña.
+        caja.appendChild(el('button', { class: 'boton', type: 'button', text: '📄 Abrir PDF',
+          onclick: function () { abrirData(s.data); } }));
       } else if (s.tipo === 'imagen') {
         var src = urlSoporte(t, s);
         caja.appendChild(el('img', { src: src, alt: titulo, loading: 'lazy', onclick: function () { lupa(src, titulo); } }));
@@ -192,8 +205,11 @@
 
   var descargas = D.offline ? null : el('section', { class: 'caja', 'aria-label': 'Descargas' }, [
     el('a', { class: 'boton', href: D.base + '/pdf' + (D.previa ? '?previa=1' : ''), download: '',
-      text: '⬇ Descargar PDF' }),
-    el('span', { class: 'sub', text: '  Portada, índice y una página por transacción con sus comprobantes (para imprimir o archivar).' }),
+      text: '⬇ Descargar PDF' }), ' ',
+    el('a', { class: 'boton', href: D.base + '/html' + (D.previa ? '?previa=1' : ''), download: '',
+      text: '💾 Descargar HTML offline' }),
+    el('div', { class: 'sub', text: 'PDF: portada, índice y una página por transacción con sus comprobantes (para imprimir o archivar). ' +
+      'HTML offline: este mismo compendio en un solo archivo que abre sin internet.' }),
   ]);
   var pie = el('footer', { text: 'Folio ' + (D.folio || '—') + ' · Generado con FIN-SYS' +
     (D.creado_en ? ' el ' + dia(D.creado_en) : '') + (D.expira_en ? ' · Este enlace vence el ' + dia(D.expira_en) : '') });

@@ -16,7 +16,7 @@ import secrets
 from typing import Any, Dict, Tuple
 
 _DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
-_MARCA = re.compile(r"__(TITULO|NONCE|JS|DATOS)__")
+_MARCA = re.compile(r"__(TITULO|NONCE|JS|DATOS|META)__")
 
 
 def _leer(nombre: str) -> str:
@@ -37,11 +37,21 @@ def csp(nonce: str) -> str:
             "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")   # 'self': aviso 13.6-c
 
 
-def pagina(datos: Dict[str, Any]) -> Tuple[str, str]:
-    """→ (html, nonce). El nonce va también en la cabecera CSP."""
+def csp_offline(nonce: str) -> str:
+    """El HTML offline no tiene cabeceras: la CSP va en un <meta>. Todo está adentro (data:)."""
+    return ("default-src 'none'; "
+            f"script-src 'nonce-{nonce}'; style-src 'unsafe-inline'; "
+            "img-src data: blob:; media-src data: blob:; frame-src blob:; base-uri 'none'; form-action 'none'")
+
+
+def pagina(datos: Dict[str, Any], offline: bool = False) -> Tuple[str, str]:
+    """→ (html, nonce). En el link, el nonce va en la cabecera CSP; offline, en un <meta>."""
     nonce = secrets.token_urlsafe(16)
     titulo = html.escape(f"{datos.get('nombre') or 'Compendio'} · {datos.get('folio') or ''}".strip(" ·"))
-    valores = {"TITULO": titulo, "NONCE": nonce, "JS": _leer("compendio_visor.js"), "DATOS": datos_seguros(datos)}
+    # Sin html.escape: volvería &#x27; las comillas simples de la CSP ('nonce-…'). No lleva comillas dobles.
+    meta = (f'<meta http-equiv="Content-Security-Policy" content="{csp_offline(nonce)}">' if offline else "")
+    valores = {"TITULO": titulo, "NONCE": nonce, "JS": _leer("compendio_visor.js"), "DATOS": datos_seguros(datos),
+               "META": meta}
     # Una sola pasada sobre la PLANTILLA: lo insertado (p. ej. un nombre "__DATOS__") no se vuelve a leer.
     return _MARCA.sub(lambda m: valores[m.group(1)], _leer("compendio_visor.html")), nonce
 

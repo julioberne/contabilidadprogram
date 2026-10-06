@@ -390,7 +390,7 @@ class TestPdf(unittest.TestCase):   # 13.6-d · CA-136-05/07
 
     def _generar(self, **env):
         from fin_sys_core import compendio_pdf
-        snap = drv.armar_snapshot(TXS[:3], EMPRESAS, OPC, "Viaje Medellín 🚕", "Nota — con guion")  # i: 0=#45 1=#60 2=#61
+        snap = drv.armar_snapshot(TXS[:3], EMPRESAS, OPC, "Viaje Medellín 🚕", "Nota — con guion")  # i: 0=#45 1=#60 2=#57 2=#61
         snap["folio"] = "EXP-2026-0042"
         urls = {45: [BUCKET + "evidence/f.png", BUCKET + "evidence/factura.pdf"],
                 60: ["/uploads/voz.ogg", BUCKET + "evidence/nota.ogg"], 61: []}
@@ -440,6 +440,50 @@ class TestPdf(unittest.TestCase):   # 13.6-d · CA-136-05/07
         self.assertEqual(cp.nombre_archivo({"folio": "EXP-1", "nombre": "Viaje / Medellín"}, "pdf"), "EXP-1 Viaje Medellín.pdf")
 
 
+class TestOffline(unittest.TestCase):   # 13.6-e · CA-136-06/07
+
+    def _generar(self, **env):
+        from fin_sys_core import compendio_offline
+        snap = drv.armar_snapshot(TXS[1:3], EMPRESAS, OPC, "Viaje", None)       # i: 0=#45 1=#60
+        snap["folio"] = "EXP-2026-0042"
+        urls = {45: [BUCKET + "evidence/f.png", BUCKET + "evidence/factura.pdf"],
+                60: [BUCKET + "evidence/nota.ogg", "/uploads/viejo.jpg"]}
+        datos = {BUCKET + "evidence/f.png": _png(3000, 1500), BUCKET + "evidence/factura.pdf": _pdf_anexo(1),
+                 BUCKET + "evidence/nota.ogg": b"OggS-audio"}
+        with mock.patch.dict(os.environ, env):
+            return compendio_offline.generar(snap, urls, datos.get, drv.describir_soporte).decode("utf-8")
+
+    def _datos(self, html):
+        m = re.search(r'<script type="application/json" id="datos">(.*?)</script>', html, re.S)
+        return json.loads(m.group(1))
+
+    def test_todo_adentro_y_sin_internet(self):
+        html = self._generar()
+        d = self._datos(html)
+        self.assertTrue(d["offline"])
+        self.assertIsNone(d["expira_en"])
+        s45, s60 = d["txs"][0]["soportes"], d["txs"][1]["soportes"]
+        self.assertTrue(s45[0]["data"].startswith("data:image/jpeg;base64,"))   # foto recomprimida
+        self.assertTrue(s45[1]["data"].startswith("data:application/pdf;base64,"))
+        self.assertTrue(s60[0]["data"].startswith("data:audio/ogg;base64,"))
+        self.assertFalse(s60[1]["servible"])                                    # /uploads: no disponible
+        self.assertNotIn("supabase", html)                                       # ninguna URL del bucket
+        self.assertNotIn("/api/publico", html)
+        nonce = re.search(r"'nonce-([^']+)'", html).group(1)
+        self.assertIn('http-equiv="Content-Security-Policy"', html)
+        self.assertIn(f'<script nonce="{nonce}">', html)
+        import base64 as _b64
+        import io as _io
+        from PIL import Image
+        foto = Image.open(_io.BytesIO(_b64.b64decode(s45[0]["data"].split(",", 1)[1])))
+        self.assertLessEqual(max(foto.size), 1280)
+
+    def test_presupuesto(self):
+        d = self._datos(self._generar(COMPENDIO_MAX_MB="0.3"))                   # no alcanza ni para el visor
+        notas = [s.get("nota") for t in d["txs"] for s in t["soportes"]]
+        self.assertIn("omitido por tamaño: véalo en el link", notas)
+
+
 class TestVisor(unittest.TestCase):
 
     def test_los_datos_no_cierran_el_script(self):
@@ -478,12 +522,29 @@ class TestRouter(unittest.TestCase):
     PRIVADAS = [("post", "/api/compendios/preflight"), ("post", "/api/compendios"),
                 ("get", "/api/compendios"), ("patch", "/api/compendios/1"),
                 ("get", "/api/compendios/1/seguimiento"), ("get", "/api/compendios/actividad"),
-                ("get", "/api/compendios/1/pdf")]
+                ("get", "/api/compendios/1/pdf"), ("get", "/api/compendios/1/html")]
+
+    def test_html_offline_publico(self):
+        d = {"id": 9, "snapshot": {**_snap(), "folio": "EXP-7"}, "urls": {}, "expira_en": None}
+        with mock.patch.object(drv, "para_descarga", return_value=d), \
+                mock.patch.object(drv, "anotar", return_value={"nuevo": True}) as anotar:
+            r = self.client.get("/api/publico/compendio/" + "a" * 43 + "/html")
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.headers["content-type"].startswith("text/html"))
+        self.assertTrue(r.headers["content-disposition"].startswith('attachment; filename="EXP-7 Septiembre.html"'))
+        self.assertIn('"offline": true', r.text)
+        self.assertEqual(anotar.call_args.args[:2], (9, "html"))
+
+    def test_seguimiento_no_lo_traga_la_ruta_de_archivos(self):
+        with mock.patch.object(drv, "seguimiento", return_value={"ok": 1}) as m:
+            r = self.client.get("/api/compendios/9/seguimiento", headers=self.contador)
+        self.assertEqual((r.status_code, r.json()), (200, {"ok": 1}))
+        m.assert_called_once_with(9)
 
     def test_pdf_publico_cuenta_la_descarga(self):
         d = {"id": 9, "snapshot": {**_snap(), "folio": "EXP-7"}, "urls": {}, "expira_en": None}
         with mock.patch.object(drv, "para_descarga", return_value=d), \
-                mock.patch.object(self.mod, "_pdf", return_value=b"%PDF-1.7 x"), \
+                mock.patch.object(self.mod, "_generar", return_value=b"%PDF-1.7 x"), \
                 mock.patch.object(drv, "anotar", return_value={"nuevo": True}) as anotar:
             r = self.client.get("/api/publico/compendio/" + "a" * 43 + "/pdf")
             self.client.get("/api/publico/compendio/" + "a" * 43 + "/pdf?previa=1")
