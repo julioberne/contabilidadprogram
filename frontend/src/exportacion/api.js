@@ -4,8 +4,8 @@
    más PATCH/DELETE, subida multipart y descargas como blob: los
    archivos jamás tienen URL pública (R-135-05).
    ============================================================ */
-import { API } from '../../config';
-import { authHeaders } from '../../shell/authHeaders.js';
+import { API } from '../config';
+import { authHeaders } from '../shell/authHeaders.js';
 import { nombreDescarga } from './organizador.js';
 
 async function error(r) {

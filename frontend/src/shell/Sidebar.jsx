@@ -2,9 +2,7 @@
    Sidebar.jsx — Barra lateral unificada del Shell FIN-SYS OS
    Grupos: INICIO · FINANCIERO · GESTIÓN · OPERACIONES · SISTEMA
    ============================================================ */
-import { useState } from 'react';
 import { getNavGroups } from '../registry/moduleRegistry';
-import { usePathname } from './useRoute';
 
 
 /* ── Mapa de acento → clase CSS activa ───────────────────── */
@@ -14,28 +12,8 @@ const ACTIVE_CLASS = {
   blue:  'active-blue',
 };
 
-/* ── Sub-ítems plegados (▸), recordados por navegador ────── */
-const CLAVE_PLEGADOS = 'finsys.nav.plegados';
-
-function leerPlegados() {
-  try { return new Set(JSON.parse(localStorage.getItem(CLAVE_PLEGADOS) || '[]')); }
-  catch { return new Set(); }
-}
-
-const enSubRuta = (path, sub) => path === sub.path || path.startsWith(`${sub.path}/`);
-
 /* ── Componente ──────────────────────────────────────────── */
 export default function Sidebar({ user, activeView, onNavigate, collapsed, onToggle, mobileOpen, enabledIds }) {
-  const path = usePathname();
-  const [plegados, setPlegados] = useState(leerPlegados);
-
-  const alternarSub = (id) => setPlegados(prev => {
-    const next = new Set(prev);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    try { localStorage.setItem(CLAVE_PLEGADOS, JSON.stringify([...next])); } catch { /* sin storage */ }
-    return next;
-  });
-
   const sidebarClass = [
     'shell-sidebar',
     collapsed ? 'collapsed' : '',
@@ -79,17 +57,13 @@ export default function Sidebar({ user, activeView, onNavigate, collapsed, onTog
             <div className="shell-nav-label">{group}</div>
             {items.map(item => {
               const isActive = activeView === item.id;
-              const subs = !item.soon && item.sub?.length ? item.sub : null;
-              const subActivo = isActive && subs?.some(s => enSubRuta(path, s));
-              const abierto = subs && !plegados.has(item.id);
               const cls = [
                 'shell-nav-item',
-                // Con el sub-ítem plegado (▸) el padre conserva el resaltado.
-                isActive && !(subActivo && abierto) ? ACTIVE_CLASS[item.accent] : '',
+                isActive ? ACTIVE_CLASS[item.accent] : '',
                 item.soon ? 'dim' : '',
               ].filter(Boolean).join(' ');
 
-              const boton = (
+              return (
                 <button
                   key={item.id}
                   id={`shell-nav-${item.id}`}
@@ -103,40 +77,6 @@ export default function Sidebar({ user, activeView, onNavigate, collapsed, onTog
                     <span className="shell-nav-badge">PRÓX</span>
                   )}
                 </button>
-              );
-              if (!subs) return boton;
-
-              return (
-                <div key={item.id}>
-                  <div className="shell-nav-row">
-                    {boton}
-                    <button
-                      type="button"
-                      className="shell-nav-caret"
-                      id={`shell-nav-${item.id}-caret`}
-                      onClick={() => alternarSub(item.id)}
-                      aria-expanded={abierto}
-                      title={abierto ? `Plegar ${item.label}` : `Desplegar ${item.label}`}
-                    >
-                      {abierto ? '▾' : '▸'}
-                    </button>
-                  </div>
-                  {abierto && subs.map(s => (
-                    <button
-                      key={s.id}
-                      id={`shell-nav-${item.id}-${s.id}`}
-                      className={[
-                        'shell-nav-item', 'shell-nav-sub',
-                        isActive && enSubRuta(path, s) ? ACTIVE_CLASS[item.accent] : '',
-                      ].filter(Boolean).join(' ')}
-                      onClick={() => onNavigate(item.id, { path: s.path })}
-                      title={collapsed ? `${item.label} · ${s.label}` : undefined}
-                    >
-                      <span className="shell-nav-icon">{s.icon}</span>
-                      <span className="shell-nav-text">{s.label}</span>
-                    </button>
-                  ))}
-                </div>
               );
             })}
           </div>

@@ -24,6 +24,7 @@ const MODULE_LABELS = {
   'contabilidad': { icon: '◆', label: 'Contabilidad' },
   'contadores':   { icon: '⊟', label: 'Contadores' },
   'analisis':     { icon: '∑', label: 'Análisis' },
+  'exportacion':  { icon: '⇩', label: 'Exportación' },
   'tower':        { icon: '◈', label: 'Control Tower' },
   'rrhh':         { icon: '◇', label: 'RRHH (Project Hub)' },
   'bot':          { icon: '◉', label: 'Bot IA' },

@@ -16,7 +16,6 @@ import {
   VISTAS_PREDEFINIDAS, cargarVistasGuardadas, guardarVista, borrarVista,
 } from './vistas.js';
 import './analisis.css';
-import ExportacionPanel from './exportacion/ExportacionPanel.jsx';   // 13.5: el organizador baja en su propio chunk al desplegar
 
 const btn = 'border-2 border-black px-2 py-0.5 text-[10px] font-bold';
 
@@ -406,8 +405,6 @@ export default function AnalisisApp({ user }) {
         )}
         <perspective-viewer ref={viewerRef} theme="Pro Light" />
       </div>
-
-      <ExportacionPanel user={user} />
     </div>
   );
 }

@@ -33,14 +33,16 @@ const modules = [
     desc: 'Explora · Pivotea · Grafica\nPregunta en español · Sello de origen',
     // Análisis Inteligente hito 1 (2026-09-15): Perspective (WASM) + /ask
     component: lazy(() => import('../analisis/AnalisisApp.jsx')),
-    wrapStyle: { minHeight: '100%', width: '100%' },
-    // Sub-ítems del menú lateral (2026-10-05): sub-rutas del mismo módulo, no
-    // módulos aparte. /analisis/exportacion abre 📦 EXPORTACIÓN desplegada.
-    sub: [
-      // Mismos roles que el backend del organizador (require_contador).
-      { id: 'exportacion', label: 'Exportación', icon: '📦', path: '/analisis/exportacion',
-        roles: ['owner', 'admin', 'contador'] },
-    ] },
+    wrapStyle: { minHeight: '100%', width: '100%' } },
+
+  { id: 'exportacion', label: 'Exportación', icon: '⇩', group: 'FINANCIERO',
+    accent: 'green', active: true, order: 3,
+    desc: 'Libros con folio · Relaciones de TXs\nDocumentos subidos · Vigencia por huella',
+    // Módulo 14 (2026-10-06, spec 13.5): el organizador contable sale de ∑
+    // Análisis a módulo propio. Mismos roles que el backend (require_contador).
+    roles: ['owner', 'admin', 'contador'],
+    component: lazy(() => import('../exportacion/ExportacionApp.jsx')),
+    wrapStyle: { minHeight: '100%', width: '100%' } },
 
   { id: 'tesoreria', label: 'Tesorería', icon: '⊕', group: 'FINANCIERO',
     accent: 'green', active: false, order: 4 },
@@ -117,7 +119,7 @@ function sesionActual() {
   }
 }
 
-/** ¿El módulo (o sub-ítem) es visible para el rol en sesión? (sin `roles` = para todos) */
+/** ¿El módulo es visible para el rol en sesión? (sin `roles` = para todos) */
 function visiblePorRol(m) {
   if (!m.roles || !m.roles.length) return true;
   const { role, su } = sesionActual();
@@ -157,7 +159,6 @@ export function getNavGroups(enabledIds = null) {
     groups[m.group].items.push({
       id: m.id, icon: m.icon, label: m.label,
       accent: m.accent, soon: !isActive && m.id !== 'home',
-      sub: m.sub?.filter(visiblePorRol),
     });
   });
   return Object.values(groups);
