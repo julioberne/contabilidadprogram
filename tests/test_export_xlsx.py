@@ -519,5 +519,87 @@ class TestEndpoint(unittest.TestCase):  # CA-134-03
         self.assertIn("Hojas desconocidas", r.json()["detail"])
 
 
+# ══ 06-oct: comparativo, certificación (Ley 222 art. 37) y folio inicial ═══
+
+def _con_comp(datos=None):
+    d = datos or datos_periodo()
+    d["comp"] = {
+        "desde": date(2026, 8, 1), "hasta": date(2026, 8, 31),
+        "er": {"ingresos": [{"codigo": "4135", "nombre": "Ventas", "tipo": "INGRESO", "saldo": 800_000.0},
+                            {"codigo": "4210", "nombre": "Financieros", "tipo": "INGRESO", "saldo": 5_000.0}],
+               "gastos": []},
+        "bg": {"activos": [{"codigo": "1110", "nombre": "Bancos", "tipo": "ACTIVO", "saldo": 900_000.0}],
+               "pasivos": [], "patrimonio": [{"codigo": "3105", "nombre": "Capital", "tipo": "PATRIMONIO", "saldo": 500_000.0}],
+               "utilidad": 400_000.0},
+    }
+    return d
+
+
+class TestComparativoYCertificacion(unittest.TestCase):
+
+    def test_periodo_comparativo(self):
+        pc = ex.periodo_comparativo
+        self.assertEqual(pc(date(2026, 9, 1), date(2026, 9, 30), "periodo_anterior"), (date(2026, 8, 1), date(2026, 8, 31)))
+        self.assertEqual(pc(date(2026, 1, 1), date(2026, 3, 31), "periodo_anterior"), (date(2025, 10, 1), date(2025, 12, 31)))
+        self.assertEqual(pc(date(2026, 9, 10), date(2026, 9, 19), "periodo_anterior"), (date(2026, 8, 31), date(2026, 9, 9)))
+        self.assertEqual(pc(date(2024, 2, 1), date(2024, 2, 29), "anio_anterior"), (date(2023, 2, 1), date(2023, 2, 28)))
+        self.assertEqual(pc(date(2026, 1, 1), date(2026, 12, 31), "anio_anterior"), (date(2025, 1, 1), date(2025, 12, 31)))
+        self.assertEqual(pc(None, date(2026, 9, 30), "periodo_anterior"), (None, date(2025, 9, 30)))
+
+    def test_receta(self):
+        r = receta(comparativo="anio_anterior", certificacion={"contador": " Ana ", "otra": "x"}, folio_inicial="41")
+        self.assertEqual((r["comparativo"], r["folio_inicial"]), ("anio_anterior", 41))
+        self.assertEqual(r["certificacion"], {"representante": "", "documento_representante": "", "contador": "Ana",
+                                              "tarjeta_profesional": ""})
+        self.assertEqual(receta(certificacion=True)["certificacion"]["contador"], "")
+        self.assertIsNone(receta()["comparativo"])
+        for malo in ({"comparativo": "siempre"}, {"folio_inicial": "x"}, {"folio_inicial": 0}):
+            with self.assertRaises(ValueError):
+                receta(**malo)
+        with self.assertRaises(ValueError):
+            ex.normalizar_receta({"modo": "transacciones", "tx_ids": [1], "comparativo": "anio_anterior"})
+
+    def test_estados_comparativos(self):
+        wb, sello = libro(_con_comp(), receta(comparativo="periodo_anterior"))
+        er = wb["ESTADO DE RESULTADOS"]
+        self.assertEqual(er["A1"].value, "ESTADO DE RESULTADOS COMPARATIVO")
+        self.assertEqual([er.cell(row=4, column=j).value for j in (1, 2, 5, 6)], ["Código", "Cuenta", "Variación", "Var. %"])
+        filas = {er.cell(row=i, column=1).value: i for i in range(1, er.max_row + 1)}
+        i = filas["4135"]
+        self.assertEqual((er[f"C{i}"].value, er[f"D{i}"].value, er[f"E{i}"].value), (1_000_000, 800_000, f"=C{i}-D{i}"))
+        self.assertEqual(er[f"D{filas['4210']}"].value, 5_000)             # cuenta que solo existía antes
+        self.assertEqual(er[f"C{filas['4210']}"].value, 0)
+        bg = wb["BALANCE GENERAL"]
+        textos = [str(c.value) for fila in bg.iter_rows() for c in fila if c.value]
+        self.assertIn("BALANCE GENERAL COMPARATIVO", textos)
+        self.assertTrue(any("Al 31/08/2026" in t for t in textos))
+        self.assertEqual(sello["comparativo"], {"modo": "periodo_anterior", "desde": "2026-08-01", "hasta": "2026-08-31"})
+        caratula = [str(c.value) for fila in wb["CARÁTULA"].iter_rows() for c in fila if c.value]
+        self.assertTrue(any(t.startswith("período anterior: 01/08/2026") for t in caratula))
+
+    def test_sin_comparativo_no_cambia(self):
+        wb, sello = libro()
+        self.assertEqual(wb["ESTADO DE RESULTADOS"]["A1"].value, "ESTADO DE RESULTADOS")
+        self.assertIsNone(sello["comparativo"])
+        self.assertNotIn("CERTIFICACIÓN", wb.sheetnames)
+
+    def test_certificacion_y_folio_inicial(self):
+        wb, sello = libro(r=receta(certificacion={"representante": "Julián Díaz", "tarjeta_profesional": "123456-T"},
+                                   folio_inicial=41))
+        self.assertIn("CERTIFICACIÓN", wb.sheetnames)
+        ws = wb["CERTIFICACIÓN"]
+        textos = " ".join(str(c.value) for fila in ws.iter_rows() for c in fila if c.value)
+        self.assertIn("Artículo 37 de la Ley 222 de 1995", textos)
+        self.assertIn("se han tomado fielmente de los libros", textos)
+        self.assertIn("Finanzas Julian, NIT 900.123.456-7", textos)
+        self.assertIn("Nombre: Julián Díaz", textos)
+        self.assertIn("T.P.: 123456-T", textos)
+        self.assertTrue(sello["certificacion"])
+        self.assertEqual(sello["folio_inicial"], 41)
+        self.assertEqual(wb["LIBRO DIARIO"].oddFooter.right.text, "Folio &P+40")
+        self.assertEqual(wb["MAYOR"].oddFooter.right.text, "Folio &P+40")
+        self.assertEqual(libro(r=receta(folio_inicial=1))[0]["LIBRO DIARIO"].oddFooter.right.text, "Folio &P")
+
+
 if __name__ == "__main__":
     unittest.main()

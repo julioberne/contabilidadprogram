@@ -19,7 +19,7 @@ import { Modal, AvisoError, DialogoTexto, btnNegro, btnBlanco } from './Dialogos
 import { formatoBytes } from './organizador.js';
 import { ATAJOS, rangoRelativo, rangoMes, atajoDe } from './periodos.js';
 import {
-  GRUPOS_HOJAS, NIVELES_PUC, TIPOS_TX, ATAJO_DE_PAQUETE, PERSONALIZADO, MAX_TX,
+  GRUPOS_HOJAS, NIVELES_PUC, TIPOS_TX, ATAJO_DE_PAQUETE, PERSONALIZADO, MAX_TX, COMPARATIVOS, CAMPOS_CERTIFICACION,
   paqueteDeHojas, hojasDePaquete, recetaPeriodo, validarPeriodo, recetaTransacciones, distintos,
 } from './paquetes.js';
 import SelectorTransacciones from './SelectorTransacciones.jsx';
@@ -40,8 +40,11 @@ function formInicial(predefinidos, inicial = {}) {
     paquete, atajo, ...rango, hojas: hojasDePaquete(predefinidos, paquete),
     empresas: inicial.pid ? [Number(inicial.pid)] : [],
     nivelPuc: '', tipos: [], moneda: '', terceros: [], categorias: [], cuentasPuc: '', nombre: '',
+    comparativo: '', certificar: false, cert: { ...CERT_VACIA }, folioInicial: '',
   };
 }
+
+const CERT_VACIA = Object.fromEntries(CAMPOS_CERTIFICACION.map(([k]) => [k, '']));
 
 function Seccion({ n, titulo, ayuda, children }) {
   return (
@@ -138,6 +141,9 @@ export default function NuevaExportacion({ paquetes, portfolios, carpetas, inici
       empresas: r.portfolios?.length ? r.portfolios : (r.portfolio_id ? [r.portfolio_id] : []),
       nivelPuc: r.nivel_puc || '', tipos: fil.tipos || [], moneda: fil.moneda || '', terceros: fil.terceros || [],
       categorias: fil.categorias || [], cuentasPuc: (fil.cuentas_puc || []).join(', '), nombre: '',
+      comparativo: r.comparativo || '', certificar: !!r.certificacion,
+      cert: { ...CERT_VACIA, ...(r.certificacion && typeof r.certificacion === 'object' ? r.certificacion : {}) },
+      folioInicial: r.folio_inicial ? String(r.folio_inicial) : '',
     });
     setGuardadoActivo(g.id);
   };
@@ -316,6 +322,30 @@ export default function NuevaExportacion({ paquetes, portfolios, carpetas, inici
                       </fieldset>
                     ))}
                   </div>
+                  {/* 06-oct: comparativo y certificación (Ley 222 art. 37) */}
+                  <div className="flex flex-wrap items-center gap-1 mt-2 text-[10px]">
+                    <b className="mr-1">Estados comparativos</b>
+                    {COMPARATIVOS.map(([v, t]) => (
+                      <button key={v || 'no'} type="button" aria-pressed={f.comparativo === v} className={chip(f.comparativo === v)}
+                        onClick={() => set({ comparativo: v })}
+                        title={v ? 'Estado de resultados y balance general con la columna del período de comparación, variación y %' : ''}>
+                        {t}</button>
+                    ))}
+                    <label className="flex items-center gap-1 ml-2 cursor-pointer"
+                      title="Hoja CERTIFICACIÓN con el texto del art. 37 de la Ley 222 de 1995 y espacio para las firmas">
+                      <input type="checkbox" checked={f.certificar} onChange={(e) => set({ certificar: e.target.checked })} />
+                      ✍ Certificación de los estados (Ley 222 art. 37)
+                    </label>
+                  </div>
+                  {f.certificar && (
+                    <div className="grid sm:grid-cols-4 gap-1 mt-1 text-[10px]">
+                      {CAMPOS_CERTIFICACION.map(([k, t]) => (
+                        <label key={k} className="flex flex-col gap-0.5"><span>{t} (opcional)</span>
+                          <input value={f.cert[k]} maxLength={120} className={campo}
+                            onChange={(e) => set({ cert: { ...f.cert, [k]: e.target.value } })} /></label>
+                      ))}
+                    </div>
+                  )}
                 </Seccion>
 
                 <section className="border-2 border-black bg-white">
@@ -350,6 +380,10 @@ export default function NuevaExportacion({ paquetes, portfolios, carpetas, inici
                           <label key={id} className="flex items-center gap-1"><input type="checkbox" checked={f.terceros.includes(id)}
                             onChange={() => alternarEn('terceros', id)} /> {n}</label>))}
                           {!terceros.length && <span className="text-gray-600">{txs.cargando ? 'cargando…' : 'sin terceros'}</span>}</div></div>
+                      <label className="flex flex-col gap-0.5"><b>Folio inicial del diario y del mayor (opcional)</b>
+                        <input value={f.folioInicial} inputMode="numeric" onChange={(e) => set({ folioInicial: e.target.value })}
+                          placeholder="Ej.: 41 (donde terminó el libro anterior + 1)" className={campo}
+                          title="Al imprimir, cada página lleva 'Folio N' empezando en este número" /></label>
                       <label className="flex flex-col gap-0.5"><b>Nombre del archivo (opcional)</b>
                         <input value={f.nombre} maxLength={120} onChange={(e) => set({ nombre: e.target.value })}
                           placeholder="Por defecto: paquete · empresa · período" className={campo} /></label>

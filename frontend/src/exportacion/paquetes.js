@@ -60,14 +60,32 @@ export function recetaPeriodo(f) {
   if (Object.keys(filtros).length) receta.filtros = filtros;
   if (f.nombre?.trim()) receta.nombre = f.nombre.trim();
   if (f.atajo) receta.relativo = f.atajo;
+  // 06-oct: comparativo, certificación (Ley 222 art. 37) y folio inicial.
+  if (f.comparativo) receta.comparativo = f.comparativo;
+  if (f.certificar) {
+    const c = Object.fromEntries(Object.entries(f.cert || {}).filter(([, v]) => String(v || '').trim())
+      .map(([k, v]) => [k, String(v).trim()]));
+    receta.certificacion = Object.keys(c).length ? c : true;     // {} sería "no certificar" para el motor
+  }
+  if (String(f.folioInicial ?? '').trim()) receta.folio_inicial = Number(f.folioInicial);
   return { receta, paquete: f.paquete || PERSONALIZADO };
 }
+
+export const COMPARATIVOS = [['', 'Sin comparativo'], ['periodo_anterior', 'Vs. período anterior'], ['anio_anterior', 'Vs. año anterior']];
+export const CAMPOS_CERTIFICACION = [
+  ['representante', 'Representante legal'], ['documento_representante', 'C.C. del representante'],
+  ['contador', 'Contador público'], ['tarjeta_profesional', 'T.P. del contador'],
+];
 
 /** Error legible del formulario de período, o null. */
 export function validarPeriodo(f) {
   if (!f.hasta) return 'Falta la fecha final del período.';
   if (f.desde && f.desde > f.hasta) return 'La fecha inicial es posterior a la final.';
   if (!f.hojas.length) return 'Elige al menos un libro.';
+  const folio = String(f.folioInicial ?? '').trim();
+  if (folio && !(/^\d+$/.test(folio) && Number(folio) >= 1 && Number(folio) <= 999999)) {
+    return 'El folio inicial es un número entero de 1 a 999999.';
+  }
   return null;
 }
 

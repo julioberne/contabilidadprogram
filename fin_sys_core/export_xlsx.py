@@ -18,6 +18,7 @@ Reglas: una moneda distinta de COP jamás se suma al COP (bloque propio); los
 filtros finos solo tocan las hojas de transacciones (D-134-07); los totales son
 fórmulas =SUM reales para que el contador audite con un clic (D-134-05).
 """
+import calendar
 import io
 import re
 import unicodedata
@@ -56,6 +57,9 @@ HOJAS_TRANSACCIONES = {
 }
 
 TIPOS_TX = ("INGRESO", "GASTO", "TRANSFERENCIA")
+# 13.4+ (06-oct): estados comparativos (NIIF Pymes §3.14 — y la práctica en Grupo 3).
+COMPARATIVOS = {"periodo_anterior": "período anterior", "anio_anterior": "mismo período del año anterior"}
+CAMPOS_CERTIFICACION = ("representante", "documento_representante", "contador", "tarjeta_profesional")
 NIVELES_PUC = {"clase": 1, "grupo": 2, "cuenta": 4, "subcuenta": 6}
 CLASES_PUC = {
     "1": "Activo", "2": "Pasivo", "3": "Patrimonio", "4": "Ingresos", "5": "Gastos",
@@ -189,12 +193,60 @@ def normalizar_receta(receta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     elif tx_ids:
         raise ValueError("'tx_ids' solo aplica al modo 'transacciones'.")
 
+    # Comparativo, certificación (Ley 222 art. 37) y folio inicial: solo libros por período.
+    comparativo = str(r.get("comparativo") or "").strip().lower() or None
+    if comparativo and comparativo not in COMPARATIVOS:
+        raise ValueError(f"Comparativo desconocido: {comparativo!r}. Usa {', '.join(COMPARATIVOS)}.")
+    cert_in = r.get("certificacion")
+    certificacion = None
+    if cert_in:
+        c = cert_in if isinstance(cert_in, dict) else {}
+        certificacion = {k: str(c.get(k) or "").strip()[:120] for k in CAMPOS_CERTIFICACION}
+    folio_inicial = None
+    if r.get("folio_inicial") not in (None, ""):
+        try:
+            folio_inicial = int(r["folio_inicial"])
+        except (TypeError, ValueError):
+            raise ValueError("El folio inicial debe ser un número entero.")
+        if not 1 <= folio_inicial <= 999_999:
+            raise ValueError("El folio inicial va de 1 a 999999.")
+    if modo != "periodo" and (comparativo or certificacion or folio_inicial):
+        raise ValueError("Comparativo, certificación y folio inicial solo aplican a los libros por período.")
+
     return {
         "modo": modo, "portfolios": portfolios, "desde": desde, "hasta": hasta,
         "hojas": hojas, "filtros": filtros, "nivel_puc": nivel, "tx_ids": tx_ids,
         "nombre": (str(r.get("nombre") or "").strip()[:120] or None),
         "folio": (str(r.get("folio") or "").strip()[:30] or None),
+        "comparativo": comparativo, "certificacion": certificacion, "folio_inicial": folio_inicial,
     }
+
+
+def _sumar_meses(d: date, n: int) -> date:
+    a, m = divmod(d.month - 1 + n, 12)
+    anio, mes = d.year + a, m + 1
+    return date(anio, mes, min(d.day, calendar.monthrange(anio, mes)[1]))
+
+
+def _fin_de_mes(d: date) -> date:
+    return date(d.year, d.month, calendar.monthrange(d.year, d.month)[1])
+
+
+def periodo_comparativo(desde: Optional[date], hasta: date, modo: str) -> Tuple[Optional[date], date]:
+    """Período con el que se compara. anio_anterior: mismas fechas un año antes (fin de mes → fin
+    de mes). periodo_anterior: si son meses completos, los N meses justo antes; si no, los mismos
+    días justo antes. "Desde el inicio" se compara con el corte un año antes."""
+    if modo == "anio_anterior" or desde is None:
+        h = _sumar_meses(hasta, -12)
+        if hasta == _fin_de_mes(hasta):
+            h = _fin_de_mes(h)
+        return (_sumar_meses(desde, -12) if desde else None), h
+    if desde.day == 1 and hasta == _fin_de_mes(hasta):
+        n = (hasta.year - desde.year) * 12 + hasta.month - desde.month + 1
+        return _sumar_meses(desde, -n), desde - timedelta(days=1)
+    dias = (hasta - desde).days + 1
+    h = desde - timedelta(days=1)
+    return h - timedelta(days=dias - 1), h
 
 
 # ══ Utilidades de datos ══════════════════════════════════════════════════
@@ -516,6 +568,13 @@ def recolectar(r: Dict[str, Any]) -> Dict[str, Any]:
         else:
             cartera = listar_cartera(None) or []
 
+    if r.get("comparativo"):                                     # mismo kernel, otro período (R-13-01)
+        d_c, h_c = periodo_comparativo(r["desde"], r["hasta"], r["comparativo"])
+        d_cs, h_cs = (d_c.isoformat() if d_c else None), h_c.isoformat()
+        datos["comp"] = {"desde": d_c, "hasta": h_c,
+                         "er": _fusionar_er([kr.estado_resultados(pid, d_cs, h_cs) for pid in pids]),
+                         "bg": _fusionar_bg([kr.balance_general(pid, h_cs) for pid in pids])}
+
     bp = _fusionar_bp(bps)
     datos.update(txs=txs, asientos=asientos, truncado=truncado, cartera=cartera,
                  bp=bp, er=_fusionar_er(ers), bg=_fusionar_bg(bgs),
@@ -824,8 +883,68 @@ def _seccion(ws, fila: int, titulo: str, filas: List[Dict[str, Any]], etiqueta_t
     return r, r + 2
 
 
+FMT_PCT = "0.0%"
+
+
+def _encabezado_comp(ws, fila: int, actual: str, anterior: str) -> int:
+    for j, t in enumerate(("Código", "Cuenta", actual, anterior, "Variación", "Var. %"), start=1):
+        c = ws.cell(row=fila, column=j, value=t)
+        c.font, c.fill, c.border = _F_ENC, _NEGRO, _BORDE
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    return fila + 2
+
+
+def _variacion(ws, r: int, negrita: bool = False) -> None:
+    e = ws.cell(row=r, column=5, value=f"=C{r}-D{r}")
+    p = ws.cell(row=r, column=6, value=f'=IF(D{r}=0,"",E{r}/ABS(D{r}))')
+    e.number_format, p.number_format = FMT_NUM, FMT_PCT
+    if negrita:
+        e.font = p.font = _F_NEGRITA
+        e.fill = p.fill = _PAPEL
+
+
+def _seccion_comp(ws, fila: int, titulo: str, act: List[Dict[str, Any]], ant: List[Dict[str, Any]],
+                  etiqueta_total: str) -> Tuple[int, int]:
+    """Como _seccion, con columnas actual · anterior · variación · %. Une las cuentas de ambos
+    períodos (una cuenta que solo existe en uno muestra 0 en el otro)."""
+    ws.cell(row=fila, column=1, value=titulo).font = _F_NEGRITA
+    por: Dict[str, Dict[str, Any]] = {}
+    for lista, k in ((act, "a"), (ant, "b")):
+        for f in lista:
+            d = por.setdefault(str(f["codigo"]), {"codigo": f["codigo"], "nombre": f["nombre"], "a": 0.0, "b": 0.0})
+            d[k] += _num(f.get("saldo"))
+    filas = sorted(por.values(), key=lambda x: _orden_codigo(x["codigo"]))
+    ini, r = fila + 1, fila
+    for f in filas:
+        r += 1
+        _poner(ws.cell(row=r, column=1), f["codigo"], "txt")
+        _poner(ws.cell(row=r, column=2), f["nombre"], "txt")
+        _poner(ws.cell(row=r, column=3), f["a"], "num")
+        _poner(ws.cell(row=r, column=4), f["b"], "num")
+        _variacion(ws, r)
+    if not filas:
+        r += 1
+        ws.cell(row=r, column=2, value="(sin saldo)").font = _F_NOTA
+    r += 1
+    ws.cell(row=r, column=2, value=etiqueta_total).font = _F_NEGRITA
+    for col in ("C", "D"):
+        c = ws[f"{col}{r}"]
+        c.value = f"=SUM({col}{ini}:{col}{r - 1})" if filas else 0
+        c.number_format, c.font, c.fill = FMT_NUM, _F_NEGRITA, _PAPEL
+    _variacion(ws, r, negrita=True)
+    return r, r + 2
+
+
+def _rango_txt(desde: Optional[date], hasta: date) -> str:
+    return f"{desde.strftime('%d/%m/%Y') if desde else 'inicio'} – {hasta.strftime('%d/%m/%Y')}"
+
+
 def _hoja_estado_resultados(lib: _Libro) -> None:
     ws = lib.hoja("estado_resultados")
+    comp = lib.datos.get("comp")
+    if comp:
+        _hoja_estado_resultados_comp(lib, ws, comp)
+        return
     fila = _titulo(ws, "ESTADO DE RESULTADOS", lib.subtitulo())
     er, nivel = lib.datos.get("er", {}), lib.r["nivel_puc"]
     ing = agregar_por_nivel(er.get("ingresos", []), nivel, ("saldo",), lib.datos.get("nombres_cuenta"))
@@ -838,8 +957,105 @@ def _hoja_estado_resultados(lib: _Libro) -> None:
     _rematar(ws)
 
 
+def _hoja_estado_resultados_comp(lib: _Libro, ws, comp: Dict[str, Any]) -> None:
+    r, nivel, nombres = lib.r, lib.r["nivel_puc"], lib.datos.get("nombres_cuenta")
+    fila = _titulo(ws, "ESTADO DE RESULTADOS COMPARATIVO",
+                   f"{lib.empresas_txt()} · comparado con el {COMPARATIVOS[r['comparativo']]}")
+    fila = _encabezado_comp(ws, fila, f"Actual {_rango_txt(r['desde'], r['hasta'])}",
+                            f"Anterior {_rango_txt(comp['desde'], comp['hasta'])}")
+    er, era = lib.datos.get("er", {}), comp.get("er") or {}
+    niv = lambda xs: agregar_por_nivel(xs or [], nivel, ("saldo",), nombres)  # noqa: E731
+    t_ing, fila = _seccion_comp(ws, fila, "INGRESOS", niv(er.get("ingresos")), niv(era.get("ingresos")), "TOTAL INGRESOS")
+    t_gas, fila = _seccion_comp(ws, fila, "GASTOS", niv(er.get("gastos")), niv(era.get("gastos")), "TOTAL GASTOS")
+    ws.cell(row=fila, column=2, value="UTILIDAD (PÉRDIDA) DEL PERÍODO").font = _F_NEGRITA
+    for col in ("C", "D"):
+        u = ws[f"{col}{fila}"]
+        u.value = f"={col}{t_ing}-{col}{t_gas}"
+        u.number_format, u.font, u.fill = FMT_NUM, _F_NEGRITA, _PAPEL
+    _variacion(ws, fila, negrita=True)
+    _rematar(ws)
+
+
+def _hoja_balance_general_comp(lib: _Libro, ws, comp: Dict[str, Any]) -> None:
+    r, nivel, nombres = lib.r, lib.r["nivel_puc"], lib.datos.get("nombres_cuenta")
+    corte, corte_ant = r["hasta"].strftime("%d/%m/%Y"), comp["hasta"].strftime("%d/%m/%Y")
+    fila = _titulo(ws, "BALANCE GENERAL COMPARATIVO", f"{lib.empresas_txt()} · a {corte} y a {corte_ant}")
+    fila = _encabezado_comp(ws, fila, f"A {corte}", f"A {corte_ant}")
+    bg, bga = lib.datos.get("bg", {}), comp.get("bg") or {}
+    niv = lambda xs: agregar_por_nivel(xs or [], nivel, ("saldo",), nombres)  # noqa: E731
+    t_act, fila = _seccion_comp(ws, fila, "ACTIVO", niv(bg.get("activos")), niv(bga.get("activos")), "TOTAL ACTIVO")
+    t_pas, fila = _seccion_comp(ws, fila, "PASIVO", niv(bg.get("pasivos")), niv(bga.get("pasivos")), "TOTAL PASIVO")
+    t_pat, fila = _seccion_comp(ws, fila, "PATRIMONIO", niv(bg.get("patrimonio")), niv(bga.get("patrimonio")),
+                                "TOTAL PATRIMONIO")
+    ws.cell(row=fila, column=2, value="Utilidad acumulada del ejercicio (sin asiento de cierre)")
+    _poner(ws.cell(row=fila, column=3), bg.get("utilidad", 0), "num")
+    _poner(ws.cell(row=fila, column=4), bga.get("utilidad", 0), "num")
+    _variacion(ws, fila)
+    t_util = fila
+    fila += 1
+    ws.cell(row=fila, column=2, value="TOTAL PASIVO + PATRIMONIO + UTILIDAD").font = _F_NEGRITA
+    for col in ("C", "D"):
+        t = ws[f"{col}{fila}"]
+        t.value = f"={col}{t_pas}+{col}{t_pat}+{col}{t_util}"
+        t.number_format, t.font, t.fill = FMT_NUM, _F_NEGRITA, _PAPEL
+    _variacion(ws, fila, negrita=True)
+    _cuadre(ws, fila + 2, 1, f"C{t_act}", f"C{fila}", f"✔ Al {corte}: Activo = Pasivo + Patrimonio",
+            "✘ La ecuación no cuadra (actual)")
+    _cuadre(ws, fila + 3, 1, f"D{t_act}", f"D{fila}", f"✔ Al {corte_ant}: Activo = Pasivo + Patrimonio",
+            "✘ La ecuación no cuadra (anterior)")
+    _rematar(ws)
+
+
+def _hoja_certificacion(lib: _Libro) -> None:
+    """Certificación de los estados financieros — artículo 37 de la Ley 222 de 1995. FIN-SYS arma
+    el texto y deja las firmas en blanco: solo vale firmada por el representante legal y el contador."""
+    ws = lib.wb.create_sheet("CERTIFICACIÓN")
+    r, c = lib.r, lib.r["certificacion"] or {}
+    fila = _titulo(ws, "CERTIFICACIÓN DE LOS ESTADOS FINANCIEROS", "Artículo 37 de la Ley 222 de 1995")
+    emp = lib.datos.get("empresas") or []
+    quien = "; ".join(e["nombre"] + (f", NIT {e['nit']}" if e.get("nit") else "") for e in emp) or lib.empresas_txt()
+    estados = []
+    if "balance_general" in r["hojas"]:
+        estados.append(f"el balance general (estado de situación financiera) al {r['hasta'].strftime('%d/%m/%Y')}")
+    if "estado_resultados" in r["hojas"]:
+        estados.append(f"el estado de resultados del período {_rango_txt(r['desde'], r['hasta'])}")
+    if r.get("comparativo") and lib.datos.get("comp"):
+        estados.append(f"comparados con el {COMPARATIVOS[r['comparativo']]}")
+    texto = (f"Los suscritos representante legal y contador público de {quien} certificamos que, respecto de "
+             f"{', '.join(estados) or 'los estados financieros incluidos en este libro'}, se han verificado "
+             "previamente las afirmaciones contenidas en ellos, conforme al reglamento, y que las mismas se han "
+             "tomado fielmente de los libros de contabilidad.")
+    ws.merge_cells(start_row=fila, start_column=1, end_row=fila + 5, end_column=4)
+    cel = ws.cell(row=fila, column=1, value=texto)
+    cel.alignment = Alignment(wrap_text=True, vertical="top")
+    fila += 8
+    linea = "______________________________"
+    bloques = [("REPRESENTANTE LEGAL", c.get("representante"), "C.C.", c.get("documento_representante")),
+               ("CONTADOR PÚBLICO", c.get("contador"), "T.P.", c.get("tarjeta_profesional"))]
+    for k, (rol, nombre, doc_tipo, doc) in enumerate(bloques):
+        col = 1 + 2 * k
+        ws.cell(row=fila, column=col, value=linea)
+        ws.cell(row=fila + 1, column=col, value="Firma").font = _F_NOTA
+        ws.cell(row=fila + 2, column=col, value=rol).font = _F_NEGRITA
+        ws.cell(row=fila + 3, column=col, value=f"Nombre: {nombre or linea}")
+        ws.cell(row=fila + 4, column=col, value=f"{doc_tipo}: {doc or linea}")
+    ws.cell(row=fila + 7, column=1, value=("Generada por FIN-SYS con el folio del libro. No es válida sin la firma "
+                                          "del representante legal y del contador público.")).font = _F_NOTA
+    for col, ancho in (("A", 34), ("B", 4), ("C", 34), ("D", 4)):
+        ws.column_dimensions[col].width = ancho
+    ws.page_setup.fitToWidth = 1
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    if not estados:
+        lib.advertencias.append("La certificación se refiere a estados financieros: incluye el balance general "
+                                "o el estado de resultados.")
+
+
 def _hoja_balance_general(lib: _Libro) -> None:
     ws = lib.hoja("balance_general")
+    comp = lib.datos.get("comp")
+    if comp:
+        _hoja_balance_general_comp(lib, ws, comp)
+        return
     corte = lib.r["hasta"].strftime("%d/%m/%Y")
     fila = _titulo(ws, "BALANCE GENERAL", f"{lib.empresas_txt()} · a {corte}")
     bg, nivel = lib.datos.get("bg", {}), lib.r["nivel_puc"]
@@ -1128,6 +1344,11 @@ def _hoja_caratula(lib: _Libro, sello: Dict[str, Any]) -> None:
     if r["modo"] == "periodo":
         par("Período", lib.subtitulo().split(" · ")[-1])
         par("Fecha de corte", r["hasta"], "fecha")
+        if sello.get("comparativo"):
+            cp = lib.datos["comp"]
+            par("Comparativo", f"{COMPARATIVOS[r['comparativo']]}: {_rango_txt(cp['desde'], cp['hasta'])}")
+        if r.get("folio_inicial"):
+            par("Folio inicial", f"{r['folio_inicial']} (diario y mayor se numeran al imprimir)")
     par("Generado", sello["generado"].replace("T", " ") + " (hora Colombia)")
     par("Generado por", sello["generado_por"] or "—")
 
@@ -1138,6 +1359,11 @@ def _hoja_caratula(lib: _Libro, sello: Dict[str, Any]) -> None:
         nombre = lib.catalogo[clave]
         c = ws.cell(row=fila, column=1, value=nombre)
         c.hyperlink = Hyperlink(ref=c.coordinate, location=f"'{nombre}'!A1", display=nombre)
+        c.font = _F_LINK
+        fila += 1
+    if sello.get("certificacion"):
+        c = ws.cell(row=fila, column=1, value="CERTIFICACIÓN")
+        c.hyperlink = Hyperlink(ref=c.coordinate, location="'CERTIFICACIÓN'!A1", display="CERTIFICACIÓN")
         c.font = _F_LINK
         fila += 1
 
@@ -1207,6 +1433,10 @@ def _con_nombres_oficiales(datos: Dict[str, Any]) -> Dict[str, Any]:
         d["er"] = {k: cuentas(v) for k, v in d["er"].items()}
     if "bg" in d:
         d["bg"] = {k: (cuentas(v) if isinstance(v, list) else v) for k, v in d["bg"].items()}
+    if d.get("comp"):
+        c = d["comp"]
+        d["comp"] = {**c, "er": {k: cuentas(v) for k, v in (c.get("er") or {}).items()},
+                     "bg": {k: (cuentas(v) if isinstance(v, list) else v) for k, v in (c.get("bg") or {}).items()}}
     d["asientos"] = [{**g, "lineas": [{**ln, "cuenta_nombre": nombres.get(str(ln.get("cuenta_codigo")),
                                                                          ln.get("cuenta_nombre"))}
                                       for ln in g.get("lineas") or []]}
@@ -1247,6 +1477,16 @@ def construir_libro(datos: Dict[str, Any], r: Dict[str, Any],
     for clave in r["hojas"]:
         if clave in constructores:
             constructores[clave]()
+    if r["modo"] == "periodo" and r.get("certificacion") is not None:
+        _hoja_certificacion(lib)
+    if r["modo"] == "periodo" and r.get("folio_inicial"):
+        # Libros oficiales foliados al imprimir: "Folio &P+N" (Excel suma N al número de página).
+        desfase = r["folio_inicial"] - 1
+        for clave in ("diario", "mayor"):
+            if clave in r["hojas"]:
+                ws = lib.wb[lib.catalogo[clave]]
+                ws.oddFooter.right.text = f"Folio &P+{desfase}" if desfase else "Folio &P"
+                ws.oddFooter.left.text = f"{lib.catalogo[clave]} · {r['folio'] or ''}"
 
     # ── Sello y advertencias (honestas: lo que falta se dice) ──
     lineas = lib.control["lineas"]
@@ -1287,6 +1527,11 @@ def construir_libro(datos: Dict[str, Any], r: Dict[str, Any],
         adv.append(f"{lib.control['sin_soporte']} transacción(es) sin soporte adjunto.")
     if "cartera" in r["hojas"]:
         adv.append("La cartera muestra los saldos pendientes ACTUALES, con edades calculadas a la fecha de corte.")
+    comp = datos.get("comp")
+    if comp and not any(comp.get("er", {}).get(k) for k in ("ingresos", "gastos")) \
+            and not any(comp.get("bg", {}).get(k) for k in ("activos", "pasivos", "patrimonio")):
+        adv.append(f"El período comparativo ({_rango_txt(comp['desde'], comp['hasta'])}) no tiene saldos: "
+                   "la columna anterior sale en cero.")
 
     cuadra = abs(debitos - creditos) < 0.01
     control = {"debitos": debitos, "creditos": creditos, "cuadra": cuadra}
@@ -1335,6 +1580,10 @@ def construir_libro(datos: Dict[str, Any], r: Dict[str, Any],
         "totales_control": control,
         "otras_monedas": otras,
         "advertencias": adv,
+        "comparativo": ({"modo": r["comparativo"], "desde": comp["desde"].isoformat() if comp["desde"] else None,
+                         "hasta": comp["hasta"].isoformat()} if comp else None),
+        "certificacion": r.get("certificacion") is not None,
+        "folio_inicial": r.get("folio_inicial"),
     }
     _hoja_caratula(lib, sello)
     salida = io.BytesIO()

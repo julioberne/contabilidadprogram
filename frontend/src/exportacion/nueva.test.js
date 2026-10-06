@@ -58,6 +58,19 @@ describe('paquetes y receta', () => {
     expect(r.receta).toMatchObject({ nivel_puc: 'cuenta', relativo: 'mes_anterior', nombre: 'Para el banco',
       filtros: { tipos: ['GASTO'], categorias: ['Arriendo', 'Servicios'], cuentas_puc: ['5135'] } });
   });
+  it('comparativo, certificación y folio inicial (06-oct)', () => {
+    const r = recetaPeriodo({ ...base, comparativo: 'anio_anterior', certificar: true,
+      cert: { contador: ' Ana ', representante: '' }, folioInicial: '41' }).receta;
+    expect(r).toMatchObject({ comparativo: 'anio_anterior', certificacion: { contador: 'Ana' }, folio_inicial: 41 });
+    expect(recetaPeriodo({ ...base, certificar: true, cert: {} }).receta.certificacion).toBe(true);
+    const sin = recetaPeriodo({ ...base, certificar: false, cert: { contador: 'Ana' } }).receta;
+    expect(sin.certificacion).toBeUndefined();
+    expect(sin.comparativo).toBeUndefined();
+    expect(sin.folio_inicial).toBeUndefined();
+    expect(validarPeriodo({ ...base, folioInicial: '0' })).toMatch(/folio inicial/);
+    expect(validarPeriodo({ ...base, folioInicial: '12a' })).toMatch(/folio inicial/);
+    expect(validarPeriodo({ ...base, folioInicial: '12' })).toBeNull();
+  });
   it('valida el formulario', () => {
     expect(validarPeriodo(base)).toBeNull();
     expect(validarPeriodo({ ...base, hasta: '' })).toMatch(/fecha final/);
