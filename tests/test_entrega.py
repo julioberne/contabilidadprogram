@@ -75,6 +75,14 @@ class TestZip(unittest.TestCase):
         self.assertIn("Revisar el IVA", leeme)
         self.assertEqual(len(z["advertencias"]), 2)                                         # cambió + huella
 
+    def test_indice_sin_inyeccion_de_formulas(self):
+        malo = _fila(nombre='=HYPERLINK("http://malo","clic")', creado_por="@admin")
+        z = ent.armar_zip([malo], "EXP-1", "x", None, {}, datetime(2026, 10, 6))
+        texto = zipfile.ZipFile(io.BytesIO(z["contenido"])).read("00 - INDICE.csv").decode("utf-8-sig")
+        fila = list(csv.DictReader(io.StringIO(texto), delimiter=";"))[0]
+        self.assertTrue(fila["Archivo en el ZIP"].startswith("01 - EXP-2026-0004 - =HYPERLINK"))  # empieza por "01": seguro
+        self.assertEqual(fila["Creado por"], "'@admin")
+
 
 class TestCrear(unittest.TestCase):
 

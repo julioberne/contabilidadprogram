@@ -60,6 +60,13 @@ def _seguro(s: str, maximo: int = 90) -> str:
     return re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", str(s or "")).strip(" .")[:maximo] or "archivo"
 
 
+def _celda_csv(v):
+    """Sin inyección de fórmulas: un nombre como "=HYPERLINK(...)" se abre en Excel como texto."""
+    if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + v
+    return v
+
+
 def _extension(f: Dict[str, Any]) -> str:
     n = str(f.get("nombre_archivo") or "")
     return ("." + n.rsplit(".", 1)[-1].lower()) if "." in n else ""
@@ -102,7 +109,7 @@ def armar_zip(filas: List[Dict[str, Any]], folio: str, nombre: str, nota: Option
         csv_buf = io.StringIO()
         w = csv.DictWriter(csv_buf, fieldnames=list(indice[0].keys()), delimiter=";")   # ; = Excel en español
         w.writeheader()
-        w.writerows(indice)
+        w.writerows([{k: _celda_csv(v) for k, v in fila.items()} for fila in indice])
         z.writestr("00 - INDICE.csv", "﻿" + csv_buf.getvalue())                   # BOM: tildes bien en Excel
         leeme = [f"Compendio de entrega {folio}", nombre, f"Armado el {_dia(ahora)} con FIN-SYS.",
                  f"{len(filas)} archivo(s). El índice (00 - INDICE.csv) trae folio, período y SHA-256 de cada uno.",

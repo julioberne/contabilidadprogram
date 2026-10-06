@@ -36,6 +36,13 @@ services:
       - DB_POOL_MAX=${DB_POOL_MAX:-10}
       - DB_FALLBACK_MAX=${DB_FALLBACK_MAX:-5}
       - FINSYS_ALLOW_5432=${FINSYS_ALLOW_5432:-0}
+      # Exportación 13.6-c (2026-10-06): 🔔 aviso por Telegram de la 1.ª apertura
+      # de un compendio. El backend solo hace sendMessage (jamás getUpdates: el
+      # poller sigue viviendo solo en el servicio bot). Sin estas líneas el aviso
+      # nunca salía: el compose no pasaba el token ni la bandera al contenedor.
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - COMPENDIO_AVISO_TELEGRAM=${COMPENDIO_AVISO_TELEGRAM:-1}
+      - COMPENDIO_AVISO_CHAT=${COMPENDIO_AVISO_CHAT:-}
     expose:
       - "8000"
     volumes:
