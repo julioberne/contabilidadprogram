@@ -17,7 +17,8 @@ export const NIVELES_PUC = [
 export const GRUPOS_HOJAS = [
   { titulo: 'Libros oficiales', hojas: [['diario', 'Libro diario'], ['mayor', 'Mayor']] },
   { titulo: 'Estados financieros', hojas: [['balance_prueba', 'Balance de prueba'],
-    ['estado_resultados', 'Estado de resultados'], ['balance_general', 'Balance general']] },
+    ['estado_resultados', 'Estado de resultados'], ['balance_general', 'Balance general'],
+    ['cambios_patrimonio', 'Cambios en el patrimonio'], ['flujos_efectivo', 'Flujos de efectivo']] },
   { titulo: 'Auxiliares y soportes', hojas: [['movimientos', 'Movimientos'],
     ['auxiliar_tercero', 'Auxiliar por tercero'], ['cartera', 'Cartera por edades'], ['impuestos', 'Impuestos']] },
 ];

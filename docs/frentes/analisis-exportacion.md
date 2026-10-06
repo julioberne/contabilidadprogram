@@ -26,8 +26,9 @@ B5 de "Mejor que Excel": ⇩ EXPORTACIÓN (spec `docs/specs/13-analisis/13.5-sub
 2. 13.5-d 🗓 cierres HECHO (`CalendarioCierres.jsx` + `cierres.js`; botón 🗓 del organizador habilitado).
 3. 📦 Compendio de entrega en ZIP HECHO (`entrega_driver.py`, ☑ ELEGIR en el organizador).
 4. Motor 13.4 (06-oct): comparativo (`periodo_anterior|anio_anterior`), certificación Ley 222 art. 37 y folio inicial
-   HECHOS (receta + UI en 📥: chips junto a los libros; folio en Avanzado). FALTAN cambios en el patrimonio y flujos
-   de efectivo: obligatorios solo en Grupo 2 → preguntar a Andrés ¿Grupo 2 (NIIF Pymes) o Grupo 3?
+   HECHOS (receta + UI en 📥: chips junto a los libros; folio en Avanzado) + hojas CAMBIOS EN EL PATRIMONIO y FLUJOS
+   DE EFECTIVO (método indirecto por grupos PUC; cuadran con datos reales). En Completo; ¿Grupo 2 o 3? solo decide
+   si se suman por defecto a Cierre de mes (Grupo 2 los exige).
 - Andrés: generar el 1.er libro .xlsx real (CA-134-01, CA-135-08).
 
 ## Decisiones tomadas (y por qué)

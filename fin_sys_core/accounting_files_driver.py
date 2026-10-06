@@ -71,7 +71,7 @@ TIPOS_DEFAULT = (
 # Paquetes predefinidos (§4.2). Las hojas son claves del motor 13.4; la
 # carátula la pone siempre el motor. "completo" = todas las del modo período.
 HOJAS_COMPLETO = ["diario", "mayor", "balance_prueba", "estado_resultados", "balance_general",
-                  "movimientos", "auxiliar_tercero", "cartera", "impuestos"]
+                  "cambios_patrimonio", "flujos_efectivo", "movimientos", "auxiliar_tercero", "cartera", "impuestos"]
 PAQUETES: Dict[str, Dict[str, Any]] = {
     "cierre_mes": {"nombre": "Cierre de mes", "icono": "📘", "tipo": "libros",
                    "hojas": ["diario", "mayor", "balance_prueba", "estado_resultados", "balance_general"]},

@@ -43,6 +43,8 @@ HOJAS_PERIODO = {
     "balance_prueba": "BALANCE DE PRUEBA",
     "estado_resultados": "ESTADO DE RESULTADOS",
     "balance_general": "BALANCE GENERAL",
+    "cambios_patrimonio": "CAMBIOS EN EL PATRIMONIO",     # 06-oct (NIIF Pymes §6 — Grupo 2)
+    "flujos_efectivo": "FLUJOS DE EFECTIVO",               # 06-oct (NIIF Pymes §7, método indirecto)
     "movimientos": "MOVIMIENTOS",
     "auxiliar_tercero": "AUXILIAR POR TERCERO",
     "cartera": "CARTERA POR EDADES",
@@ -1006,6 +1008,153 @@ def _hoja_balance_general_comp(lib: _Libro, ws, comp: Dict[str, Any]) -> None:
     _rematar(ws)
 
 
+def _utilidad_periodo(lib: _Libro) -> float:
+    er = lib.datos.get("er", {})
+    return (sum(_num(c.get("saldo")) for c in er.get("ingresos", []))
+            - sum(_num(c.get("saldo")) for c in er.get("gastos", [])))
+
+
+def _hoja_cambios_patrimonio(lib: _Libro) -> None:
+    """Estado de cambios en el patrimonio (NIIF Pymes §6): por cuenta de la clase 3, saldo inicial,
+    aumentos (créditos), disminuciones (débitos) y saldo final, más el resultado del período (sin
+    asiento de cierre). Sale del balance de prueba del kernel y se verifica contra el balance general."""
+    ws = lib.hoja("cambios_patrimonio")
+    fila = _titulo(ws, "ESTADO DE CAMBIOS EN EL PATRIMONIO", lib.subtitulo())
+    bp3 = [c for c in lib.datos.get("bp", []) if str(c.get("codigo", "")).startswith("3")]
+    filas = []
+    for f in agregar_por_nivel(bp3, lib.r["nivel_puc"], ("ini", "db", "cr"), lib.datos.get("nombres_cuenta")):
+        filas.append({"codigo": f["codigo"], "nombre": f["nombre"], "ini": -f["ini"], "aum": f["cr"], "dis": f["db"],
+                      "fin": lambda r, L: f"={L['ini']}{r}+{L['aum']}{r}-{L['dis']}{r}"})
+    bg = lib.datos.get("bg", {})
+    u_per = _utilidad_periodo(lib)
+    u_fin = _num(bg.get("utilidad"))
+    filas.append({"codigo": "", "nombre": "Resultado del ejercicio (sin asiento de cierre)", "ini": round(u_fin - u_per, 2),
+                  "aum": max(u_per, 0.0), "dis": max(-u_per, 0.0),
+                  "fin": lambda r, L: f"={L['ini']}{r}+{L['aum']}{r}-{L['dis']}{r}"})
+    cols = [("Código", "codigo", "txt"), ("Concepto", "nombre", "txt"), ("Saldo inicial", "ini", "num"),
+            ("Aumentos", "aum", "num"), ("Disminuciones", "dis", "num"), ("Saldo final", "fin", "num")]
+    t = _tabla(ws, fila, cols, filas, totales=("ini", "aum", "dis", "fin"), etiqueta_total="TOTAL PATRIMONIO")
+    esperado = sum(_num(c.get("saldo")) for c in bg.get("patrimonio", [])) + u_fin
+    ws.cell(row=t["total"] + 1, column=2, value="Patrimonio + utilidad según el BALANCE GENERAL").font = _F_NOTA
+    _poner(ws.cell(row=t["total"] + 1, column=6), esperado, "num")
+    _cuadre(ws, t["total"] + 2, 4, f"{t['letras']['fin']}{t['total']}", f"F{t['total'] + 1}",
+            "✔ Coincide con el balance general", "✘ No coincide con el balance general")
+    _rematar(ws, t["enc"])
+
+
+# Flujo de efectivo, método indirecto, por grupo PUC (2 dígitos). Toda cuenta que no es efectivo
+# aporta (créditos − débitos) del período: así la suma cuadra con la variación del efectivo por
+# partida doble, y la verificación final lo demuestra.
+_CONTRAS_NO_MONETARIAS = ("1592", "1597", "1598", "1599", "1698", "1699", "1299", "1399", "1499")
+_GRUPOS_PUC = {
+    "12": "Inversiones", "13": "Deudores", "14": "Inventarios", "15": "Propiedades, planta y equipo",
+    "16": "Intangibles", "17": "Diferidos", "18": "Otros activos", "19": "Valorizaciones",
+    "21": "Obligaciones financieras", "22": "Proveedores", "23": "Cuentas por pagar",
+    "24": "Impuestos, gravámenes y tasas", "25": "Obligaciones laborales", "26": "Pasivos estimados y provisiones",
+    "27": "Diferidos (pasivo)", "28": "Otros pasivos", "29": "Bonos y papeles comerciales", "31": "Capital social",
+    "32": "Superávit de capital", "33": "Reservas", "34": "Revalorización del patrimonio",
+    "35": "Dividendos decretados en acciones", "36": "Resultados del ejercicio (cierres)",
+    "37": "Resultados de ejercicios anteriores", "38": "Superávit por valorizaciones",
+}
+_SECCION_GRUPO = {**{g: "op_ct" for g in ("13", "14", "17", "22", "23", "24", "25", "26", "27", "28")},
+                  **{g: "inv" for g in ("12", "15", "16", "18")},
+                  **{g: "fin" for g in ("21", "29", "31", "32", "33", "34", "35", "36", "37")},
+                  **{g: "op_aj" for g in ("19", "38")}}
+
+
+def clasificar_flujos(bp: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Pura: balance de prueba → {secciones: {op_aj, op_ct, inv, fin, otros: [(etiqueta, valor)]},
+    utilidad, efectivo_ini, efectivo_fin, sin_clasificar}. Valor = créditos − débitos del período."""
+    acum: Dict[str, Dict[str, float]] = {k: {} for k in ("op_aj", "op_ct", "inv", "fin", "otros")}
+    utilidad = ef_ini = ef_mov = 0.0
+    sin_clasificar: List[str] = []
+    for c in bp:
+        cod = str(c.get("codigo") or "")
+        efecto = _num(c.get("cr")) - _num(c.get("db"))
+        if cod.startswith("11"):
+            ef_ini += _num(c.get("ini"))
+            ef_mov += -efecto
+            continue
+        if cod[:1] in ("4", "5", "6", "7"):
+            utilidad += efecto
+            continue
+        if cod.startswith(_CONTRAS_NO_MONETARIAS):
+            seccion, etiqueta = "op_aj", "Depreciaciones, amortizaciones y deterioro (no son salida de efectivo)"
+        elif cod[:2] in _SECCION_GRUPO:
+            seccion = _SECCION_GRUPO[cod[:2]]
+            etiqueta = f"{_GRUPOS_PUC[cod[:2]]} ({cod[:2]})"
+            if seccion == "op_aj":
+                etiqueta = "Valorizaciones y su superávit (se compensan)"
+        elif cod[:1] in ("8", "9"):
+            seccion, etiqueta = "otros", "Cuentas de orden"
+        else:
+            seccion, etiqueta = "otros", "Sin clasificar"
+            if abs(efecto) >= 0.005:
+                sin_clasificar.append(cod)
+        acum[seccion][etiqueta] = acum[seccion].get(etiqueta, 0.0) + efecto
+    secciones = {k: [(e, round(v, 2)) for e, v in sorted(d.items()) if abs(v) >= 0.005] for k, d in acum.items()}
+    return {"secciones": secciones, "utilidad": round(utilidad, 2), "efectivo_ini": round(ef_ini, 2),
+            "efectivo_fin": round(ef_ini + ef_mov, 2), "sin_clasificar": sorted(set(sin_clasificar))}
+
+
+def _hoja_flujos_efectivo(lib: _Libro) -> None:
+    ws = lib.hoja("flujos_efectivo")
+    fila = _titulo(ws, "ESTADO DE FLUJOS DE EFECTIVO (MÉTODO INDIRECTO)", lib.subtitulo())
+    fl = clasificar_flujos(lib.datos.get("bp", []))
+    s = fl["secciones"]
+
+    def bloque(titulo: str, filas: List[Tuple[str, float]], total: str) -> int:
+        nonlocal fila
+        ws.cell(row=fila, column=1, value=titulo).font = _F_NEGRITA
+        ini = fila + 1
+        for etiqueta, valor in filas:
+            fila += 1
+            ws.cell(row=fila, column=1, value=etiqueta)
+            _poner(ws.cell(row=fila, column=2), valor, "num")
+        if not filas:
+            fila += 1
+            ws.cell(row=fila, column=1, value="(sin movimiento)").font = _F_NOTA
+        fila += 1
+        ws.cell(row=fila, column=1, value=total).font = _F_NEGRITA
+        c = ws.cell(row=fila, column=2, value=f"=SUM(B{ini}:B{fila - 1})" if filas else 0)
+        c.number_format, c.font, c.fill = FMT_NUM, _F_NEGRITA, _PAPEL
+        t = fila
+        fila += 2
+        return t
+
+    op = [("Utilidad (pérdida) del período", fl["utilidad"])] + s["op_aj"] + \
+         [(f"Variación en {e}", v) for e, v in s["op_ct"]] + s["otros"]
+    t_op = bloque("ACTIVIDADES DE OPERACIÓN", op, "Efectivo neto de las actividades de operación")
+    t_inv = bloque("ACTIVIDADES DE INVERSIÓN", s["inv"], "Efectivo neto de las actividades de inversión")
+    t_fin = bloque("ACTIVIDADES DE FINANCIACIÓN", s["fin"], "Efectivo neto de las actividades de financiación")
+    ws.cell(row=fila, column=1, value="AUMENTO (DISMINUCIÓN) NETO DEL EFECTIVO").font = _F_NEGRITA
+    neto = ws.cell(row=fila, column=2, value=f"=B{t_op}+B{t_inv}+B{t_fin}")
+    neto.number_format, neto.font = FMT_NUM, _F_NEGRITA
+    f_neto = fila
+    ws.cell(row=fila + 1, column=1, value="Efectivo y equivalentes al inicio del período (grupo 11)")
+    _poner(ws.cell(row=fila + 1, column=2), fl["efectivo_ini"], "num")
+    ws.cell(row=fila + 2, column=1, value="EFECTIVO Y EQUIVALENTES AL FINAL DEL PERÍODO").font = _F_NEGRITA
+    fin = ws.cell(row=fila + 2, column=2, value=f"=B{fila + 1}+B{f_neto}")
+    fin.number_format, fin.font, fin.fill = FMT_NUM, _F_NEGRITA, _PAPEL
+    ws.cell(row=fila + 3, column=1, value="Efectivo al final según el balance de prueba (grupo 11)").font = _F_NOTA
+    _poner(ws.cell(row=fila + 3, column=2), fl["efectivo_fin"], "num")
+    _cuadre(ws, fila + 5, 1, f"B{fila + 2}", f"B{fila + 3}", "✔ Cuadra con el efectivo del balance",
+            "✘ No cuadra con el efectivo del balance")
+    ws.cell(row=fila + 7, column=1, value=("Método indirecto por grupos del PUC: cada cuenta aporta sus créditos menos "
+                                           "sus débitos del período. Borrador para el contador: revise la clasificación "
+                                           "antes de presentarlo.")).font = _F_NOTA
+    if fl["sin_clasificar"]:
+        lib.advertencias.append("Flujos de efectivo: cuentas sin grupo PUC conocido (van en operación como "
+                                f"'Sin clasificar'): {', '.join(fl['sin_clasificar'][:8])}.")
+    if abs(fl["utilidad"] - _utilidad_periodo(lib)) >= 0.01:
+        lib.advertencias.append("Flujos de efectivo: la utilidad del balance de prueba no coincide con la del estado "
+                                "de resultados — revisar.")
+    ws.column_dimensions["A"].width = 70
+    ws.column_dimensions["B"].width = 20
+    ws.page_setup.fitToWidth = 1
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+
+
 def _hoja_certificacion(lib: _Libro) -> None:
     """Certificación de los estados financieros — artículo 37 de la Ley 222 de 1995. FIN-SYS arma
     el texto y deja las firmas en blanco: solo vale firmada por el representante legal y el contador."""
@@ -1019,6 +1168,10 @@ def _hoja_certificacion(lib: _Libro) -> None:
         estados.append(f"el balance general (estado de situación financiera) al {r['hasta'].strftime('%d/%m/%Y')}")
     if "estado_resultados" in r["hojas"]:
         estados.append(f"el estado de resultados del período {_rango_txt(r['desde'], r['hasta'])}")
+    if "cambios_patrimonio" in r["hojas"]:
+        estados.append("el estado de cambios en el patrimonio")
+    if "flujos_efectivo" in r["hojas"]:
+        estados.append("el estado de flujos de efectivo")
     if r.get("comparativo") and lib.datos.get("comp"):
         estados.append(f"comparados con el {COMPARATIVOS[r['comparativo']]}")
     texto = (f"Los suscritos representante legal y contador público de {quien} certificamos que, respecto de "
@@ -1462,6 +1615,8 @@ def construir_libro(datos: Dict[str, Any], r: Dict[str, Any],
             "balance_prueba": lambda: _hoja_balance_prueba(lib),
             "estado_resultados": lambda: _hoja_estado_resultados(lib),
             "balance_general": lambda: _hoja_balance_general(lib),
+            "cambios_patrimonio": lambda: _hoja_cambios_patrimonio(lib),
+            "flujos_efectivo": lambda: _hoja_flujos_efectivo(lib),
             "movimientos": lambda: _hoja_movimientos(lib, "movimientos", "MOVIMIENTOS", txs_filtradas),
             "auxiliar_tercero": lambda: _hoja_auxiliar(lib, txs_filtradas),
             "cartera": lambda: _hoja_cartera(lib),

@@ -360,7 +360,7 @@ class TestLibroVacioYRelacion(unittest.TestCase):
                  "er": {"ingresos": [], "gastos": []},
                  "bg": {"activos": [], "pasivos": [], "patrimonio": [], "utilidad": 0}, "cartera": []}
         wb, sello = libro(datos=vacio, r=receta(portfolio_id=None))
-        self.assertEqual(len(wb.sheetnames), 10)
+        self.assertEqual(len(wb.sheetnames), len(ex.HOJAS_PERIODO))     # todas (12 desde el 06-oct)
         self.assertTrue(any("sale en cero" in a for a in sello["advertencias"]))
         self.assertIn("Todas las empresas (consolidado)", textos(wb["CARÁTULA"]))
         ws = wb["LIBRO DIARIO"]
@@ -599,6 +599,53 @@ class TestComparativoYCertificacion(unittest.TestCase):
         self.assertEqual(wb["LIBRO DIARIO"].oddFooter.right.text, "Folio &P+40")
         self.assertEqual(wb["MAYOR"].oddFooter.right.text, "Folio &P+40")
         self.assertEqual(libro(r=receta(folio_inicial=1))[0]["LIBRO DIARIO"].oddFooter.right.text, "Folio &P")
+
+
+class TestPatrimonioYFlujos(unittest.TestCase):   # 06-oct (NIIF Pymes §6 y §7)
+
+    def test_clasificar_flujos_cuadra_por_partida_doble(self):
+        bp = [
+            {"codigo": "1110", "ini": 500.0, "db": 1000.0, "cr": 650.0},     # efectivo: +350
+            {"codigo": "1305", "ini": 0.0, "db": 200.0, "cr": 0.0},          # deudores suben → −200
+            {"codigo": "1524", "ini": 0.0, "db": 400.0, "cr": 0.0},          # compra de equipo → −400 (inversión)
+            {"codigo": "1592", "ini": 0.0, "db": 0.0, "cr": 50.0},           # depreciación → +50 (no monetaria)
+            {"codigo": "2105", "ini": 0.0, "db": 0.0, "cr": 300.0},          # préstamo → +300 (financiación)
+            {"codigo": "2335", "ini": 0.0, "db": 0.0, "cr": 100.0},          # cuentas por pagar → +100
+            {"codigo": "4135", "ini": 0.0, "db": 0.0, "cr": 1000.0},
+            {"codigo": "5105", "ini": 0.0, "db": 450.0, "cr": 0.0},
+            {"codigo": "5160", "ini": 0.0, "db": 50.0, "cr": 0.0},
+            {"codigo": "ZZ", "ini": 0.0, "db": 0.0, "cr": 0.0},
+        ]
+        fl = ex.clasificar_flujos(bp)
+        s = fl["secciones"]
+        self.assertEqual(fl["utilidad"], 500.0)
+        self.assertEqual(s["inv"], [("Propiedades, planta y equipo (15)", -400.0)])
+        self.assertEqual(s["fin"], [("Obligaciones financieras (21)", 300.0)])
+        self.assertEqual(dict(s["op_ct"]), {"Deudores (13)": -200.0, "Cuentas por pagar (23)": 100.0})
+        self.assertEqual(s["op_aj"][0][1], 50.0)
+        neto = fl["utilidad"] + sum(v for k in ("op_aj", "op_ct", "inv", "fin", "otros") for _e, v in s[k])
+        self.assertEqual((fl["efectivo_ini"], fl["efectivo_fin"]), (500.0, 850.0))
+        self.assertAlmostEqual(neto, fl["efectivo_fin"] - fl["efectivo_ini"])
+        self.assertEqual(fl["sin_clasificar"], [])
+
+    def test_hojas_en_el_libro(self):
+        wb, sello = libro(r=receta(hojas=["estado_resultados", "balance_general", "cambios_patrimonio", "flujos_efectivo"],
+                                   certificacion=True))
+        cp = wb["CAMBIOS EN EL PATRIMONIO"]
+        filas = {cp.cell(row=i, column=2).value: i for i in range(1, cp.max_row + 1)}
+        i = filas["Resultado del ejercicio (sin asiento de cierre)"]
+        self.assertEqual((cp[f"C{i}"].value, cp[f"D{i}"].value, cp[f"E{i}"].value), (0, 800_000, 0))
+        self.assertEqual(cp[f"F{i}"].value, f"=C{i}+D{i}-E{i}")
+        textos_cp = [str(c.value) for f in cp.iter_rows() for c in f if c.value]
+        self.assertIn("Patrimonio + utilidad según el BALANCE GENERAL", textos_cp)
+        fe = wb["FLUJOS DE EFECTIVO"]
+        textos = {fe.cell(row=k, column=1).value: fe.cell(row=k, column=2).value for k in range(1, fe.max_row + 1)}
+        self.assertEqual(textos["Utilidad (pérdida) del período"], 800_000)
+        self.assertEqual(textos["Efectivo y equivalentes al inicio del período (grupo 11)"], 500_000)
+        self.assertEqual(textos["Efectivo al final según el balance de prueba (grupo 11)"], 1_300_000)
+        cert = " ".join(str(c.value) for f in wb["CERTIFICACIÓN"].iter_rows() for c in f if c.value)
+        self.assertIn("el estado de flujos de efectivo", cert)
+        self.assertIn("FLUJOS DE EFECTIVO", sello["hojas"])
 
 
 if __name__ == "__main__":
