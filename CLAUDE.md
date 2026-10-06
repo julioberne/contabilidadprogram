@@ -75,7 +75,7 @@ El subagente no ve esta conversación: pon en el brief todo lo que necesita.
 - **Token de Telegram compartido:** nunca lanzar `fin_sys_core/bot_telegram.py` en local.
 - **Bot (Regla 6b): el bot no adivina.** Dato estructurado en la web o se pide a mano; nada contable sin confirmación humana (borrador → ✅).
 - **Python:** siempre `.venv\Scripts\python.exe` (en un worktree sin `.venv`, el del checkout principal).
-- **Git:** commits pequeños con archivos explícitos (nunca `git add .`). El **push lo hace Andrés**: `git push origin <rama>:master`. Deploy: `scratch\deploy_prod.py` + sonda (ruta nueva 404→401, `/api/health`).
+- **Git:** commits pequeños con archivos explícitos (nunca `git add .`). **Publicar lo hace Andrés** con `scripts\publicar.cmd` en la terminal de la sesión (push a master + CI + deploy con sonda + `:8000` al día; `--sin-deploy`, `--simular`). Al terminar un hito, dile "listo para publicar" con la lista de commits. A mano: `git push origin <rama>:master`, `scratch\deploy_prod.py` + sonda (ruta nueva 404→401, `/api/health`).
 - **Permiso explícito antes de tocar:** `fin_sys_core/database_driver.py`, `control_tower_driver.py`, esquema de tablas existentes. `.env`: nunca.
 - **Zero-impact:** funcionalidad nueva en archivos o routers nuevos (`routers/*.py` + `include_router`); módulos nuevos se registran en `frontend/src/registry/moduleRegistry.js`.
 - **Plan antes de código:** lista de archivos a tocar → aprobación de Andrés → cambios.

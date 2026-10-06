@@ -1,5 +1,5 @@
 # 🧭 WORKFLOW.md — Metodología de Trabajo para Agentes IA
-## FIN-SYS OS v2.0 · Última actualización: 30 Sep 2026 (nota "Estado real"; el resto del documento es de julio)
+## FIN-SYS OS v2.0 · Última actualización: 06 Oct 2026 (nota "Estado real"; el resto del documento es de julio)
 
 > **Desde el 01-oct-2026 el arranque de sesión lo define `CLAUDE.md` (raíz), que se carga solo.** Este archivo se consulta por secciones; la que manda es "Estado real".
 > Describe el flujo completo: desarrollo local → git → producción vía Dokploy.
@@ -7,14 +7,15 @@
 
 ---
 
-## ⚠️ Estado real al 30 Sep 2026 (manda sobre lo que diga más abajo)
+## ⚠️ Estado real al 06 Oct 2026 (manda sobre lo que diga más abajo)
 
 Varias secciones de este documento describen el plan original de julio. Hoy se trabaja así:
 
 | Tema | Lo que dice el documento | Lo que pasa hoy |
 |---|---|---|
 | **Deploy** | "auto-deploy" por webhook al hacer push | **No hay webhook.** Tras cada push a `master` el agente corre `.venv\Scripts\python.exe scratch\deploy_prod.py` (API de Dokploy) y verifica con una sonda (una ruta nueva que pase de 404 a 401, `/api/health`, hash del bundle). |
-| **Push** | lo ejecuta el usuario o el agente con aprobación | Lo hace **Andrés** en su terminal: `git push origin master`. El agente commitea en `master` y espera el push. |
+| **Publicar** (push + deploy + `:8000`) | tres comandos sueltos | **`scripts\publicar.cmd`** en la terminal de la sesión (worktree o carpeta principal), desde el 06-oct-2026: revisa (nada sin commitear, rama al día con `origin/master`), muestra los commits y pide **¿Publicar? (s/n)** (la aprobación de Andrés), hace push a `master`, espera el CI, despliega (`scratch\deploy_prod.py` + espera a Dokploy + sonda) y pone `:8000` al día (`scripts\sync_local.py` en la carpeta principal). Variantes: `--sin-deploy`, `--solo-sync`, `--simular`. No toca la BD ni migraciones. |
+| **Push** | lo ejecuta el usuario o el agente con aprobación | Lo hace **Andrés** (el clasificador de permisos bloquea el push del agente): con `publicar` o a mano `git push origin <rama>:master`. El agente commitea en la rama de su sesión y avisa "listo para publicar". |
 | **Producción** | Traefik con SSL en 443 | **`https://finsys-andres.duckdns.org`** desde el 30-sep-2026 17:15: dominio gratis de DuckDNS (cuenta de Andrés) + certificado Let's Encrypt emitido por el Traefik de Dokploy (dominio del compose `finsys-app` → servicio `frontend`, puerto 80; HTTP redirige 301 a HTTPS). `http://159.223.156.50:8080` sigue respondiendo. El teléfono ya envía los SMS directo a producción; el túnel `cloudflared` al PC quedó solo como plan de contingencia. |
 | **Backend local** | `uvicorn --reload` lanzado por el usuario | Preview `finsys-backend` (`.claude/launch.json`) en `:8000`, que sirve el build congelado `frontend/dist`. Tras cambios de frontend: `npm run build` (o `scripts\sync_local.py`). Vite `:5173` es opcional. |
 | **Python** | `python …` | Siempre `.venv\Scripts\python.exe` (el Python global no tiene las dependencias). |
