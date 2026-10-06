@@ -84,7 +84,8 @@ export default function Sidebar({ user, activeView, onNavigate, collapsed, onTog
               const abierto = subs && !plegados.has(item.id);
               const cls = [
                 'shell-nav-item',
-                isActive && !subActivo ? ACTIVE_CLASS[item.accent] : '',
+                // Con el sub-ítem plegado (▸) el padre conserva el resaltado.
+                isActive && !(subActivo && abierto) ? ACTIVE_CLASS[item.accent] : '',
                 item.soon ? 'dim' : '',
               ].filter(Boolean).join(' ');
 
