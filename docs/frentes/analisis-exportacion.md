@@ -48,3 +48,7 @@ B5 de "Mejor que Excel": ⇩ EXPORTACIÓN (spec `docs/specs/13-analisis/13.5-sub
 ## Bloqueos y riesgos
 - BD compartida: crear un compendio o generar un libro gasta folio real. No pulsar CREAR/GENERAR en pruebas.
 - `launch.json` del worktree tiene arreglos solo locales: no commitear.
+- Producción tiene nginx delante (`frontend/nginx.conf`): solo `/api/`, `/uploads/` y `/c/` (desde `90a6a73`) van al
+  backend. Toda ruta nueva del backend fuera de `/api/` necesita su `location` ahí; :8003 no lo detecta.
+- 06-oct 03:07: `publicar` desplegó hasta `aa1c00b` (backend 13.6 vivo: `/api/compendios` 401), pero `/c/` seguía en el
+  SPA → falta publicar `90a6a73` + correr `migrate_compendios.py`.
