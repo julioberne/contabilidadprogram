@@ -671,6 +671,17 @@ en lugar del `X-Frame-Options: SAMEORIGIN` global, para que Telegram Web (iframe
 - `GET/POST /api/accounting-folders` · `PATCH/DELETE /api/accounting-folders/{id}` (DELETE admin) — `{ nombre, color, parent_id?, portfolio_id? }`; borrar una carpeta no borra sus archivos (quedan en su lugar automático).
 - `GET/POST /api/accounting-doc-types` · `PATCH/DELETE /api/accounting-doc-types/{id}` (DELETE admin) — `{ nombre, icono?, color?, orden? }`; los default no se borran (`400`).
 
+### 🤝 Compendio para el cliente (spec 13.6, `routers/compendios.py`)
+Privados (owner/admin/contador). Cuerpo de crear y revisar: `{ tx_ids: [int] (≤1000), nombre?, nota?, vigencia_dias: 7|15|30|90 (15), identificacion: bool (true), ubicaciones: bool (true) }`.
+- `POST /api/compendios/preflight` → `{ n, faltantes, totales: {MONEDA: {n, ingresos, gastos, neto}}, rango, empresas, comprobantes, sin_comprobante: [id], no_legibles, advertencias }`. No crea nada.
+- `POST /api/compendios` → `201 { id, folio, nombre, n, ruta: "/c/<código>", expira_en, creado_en, vigencia_dias }`. El link completo = origen de la app + `ruta`.
+- `GET /api/compendios` → lista `{ id, folio, nombre, nota, n, creado_por, creado_en, expira_en, revocado_en, revocado_por, visitas, ultima_visita, estado: vigente|vencido|revocado, ruta (solo si vigente) }`. Nunca el hash ni el nonce.
+- `PATCH /api/compendios/{id}` — `{ ampliar_dias: 7|15|30|90 }` (suma desde el vencimiento o desde hoy) o `{ revocar: true }` (definitivo) → la fila · `409` si ya está revocado · `503` sin migración.
+
+Públicos (SIN sesión; el código del link es la llave). Vencido, revocado o inexistente → la misma página `404` "ya no está disponible". Cabeceras: `X-Robots-Tag: noindex, nofollow`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`, `nosniff`, CSP con nonce. Límite: 120 peticiones/min por IP (`COMPENDIO_RITMO_POR_MIN`) → `429`.
+- `GET /c/{código}` → la página del cliente (HTML).
+- `GET /api/publico/compendio/{código}/soporte/{i}/{j}` → el comprobante `j` de la TX `i` de la foto, leído en vivo del bucket propio por el servidor (`inline` para imagen/PDF/audio, `attachment` para lo demás) · `404` si el índice no existe o el comprobante no está en el bucket.
+
 ---
 
 ## 11. Etiquetas y plantillas de impuesto — editar y borrar (`/api/tags/{id}`, `/api/custom-taxes/{id}`)

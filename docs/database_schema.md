@@ -531,3 +531,25 @@ CREATE TABLE IF NOT EXISTS analytics_export_paquetes (
     creado_por VARCHAR(120), creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ```
+
+### Z. `accounting_compendios` — 🤝 Compendio para el cliente (spec 13.6, `scripts/migrate_compendios.py`)
+Link temporal `/c/<código>` que el cliente final abre sin login. El código = HMAC(clave del servidor, `nonce`); en la BD solo su SHA-256. Folio de la secuencia `accounting_files_folio_seq` (la de 13.5). Los comprobantes no se guardan: se leen en vivo de `transactions.evidence_file_path` + `transaction_evidences` al abrir.
+```sql
+CREATE TABLE IF NOT EXISTS accounting_compendios (
+    id SERIAL PRIMARY KEY,
+    folio VARCHAR(30) NOT NULL UNIQUE,           -- EXP-AAAA-NNNN
+    nombre VARCHAR(120) NOT NULL,
+    nota TEXT,
+    tx_ids INTEGER[] NOT NULL,
+    snapshot JSONB NOT NULL,                     -- lo que ve el cliente: cabecera, totales por moneda, una entrada por TX (sin asientos)
+    opciones JSONB NOT NULL DEFAULT '{}'::jsonb, -- {identificacion, ubicaciones}
+    nonce VARCHAR(64) NOT NULL,
+    token_hash CHAR(64) NOT NULL UNIQUE,
+    expira_en TIMESTAMPTZ NOT NULL,
+    revocado_en TIMESTAMPTZ, revocado_por VARCHAR(120),
+    creado_por VARCHAR(120) NOT NULL, creado_en TIMESTAMPTZ NOT NULL DEFAULT now(),
+    visitas INTEGER NOT NULL DEFAULT 0, ultima_visita TIMESTAMPTZ,
+    descargas_pdf INTEGER NOT NULL DEFAULT 0, descargas_html INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS ix_accounting_compendios_creado ON accounting_compendios (creado_en DESC);
+```

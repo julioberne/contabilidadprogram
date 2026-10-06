@@ -1,52 +1,50 @@
 # Frente: analisis-exportacion (hoy módulo 14 ⇩ Exportación)
-Estado: ACTIVO · Actualizado: 2026-10-06 · Rama: claude/project-status-review-5e1694 = origin/master 0e2dda2 + 622025d (frente) + 50617b5 (casillas) + docs 13.6
+Estado: ACTIVO · Actualizado: 2026-10-06 · Rama: claude/project-status-review-5e1694 = origin/master 0e2dda2 + 7 commits sin push
 
 ## Objetivo
-B5 de "Mejor que Excel": ⇩ EXPORTACIÓN, organizador contable (spec `docs/specs/13-analisis/13.5-submodulo-exportacion.md`)
-y su extensión 13.6 🤝 Compendio para el cliente (`13.6-compendio-cliente.md`, PROPUESTA).
+B5 de "Mejor que Excel": ⇩ EXPORTACIÓN (spec `docs/specs/13-analisis/13.5-submodulo-exportacion.md`) y su extensión
+13.6 🤝 Compendio para el cliente (`13.6-compendio-cliente.md`, APROBADA 06-oct, EN CONSTRUCCIÓN).
 
 ## Estado actual
-- 13.4 motor, 13.5-a/b (organizador) y módulo 14 propio EN PRODUCCIÓN. 13.5-c 📥 Nueva exportación EN PRODUCCIÓN
-  (06-oct 01:42, `0e2dda2`). GENERAR no se ha probado en E2E: la 1.ª generación real la hace Andrés (EXP-2026-0001).
-- **Casillas del Libro Diario HECHAS (`50617b5`, sin push):** columna de casillas + "todas las visibles" (indeterminada)
-  en `LibroDiario.jsx`, solo para roles del módulo 14 (`getRenderableModules`); `SeleccionExportarBar.jsx` (sticky abajo,
-  fuera de la tarjeta por su overflow-hidden; ING/GAS por moneda con valor neto como la carátula) → 📥 abre ahí mismo
-  `exportacion/ExportarSeleccion.jsx` (puerta del módulo 14: lazy + portal; carga paquetes, carpetas, empresas) →
-  `NuevaExportacion` en 🧾 con `inicial.txIds` y "solo marcadas". +7 vitest (130 total), build OK.
-  Navegador :8003 A–J LISTO (#57, #56, #45 → modal con esas 3; pre-vuelo n_txs=3 cuadra; 375 px sin scroll horizontal).
-  CA-135-09 ✅; CA-135-08 🟡 (falta GENERAR).
-- 13.6 spec escrita (06-oct): link temporal `/c/<token>` + ⬇ PDF (fpdf2 + pypdf) + 💾 HTML offline; vigencia elegida
-  cada vez (7/15/30/90, 15 preseleccionado). Espera las 4 decisiones de §10.
+- 13.4 motor, 13.5-a/b/c y módulo 14 EN PRODUCCIÓN (`0e2dda2`). GENERAR sin E2E: 1.ª generación real = Andrés.
+- Casillas del Libro Diario HECHAS (`50617b5`): `LibroDiario.jsx` + `SeleccionExportarBar.jsx` → `ExportarSeleccion.jsx`
+  (lazy + portal) → NuevaExportacion 🧾 con los ids. CA-135-09 ✅, CA-135-08 🟡 (falta GENERAR).
+- 13.6-a HECHO (`2809389`): `compendio_driver.py` (snapshot sin asientos, totales por moneda, NIT/ubicación opcionales,
+  maps solo https Google; código = HMAC(clave, nonce), BD solo SHA-256; vigencia 7/15/30/90; ampliar/revocar; comprobantes
+  EN VIVO como el botón [Ver], solo por índice y solo del bucket), `compendio_visor.py` + `templates/compendio_visor.{html,js}`
+  (visor único, CSP con nonce), `routers/compendios.py` (privados contador; públicos `/c/{token}` y
+  `/api/publico/compendio/{token}/soporte/{i}/{j}`; ritmo 120/min), `scripts/migrate_compendios.py`, 25 tests.
+- 13.6-b HECHO (`7420b31`): ¿Para quién? 📊/🤝 en NuevaExportacion, `CompendioCliente.jsx`, `CompendiosPanel.jsx` (botón
+  🔗 Compendios en la franja), `compendios.js` (+4 vitest). 134 vitest, build OK. Navegador :8003 A–G LISTO hasta la revisión.
+- **La migración la bloqueó el clasificador ([Production Deploy]) → la corre Andrés.** Dry-run OK (tabla nueva, secuencia ok).
 
 ## Próximo paso (concreto)
-1. Andrés: `scripts\publicar.cmd` (sube 622025d + 50617b5 + docs) y generar un libro real (CA-134-01 + E2E de GENERAR).
-2. Andrés: responder §10 de la spec 13.6 (comprobantes en vivo, NIT/CC visible, sin asientos, orden) → aprobar.
-3. 13.6-a backend + visor (migración `accounting_compendios`, `compendio_driver.py`, `routers/compendios.py`,
-   plantilla `/c/{token}` antes del catch-all de `server.py`, proxy de comprobantes por índice, tests) → 13.6-b web
-   → 13.6-c PDF → 13.6-d HTML offline.
-4. Pendientes que siguen en cola (orden por decidir con 13.6): compendio ZIP del organizador; motor 13.4 (comparativo,
-   patrimonio, flujos, certificación Ley 222 art. 37; preguntar ¿Grupo 2 o 3?); 13.5-d `CalendarioCierres.jsx` 🗓.
+1. Andrés: `.venv\Scripts\python.exe scripts\migrate_compendios.py` en el checkout principal o el worktree (1 tabla nueva) y
+   luego `scripts\publicar.cmd` (sube 622025d…7420b31 + docs).
+2. Andrés: crear el primer compendio real (marcar en el Libro Diario → 📥 → 🤝 Cliente) y abrir el link en el celular
+   (CA-136-01/02). Ojo: gasta un folio EXP de la secuencia compartida (si es el primero, EXP-2026-0001).
+3. 13.6-c PDF: `requirements.txt` + fpdf2 + pypdf, `fin_sys_core/compendio_pdf.py`, `GET …/pdf` privado y público,
+   botón ⬇ PDF en el visor y en el panel (CA-136-05/07).
+4. 13.6-d HTML offline: `compendio_offline.py` (mismo visor; `soporte.data` = data URI, fotos Pillow 1280 px q65) (CA-136-06).
+5. Después, en este orden: compendio ZIP del organizador; motor 13.4 (comparativo, patrimonio, flujos, certificación;
+   preguntar ¿Grupo 2 o 3?); 13.5-d `CalendarioCierres.jsx` 🗓.
 
 ## Decisiones tomadas (y por qué)
-- Módulo 14 propio (06-oct): carpeta + 1 entrada en el registry, sin tocar Análisis ni el shell. Icono ⇩. Solo .jsx/.js.
-- Exportar desde el Libro Diario abre el modal AHÍ MISMO (Andrés 06-oct); Contabilidad importa solo la puerta
-  `ExportarSeleccion.jsx` en diferido (chunk de 0,9 KB + el de Exportación).
-- Se exporta lo marcado que está CARGADO (un id de otra empresa no cuenta): lo que se ve es lo que se exporta.
-- Para el cliente final (Andrés 06-oct): link temporal + PDF, y probar HTML offline; vigencia elegida cada vez.
-- Archivos en Postgres bytea (bucket `hr-docs` PÚBLICO); folio `EXP-AAAA-NNNN` por secuencia global; huella antes de leer.
+- Módulo 14 propio; exportar desde el Libro Diario abre el modal AHÍ MISMO; se exporta lo marcado que está cargado.
+- 13.6 (Andrés 06-oct): link temporal + PDF + HTML offline; vigencia elegida cada vez; comprobantes en vivo; NIT visible con
+  opción de ocultar; sin asientos; orden link → PDF → offline. Panel 🔗 en la franja (un compendio es un link, no un archivo).
+- Archivos en Postgres bytea (bucket `hr-docs` PÚBLICO); folio `EXP-AAAA-NNNN` por secuencia global (libros y compendios).
 
 ## Archivos clave
-- Web: `frontend/src/exportacion/` · `contabilidad-v2/modules/diario/{LibroDiario.jsx,seleccion.js}` ·
-  `contabilidad-v2/components/SeleccionExportarBar.jsx`
-- Backend: `fin_sys_core/{accounting_files_driver,export_xlsx}.py` · `routers/accounting_files.py`
-- Evidencias: `transactions.evidence_file_path` + `transaction_evidences.file_path` (URLs públicas del bucket,
-  `fin_sys_core/storage_media.py`); ubicación `geo_maps_link` + lat/lng.
+- Web: `frontend/src/exportacion/` · `contabilidad-v2/modules/diario/{LibroDiario.jsx,seleccion.js}` · `contabilidad-v2/components/SeleccionExportarBar.jsx`
+- Backend: `fin_sys_core/{accounting_files_driver,export_xlsx,compendio_driver,compendio_visor}.py` · `routers/{accounting_files,compendios}.py`
+- Evidencias: `transactions.evidence_file_path` + `transaction_evidences.file_path` (URLs públicas, `storage_media.py`).
 
 ## Cómo verificar
-- `npx vitest run src/exportacion src/contabilidad-v2/modules/diario` · `npm run build` · `python -m unittest tests.test_accounting_files`
-- :8003 (config `finsys-13-5`, lanzador en el scratchpad 7a9ac386 con el `.env` del principal). Sesión de prueba:
-  `sembrar_13_5.py --solo-sesion` (no escribe en la BD) → `sesion_13_5.json` → localStorage `finsys_session`.
+- `python -m unittest tests.test_compendios tests.test_accounting_files` · `npx vitest run src/exportacion src/contabilidad-v2/modules/diario` · `npm run build`
+- :8003 (config `finsys-13-5`; lanzador y `sembrar_13_5.py --solo-sesion` en el scratchpad 7a9ac386 → `sesion_13_5.json` →
+  localStorage `finsys_session`). `/c/<43 letras>` sin tabla → 404 "ya no está disponible" con cabeceras.
 
 ## Bloqueos y riesgos
-- BD compartida: lo generado en local aparece en producción (folios incluidos). No pulsar GENERAR en pruebas.
+- BD compartida: crear un compendio o generar un libro gasta folio real. No pulsar CREAR/GENERAR en pruebas.
 - `launch.json` del worktree tiene arreglos solo locales: no commitear.

@@ -70,7 +70,7 @@ python tests/test_e2e.py
 | Módulo 10 (Trading NASDAQ) | `frontend/src/trading/*` (por crear) | 🔵 PLANIFICADO | Crear en carpeta nueva, registrar en registry |
 | **Módulo 12 (Contadores)** | `frontend/src/contadores/*`, `routers/contadores.py`, `kernel/kernel_journal_workflow.py`, `kernel/kernel_periods.py`, `kernel/kernel_reports.py`, `fin_sys_core/coa_admin_driver.py` | ✅ v1 (15 Sep 2026) | Asientos nacen BORRADOR y solo el contador los CONTABILIZA; reportes = asientos en libros (CONTABILIZADO+ANULADO). Rol `contador` + `require_contador`. Un periodo cerrado bloquea TXs y asientos |
 | **Módulo 13 (Análisis Inteligente)** | `fin_sys_core/metrics_catalog.py`, `analytics_qa.py`, `insight_engine.py` · `routers/analytics.py` · `frontend/src/analisis/*` | ✅ hitos 1–3 (22 Sep 2026) · 13.4 motor .xlsx en producción (05 Oct) | Catálogo de métricas en lista blanca; la IA traduce la pregunta, jamás calcula |
-| **Módulo 14 (Exportación)** | `frontend/src/exportacion/*` (ruta `/exportacion`) · `routers/accounting_files.py` · `fin_sys_core/accounting_files_driver.py` · `scripts/migrate_exports.py` | 🟡 organizador web + backend (13.5-a/b) en master, sin deploy; faltan 13.5-c/d | Módulo propio desde el 06-oct (antes desplegable dentro de ∑ Análisis). Archivos en `bytea` (el bucket `hr-docs` es público); ver/generar owner/admin/contador, borrar solo admin |
+| **Módulo 14 (Exportación)** | `frontend/src/exportacion/*` (ruta `/exportacion`) · `routers/accounting_files.py` · `fin_sys_core/accounting_files_driver.py` · `scripts/migrate_exports.py` · 13.6: `routers/compendios.py` · `fin_sys_core/compendio_{driver,visor}.py` · `fin_sys_core/templates/compendio_visor.*` · `scripts/migrate_compendios.py` | 🟡 13.5-a/b/c EN PRODUCCIÓN; casillas del Libro Diario y 13.6 🤝 compendio (link `/c/<código>`) hechos sin push; faltan 13.6-c/d y 13.5-d | Módulo propio desde el 06-oct (antes desplegable dentro de ∑ Análisis). Archivos en `bytea` (el bucket `hr-docs` es público); ver/generar owner/admin/contador, borrar solo admin |
 
 ---
 
@@ -116,7 +116,7 @@ python tests/test_e2e.py
 | `frontend/src/shell/Sidebar.jsx` | 🟢 ACTIVO — Lee del registry; no hardcodear items |
 | `frontend/src/shell/HomeDashboard.jsx` | 🟢 ACTIVO — Lee del registry; no hardcodear módulos |
 | `frontend/src/registry/moduleRegistry.js` | 🟢 ACTIVO — SSOT de módulos, agregar entradas aquí |
-| `frontend/src/exportacion/*` | 🟢 ACTIVO — Módulo 14, libre modificación dentro de la carpeta; la casilla de selección del Libro Diario (13.5-c) es el único enganche fuera |
+| `frontend/src/exportacion/*` | 🟢 ACTIVO — Módulo 14, libre modificación dentro de la carpeta; enganches fuera: las casillas del Libro Diario (`LibroDiario.jsx` + `contabilidad-v2/components/SeleccionExportarBar.jsx`, que abre `ExportarSeleccion.jsx` en diferido) |
 | `frontend/src/main.jsx` | 🟡 No editar el switch — consume del registry. Solo tocar si hay bug del shell |
 | `frontend/src/contabilidad-v2/components/*` | 🟢 ACTIVO — ContextPanel, tabs, modales, inventario (Cartera + Zero-COA toggle) |
 | `fin_sys_core/bot_*.py`, `sms_bancolombia.py`, `terceros_cuentas.py`, `draft_builder.py` | 🟢 ACTIVO — Bot IA; cambios con tests (puros en CI + con BD en local) y respetando la Regla 6b |

@@ -28,8 +28,8 @@ Todo spec nuevo se crea copiando [`_plantilla.md`](_plantilla.md). Un spec de m�
 | Módulo | Spec de módulo | Etapas |
 |---|---|---|
 | 09 Bot IA | [09-bot-ia/SPEC.md](09-bot-ia/SPEC.md) | [09.F SMS Bancolombia](09-bot-ia/09.F-sms-bancolombia.md) · [09.G Completar borrador](09-bot-ia/09.G-completar-borrador.md) · [09.H OCR de comprobantes](09-bot-ia/09.H-ocr-comprobantes.md) · [09.I/J Ficha de tercero con anclas](09-bot-ia/09.I-ficha-tercero-anclas.md) |
-| 13 Análisis Inteligente | [13-analisis/SPEC.md](13-analisis/SPEC.md) | hitos 1–3 en producción (ver SPEC) · [13.4 Motor de libros .xlsx](13-analisis/13.4-export-xlsx.md) · [13.5 Exportación + Archivo (hoy módulo 14)](13-analisis/13.5-submodulo-exportacion.md) · [13.6 Compendio para el cliente](13-analisis/13.6-compendio-cliente.md) (propuesta) |
-| 14 Exportación (organizador contable) | — (vive en la etapa 13.5, donde nació) | [13.5 Exportación + Archivo](13-analisis/13.5-submodulo-exportacion.md) · [13.6 Compendio para el cliente](13-analisis/13.6-compendio-cliente.md) (propuesta) · módulo propio desde el 06-oct · ruta `/exportacion` · `frontend/src/exportacion/` |
+| 13 Análisis Inteligente | [13-analisis/SPEC.md](13-analisis/SPEC.md) | hitos 1–3 en producción (ver SPEC) · [13.4 Motor de libros .xlsx](13-analisis/13.4-export-xlsx.md) · [13.5 Exportación + Archivo (hoy módulo 14)](13-analisis/13.5-submodulo-exportacion.md) · [13.6 Compendio para el cliente](13-analisis/13.6-compendio-cliente.md) (en construcción) |
+| 14 Exportación (organizador contable) | — (vive en la etapa 13.5, donde nació) | [13.5 Exportación + Archivo](13-analisis/13.5-submodulo-exportacion.md) · [13.6 Compendio para el cliente](13-analisis/13.6-compendio-cliente.md) (en construcción) · módulo propio desde el 06-oct · ruta `/exportacion` · `frontend/src/exportacion/` |
 
 Módulos sin spec todavía (se crean cuando se abra una etapa nueva sobre ellos): 01–06 Contabilidad (referencia histórica: `docs/D02_FIN_spec.md`, formato anterior), 07 Control Tower, 08 Project Hub / RRHH, 12 Contadores.
 
