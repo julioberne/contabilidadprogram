@@ -132,6 +132,29 @@ export default function Organizador({ user, resumen, onCambio, paquetes, pedidoN
   const cerrarDialogo = () => setDialogo(null);
   const avisar = (texto, tono = 'ok') => setAviso({ texto, tono });
 
+  // 📦 Compendio de entrega (13.5 §11): elegir varios archivos → un ZIP con índice y folio propio.
+  const [eligiendo, setEligiendo] = useState(false);
+  const [elegidos, setElegidos] = useState(() => new Set());
+  const alternarElegido = (id) => setElegidos((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const salirDeElegir = () => { setEligiendo(false); setElegidos(new Set()); };
+  const armarEntrega = () => setDialogo(
+    <DialogoTexto titulo="📦 Compendio de entrega (ZIP)" obligatorio={false} max={120}
+      etiqueta={`Nombre de la entrega · ${elegidos.size} archivo(s) (ej.: Entrega al contador — septiembre)`}
+      onCerrar={() => setDialogo(null)}
+      onOk={async (nombre) => {
+        const res = await api.post('/accounting-files/entrega', {
+          ids: [...elegidos], nombre: nombre || null,
+          folder_id: ubicacion.nivel === 'carpeta' ? ubicacion.id : null,
+        });
+        setDialogo(null);
+        salirDeElegir();
+        avisar(`📦 ${res.folio} armado con ${res.n} archivo(s)`
+          + (res.advertencias?.length ? ` · ⚠ ${res.advertencias.length} advertencia(s): míralas en el LEEME del ZIP` : ''));
+        refrescar();
+        api.descargar(res.id, res.nombre_archivo).catch((e) => avisar(`Se archivó, pero la descarga falló: ${e.message}`, 'error'));
+      }} />,
+  );
+
   // ── Acciones sobre un archivo ───────────────────────────────
   const patch = async (item, cambios, texto) => {
     await api.patch(`/accounting-files/${item.id}`, cambios);
@@ -207,7 +230,7 @@ export default function Organizador({ user, resumen, onCambio, paquetes, pedidoN
     { clave: 'nota', etiqueta: '🗒 Nota', onClick: () => accion('nota', item) },
     { clave: 'mover', etiqueta: '📁 Mover a carpeta…', onClick: () => accion('mover', item) },
     { clave: 'tipo', etiqueta: '🏷 Cambiar tipo…', onClick: () => accion('tipo', item) },
-    item.origen === 'GENERADO' && { clave: 'regenerar', etiqueta: '♻ Regenerar', onClick: () => accion('regenerar', item) },
+    item.origen === 'GENERADO' && item.paquete !== 'entrega' && { clave: 'regenerar', etiqueta: '♻ Regenerar', onClick: () => accion('regenerar', item) },
     admin && { clave: 'eliminar', etiqueta: '✕ Eliminar', peligro: true, onClick: () => accion('eliminar', item) },
   ];
 
@@ -292,6 +315,9 @@ export default function Organizador({ user, resumen, onCambio, paquetes, pedidoN
             onClick={() => setVista('cierres')}
             className={`${btn} border-l-0 ${vista === 'cierres' ? 'bg-black text-white' : 'bg-white hover:bg-brutalNeutral'}`}>🗓</button>
         </div>
+        <button type="button" aria-pressed={eligiendo} onClick={() => (eligiendo ? salirDeElegir() : setEligiendo(true))}
+          title="Elegir varios archivos para armar un compendio de entrega (ZIP con índice y folio)"
+          className={`${btn} ${eligiendo ? 'bg-black text-white' : 'bg-white hover:bg-brutalNeutral'}`}>☑ ELEGIR</button>
         <button type="button" className={btnBlanco} onClick={nuevaCarpeta}
           title={padreActual ? 'Crear una subcarpeta aquí' : 'Crear una carpeta propia (ej. "Para el banco 2026")'}>+ CARPETA</button>
         <button type="button" className={btnBlanco} onClick={() => inputRef.current?.click()}
@@ -381,12 +407,32 @@ export default function Organizador({ user, resumen, onCambio, paquetes, pedidoN
             <h3 className="font-bold text-[9px] tracking-wider text-gray-600 mb-1">
               {tituloArchivos} · {lista.total}{cargando ? ' · cargando…' : ''}
             </h3>
+            {eligiendo && (
+              <div role="region" aria-label="Elegir para la entrega"
+                className="flex flex-wrap items-center gap-1 border-2 border-black bg-brutalAmber/30 p-1 text-[10px] mb-1">
+                <b>☑ {elegidos.size} elegido{elegidos.size === 1 ? '' : 's'}</b>
+                <button type="button" className={btnBlanco} disabled={!lista.items.length}
+                  onClick={() => setElegidos((s) => new Set([...s, ...lista.items.map((i) => i.id)]))}>TODO LO VISIBLE</button>
+                <button type="button" className={btnNegro} disabled={!elegidos.size} onClick={armarEntrega}>📦 ARMAR ZIP DE ENTREGA</button>
+                <button type="button" className={btnBlanco} onClick={salirDeElegir}>✕ SALIR</button>
+                <span className="text-gray-700">Puedes elegir en varias carpetas. El ZIP lleva los archivos tal cual, un índice con
+                  folio y SHA-256 de cada uno, y queda archivado con folio propio.</span>
+              </div>
+            )}
             {lista.items.length > 0 && (
               <div className={vista === 'grid' ? 'grid gap-1.5 grid-cols-[repeat(auto-fill,minmax(170px,1fr))]' : 'space-y-1'}>
-                {lista.items.map((it) => (
+                {lista.items.map((it) => (eligiendo ? (
+                  <div key={it.id} className={`relative ${elegidos.has(it.id) ? 'outline outline-4 outline-brutalAmber' : ''}`}>
+                    <FileCard item={it} tipo={tipoDe(it.tipo_documental_id)} vista={vista}
+                      onAbrir={() => alternarElegido(it.id)} acciones={accionesDe(it)} />
+                    <input type="checkbox" aria-label={`Elegir ${it.nombre}`} checked={elegidos.has(it.id)}
+                      onChange={() => alternarElegido(it.id)} onClick={(e) => e.stopPropagation()}
+                      className="absolute top-1 left-1 w-4 h-4 accent-black" />
+                  </div>
+                ) : (
                   <FileCard key={it.id} item={it} tipo={tipoDe(it.tipo_documental_id)} vista={vista}
                     onAbrir={() => setPreview(it)} acciones={accionesDe(it)} />
-                ))}
+                )))}
               </div>
             )}
             {lista.items.length < lista.total && (

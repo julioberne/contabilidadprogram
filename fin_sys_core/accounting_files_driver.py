@@ -615,6 +615,8 @@ def regenerar(file_id: int, usuario: Optional[Dict[str, Any]] = None, desde: Opt
     if f["origen"] != ORIGEN_GENERADO or not f["receta"]:
         raise ValueError("Solo se regeneran los archivos que FIN-SYS generó.")
     receta = dict(f["receta"])
+    if receta.get("modo") == "entrega":           # 📦 compendio de entrega (entrega_driver): no es una receta del motor
+        raise ValueError("Un compendio de entrega no se regenera: arma uno nuevo con los archivos de hoy.")
     if desde or hasta:
         if receta.get("modo") == "transacciones":
             raise ValueError("Una relación de transacciones se regenera con sus mismas TXs, sin período.")

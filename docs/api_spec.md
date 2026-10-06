@@ -668,6 +668,7 @@ en lugar del `X-Frame-Options: SAMEORIGIN` global, para que Telegram Web (iframe
 - `PATCH /api/accounting-files/{id}` — cualquiera de `nombre, nota, fijado, folder_id (null = sacarlo de la carpeta), tipo_documental_id` → la ficha.
 - `POST /api/accounting-files/{id}/regenerar` — `{ desde?, hasta? }` → como `POST /api/analytics/export`, con folio nuevo y `reemplaza_a`; el original queda intacto · `400` si es un subido.
 - `DELETE /api/accounting-files/{id}` (admin) → `{ eliminado, id, folio, nombre }`.
+- `POST /api/accounting-files/entrega` — 📦 `{ ids: [int] (≤50), nombre?, nota?, folder_id? }` → `201 { id, folio, nombre, nombre_archivo, paquete: "entrega", n, tamano_bytes, sha256, advertencias, creado_en }`: ZIP con los archivos, `00 - INDICE.csv` y `LEEME.txt`, archivado con folio propio · `400` si supera el tope, si incluye otra entrega o > 50 · `404` ids que no existen. `regenerar` de una entrega → `400`.
 - `GET/POST /api/accounting-folders` · `PATCH/DELETE /api/accounting-folders/{id}` (DELETE admin) — `{ nombre, color, parent_id?, portfolio_id? }`; borrar una carpeta no borra sus archivos (quedan en su lugar automático).
 - `GET/POST /api/accounting-doc-types` · `PATCH/DELETE /api/accounting-doc-types/{id}` (DELETE admin) — `{ nombre, icono?, color?, orden? }`; los default no se borran (`400`).
 

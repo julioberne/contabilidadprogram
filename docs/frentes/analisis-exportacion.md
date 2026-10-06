@@ -24,7 +24,8 @@ B5 de "Mejor que Excel": ⇩ EXPORTACIÓN (spec `docs/specs/13-analisis/13.5-sub
    offline (`a7ede78`) HECHOS, sin push. Andrés: publicar + `migrate_compendios.py` (tabla de eventos) + en Dokploy
    `COMPENDIO_AVISO_TELEGRAM=1`. Pendiente E2E: modal de seguimiento con datos, HTML en modo avión en un celular.
 2. 13.5-d 🗓 cierres HECHO (`CalendarioCierres.jsx` + `cierres.js`; botón 🗓 del organizador habilitado).
-3. Luego: compendio ZIP del organizador; motor 13.4 (comparativo, patrimonio, flujos, certificación; ¿Grupo 2 o 3?); 13.5-d 🗓.
+3. 📦 Compendio de entrega en ZIP HECHO (`entrega_driver.py`, ☑ ELEGIR en el organizador).
+4. Luego: motor 13.4 (comparativo, patrimonio, flujos, certificación; ¿Grupo 2 o 3?); 13.5-d 🗓.
 - Andrés: generar el 1.er libro .xlsx real (CA-134-01, CA-135-08).
 
 ## Decisiones tomadas (y por qué)

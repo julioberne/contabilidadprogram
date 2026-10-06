@@ -16,6 +16,7 @@ sesión: nunca una URL pública (R-135-05).
   GET    /api/accounting-files/resumen          cabecera, conteos y árbol empresa → año → mes
   GET    /api/accounting-files/cierres          matriz paquete × mes (vista 🗓)
   POST   /api/accounting-files/upload           subir documento externo (multipart)
+  POST   /api/accounting-files/entrega          📦 compendio de entrega: varios archivos → ZIP con índice y folio
   GET    /api/accounting-files/{id}             ficha + vigencia calculada en el momento
   GET    /api/accounting-files/{id}/download    el archivo exacto (cuenta la descarga)
   GET    /api/accounting-files/{id}/preview     xlsx/csv → filas; PDF/imagen → binario
@@ -25,7 +26,7 @@ sesión: nunca una URL pública (R-135-05).
   GET/POST /api/accounting-folders · PATCH/DELETE /api/accounting-folders/{id} (DELETE admin)
   GET/POST /api/accounting-doc-types · PATCH/DELETE /api/accounting-doc-types/{id} (DELETE admin)
 """
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Response, UploadFile
@@ -178,6 +179,23 @@ def subir(archivo: UploadFile = File(...), nombre: Optional[str] = Form(None),
         return drv.subir(contenido, archivo.filename or "documento", {
             "nombre": nombre, "tipo_documental_id": tipo_documental_id, "folder_id": folder_id,
             "portfolio_id": portfolio_id, "anio": anio, "mes": mes, "nota": nota}, usuario=user)
+    except Exception as e:
+        _fallo(e)
+
+
+class EntregaIn(BaseModel):
+    ids: List[int]
+    nombre: Optional[str] = None
+    nota: Optional[str] = None
+    folder_id: Optional[int] = None
+
+
+@router.post("/api/accounting-files/entrega", status_code=201)
+def entrega(body: EntregaIn, user: dict = Depends(require_contador)):
+    """📦 Compendio de entrega: varios archivos → un ZIP con índice (CSV con SHA-256) y folio propio."""
+    try:
+        import entrega_driver
+        return entrega_driver.crear(body.model_dump(), user)
     except Exception as e:
         _fallo(e)
 
