@@ -19,15 +19,17 @@ B5 de "Mejor que Excel": ⇩ EXPORTACIÓN (spec `docs/specs/13-analisis/13.5-sub
 - **La migración la bloqueó el clasificador ([Production Deploy]) → la corre Andrés.** Dry-run OK (tabla nueva, secuencia ok).
 
 ## Próximo paso (concreto)
-1. Andrés: `.venv\Scripts\python.exe scripts\migrate_compendios.py` en el checkout principal o el worktree (1 tabla nueva) y
-   luego `scripts\publicar.cmd` (sube 622025d…7420b31 + docs).
-2. Andrés: crear el primer compendio real (marcar en el Libro Diario → 📥 → 🤝 Cliente) y abrir el link en el celular
-   (CA-136-01/02). Ojo: gasta un folio EXP de la secuencia compartida (si es el primero, EXP-2026-0001).
-3. 13.6-c PDF: `requirements.txt` + fpdf2 + pypdf, `fin_sys_core/compendio_pdf.py`, `GET …/pdf` privado y público,
-   botón ⬇ PDF en el visor y en el panel (CA-136-05/07).
-4. 13.6-d HTML offline: `compendio_offline.py` (mismo visor; `soporte.data` = data URI, fotos Pillow 1280 px q65) (CA-136-06).
-5. Después, en este orden: compendio ZIP del organizador; motor 13.4 (comparativo, patrimonio, flujos, certificación;
-   preguntar ¿Grupo 2 o 3?); 13.5-d `CalendarioCierres.jsx` 🗓.
+- 13.6-a/b + nginx `/c/` EN PRODUCCIÓN y funcionando (Andrés lo confirmó el 06-oct; origin/master = `86c66b5`).
+1. **13.6-c 📈 Seguimiento del cliente — APROBADO (spec 13.6 §11, decisión 5 de §10).** Plan de archivos ya en la spec:
+   tabla `accounting_compendio_eventos` (DDL en `compendio_driver.DDL`; la migración la corre Andrés), eventos `abrio`
+   (en /c), `comprobante` (en soporte), `tx` (beacon del visor → `POST …/evento`); visitante = HMAC sin IP; dispositivo
+   del User-Agent; dedup 10 min; `GET /api/compendios/{id}/seguimiento` + `/actividad`; `CompendiosPanel` (● EN VIVO,
+   "revisó X de N", Actividad reciente, refresco 30 s) + `SeguimientoCompendio.jsx` (KPIs, Qué revisó, Actividad, 15 s);
+   aviso Telegram SOLO 1.ª apertura con `COMPENDIO_AVISO_TELEGRAM=1` (buscar en `bot_driver` cómo se le escribe al owner);
+   SIN aviso de registro al cliente (decisión de Andrés). CA-136-09…14.
+2. 13.6-d PDF (fpdf2 + pypdf) → 13.6-e HTML offline.
+3. Luego: compendio ZIP; motor 13.4 (comparativo, patrimonio, flujos, certificación; ¿Grupo 2 o 3?); 13.5-d 🗓.
+- Andrés: generar el 1.er libro .xlsx real (CA-134-01, CA-135-08).
 
 ## Decisiones tomadas (y por qué)
 - Módulo 14 propio; exportar desde el Libro Diario abre el modal AHÍ MISMO; se exporta lo marcado que está cargado.
@@ -50,5 +52,3 @@ B5 de "Mejor que Excel": ⇩ EXPORTACIÓN (spec `docs/specs/13-analisis/13.5-sub
 - `launch.json` del worktree tiene arreglos solo locales: no commitear.
 - Producción tiene nginx delante (`frontend/nginx.conf`): solo `/api/`, `/uploads/` y `/c/` (desde `90a6a73`) van al
   backend. Toda ruta nueva del backend fuera de `/api/` necesita su `location` ahí; :8003 no lo detecta.
-- 06-oct 03:07: `publicar` desplegó hasta `aa1c00b` (backend 13.6 vivo: `/api/compendios` 401), pero `/c/` seguía en el
-  SPA → falta publicar `90a6a73` + correr `migrate_compendios.py`.
