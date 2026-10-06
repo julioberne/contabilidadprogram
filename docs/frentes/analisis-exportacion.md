@@ -25,7 +25,8 @@ APROBADO 05-oct, decisiones §10). Termina con 13.5 HECHO, desplegado y visto en
 
 ## Próximo paso (concreto)
 0. Diseño de 📥 NUEVA EXPORTACIÓN con el informe /deep-research (contador colombiano + Siigo/Alegra/World Office/QuickBooks/Xero;
-   workflow wf_d2d09fef-272 de la sesión 06-oct) → aprobación de Andrés. Pedidos de Andrés 06-oct que el diseño DEBE cubrir:
+   informe GUARDADO en `docs/specs/13-analisis/investigacion-nueva-exportacion-2026-10-06.md`: leer §Hallazgos 10 y 11)
+   → aprobación de Andrés. Pedidos de Andrés 06-oct que el diseño DEBE cubrir:
    a) "el fin del módulo es la exportación tipo contador; el organizador es secundario" → Nueva exportación es lo principal;
    b) exportar transacciones POR FILTROS (búsqueda) o SELECCIONADAS a mano (backend: modo transacciones ≤5000 tx_ids;
       modo período con filtros categorías/terceros/tipos/moneda/cuentas_puc + nivel_puc) y c) "compendios selectivos de
