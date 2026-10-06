@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
-import { pathToView, viewToPath, useQueryParam } from './useRoute.js';
+import {
+  pathToView, viewToPath, useQueryParam, useRoute, usePathname, avisarRuta, EVENTO_RUTA,
+} from './useRoute.js';
+import { getNavGroups } from '../registry/moduleRegistry.js';
 
 describe('routing', () => {
   it('mapea la raíz a home', () => {
@@ -68,5 +71,47 @@ describe('useQueryParam (deep-link de sub-vistas RRHH)', () => {
     act(() => member.current[1]('abc-123'));
     expect(window.location.search).toContain('view=members');
     expect(window.location.search).toContain('member=abc-123');
+  });
+});
+
+describe('sub-rutas del menú lateral (∑ Análisis → 📦 Exportación)', () => {
+  beforeEach(() => {
+    window.history.replaceState(null, '', '/contabilidad');
+    localStorage.removeItem('finsys_session');
+  });
+
+  it('navigate(view, {path}) abre la sub-ruta y avisa el cambio', () => {
+    const avisos = [];
+    const oir = (e) => avisos.push(e.detail.path);
+    window.addEventListener(EVENTO_RUTA, oir);
+    const { result } = renderHook(() => useRoute());
+    act(() => result.current[1]('analisis', { path: '/analisis/exportacion' }));
+    window.removeEventListener(EVENTO_RUTA, oir);
+    expect(result.current[0]).toBe('analisis');
+    expect(window.location.pathname).toBe('/analisis/exportacion');
+    expect(avisos).toEqual(['/analisis/exportacion']);
+  });
+
+  it('ignora una sub-ruta que pertenece a otro módulo', () => {
+    const { result } = renderHook(() => useRoute());
+    act(() => result.current[1]('analisis', { path: '/contabilidad/19-x' }));
+    expect(window.location.pathname).toBe('/analisis');
+  });
+
+  it('usePathname sigue los avisos de EVENTO_RUTA (pushState no dispara popstate)', () => {
+    const { result } = renderHook(() => usePathname());
+    act(() => {
+      window.history.replaceState(null, '', '/analisis/exportacion');
+      avisarRuta('test');
+    });
+    expect(result.current).toBe('/analisis/exportacion');
+  });
+
+  it('el registry cuelga 📦 Exportación de ∑ Análisis solo para owner/admin/contador', () => {
+    const sub = () => getNavGroups().flatMap(g => g.items).find(i => i.id === 'analisis').sub;
+    expect(sub()).toEqual([]);   // sin sesión = member
+    localStorage.setItem('finsys_session', JSON.stringify({ hubRole: 'contador' }));
+    expect(sub().map(s => s.path)).toEqual(['/analisis/exportacion']);
+    expect(pathToView('/analisis/exportacion')).toBe('analisis');
   });
 });

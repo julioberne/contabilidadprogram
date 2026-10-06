@@ -24,6 +24,20 @@ const SHELL_ROUTES = {
   'usuarios':        'usuarios',
 };
 
+/**
+ * Aviso de "cambió la URL" que pushState/replaceState no dan (popstate solo
+ * llega con atrás/adelante). Lo escuchan la barra lateral (sub-ítem resaltado)
+ * y las secciones con sub-ruta, como 📦 Exportación de ∑ Análisis.
+ * detail: { path, origen }
+ */
+export const EVENTO_RUTA = 'finsys:ruta';
+
+export function avisarRuta(origen = 'shell') {
+  window.dispatchEvent(new CustomEvent(EVENTO_RUTA, {
+    detail: { path: window.location.pathname, origen },
+  }));
+}
+
 /** view id → segmento de URL */
 export function viewToPath(view) {
   if (!view || view === 'home') return '/';
@@ -75,7 +89,9 @@ export function useRoute() {
   }, []);
 
   const navigate = useCallback((next, opts = {}) => {
-    const path = viewToPath(next);
+    // opts.path: sub-ruta del mismo módulo (ej. /analisis/exportacion desde el
+    // menú lateral); si apunta a otro módulo se ignora.
+    const path = opts.path && pathToView(opts.path) === next ? opts.path : viewToPath(next);
     // Al cambiar de módulo se descarta el query del módulo anterior
     const url = path + (opts.search || '');
     if (window.location.pathname + window.location.search !== url) {
@@ -83,9 +99,27 @@ export function useRoute() {
       window.history[method]({ view: next }, '', url);
     }
     setView(next);
+    avisarRuta();
   }, []);
 
   return [view, navigate];
+}
+
+/** Path actual, al día con atrás/adelante y con los avisos de EVENTO_RUTA. */
+export function usePathname() {
+  const [path, setPath] = useState(() => window.location.pathname);
+
+  useEffect(() => {
+    const sync = () => setPath(window.location.pathname);
+    window.addEventListener('popstate', sync);
+    window.addEventListener(EVENTO_RUTA, sync);
+    return () => {
+      window.removeEventListener('popstate', sync);
+      window.removeEventListener(EVENTO_RUTA, sync);
+    };
+  }, []);
+
+  return path;
 }
 
 /**

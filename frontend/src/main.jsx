@@ -86,7 +86,7 @@ function FINSYSShell() {
       <Sidebar
         user={user}
         activeView={view}
-        onNavigate={(v) => { setView(v); isMobile && setMobileOpen(false); }}
+        onNavigate={(v, opts) => { setView(v, opts); isMobile && setMobileOpen(false); }}
         collapsed={isMobile ? false : collapsed}
         onToggle={() => isMobile ? setMobileOpen(v => !v) : setCollapsed(v => !v)}
         mobileOpen={mobileOpen}
