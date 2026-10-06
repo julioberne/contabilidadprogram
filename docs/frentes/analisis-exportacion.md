@@ -31,6 +31,23 @@ B5 de "Mejor que Excel": ⇩ EXPORTACIÓN (spec `docs/specs/13-analisis/13.5-sub
    si se suman por defecto a Cierre de mes (Grupo 2 los exige).
 - Andrés: generar el 1.er libro .xlsx real (CA-134-01, CA-135-08).
 
+5. **Hito "escalabilidad + guardián" (propuesto 06-oct, Andrés: aprobar en sesión limpia)**. Sin dependencias de pago ni
+   reestructurar; un módulo y cambios puntuales:
+   - Workers: gunicorn YA es el administrador (supervisa/reinicia). Sumar `--max-requests 1000 --max-requests-jitter 100
+     --timeout 60 --graceful-timeout 30`; proxy de comprobantes ASÍNCRONO en streaming (httpx ya instalado) + caché del
+     navegador; PDF/HTML con caché por compendio (foto inmutable; clave = lista de comprobantes) y semáforo de 2 por worker;
+     `limit_req` en nginx para `/c/` y `/api/publico/`; purga de eventos de compendios vencidos > 180 días. Cola futura,
+     si hiciera falta: tabla Postgres `FOR UPDATE SKIP LOCKED` en un servicio con la misma imagen (como el bot), sin Redis.
+   - Guardián `fin_sys_core/guardian.py` en las 3 puertas donde un archivo toca el servidor (subida del organizador, bot
+     antes de subir a Supabase, y donde se parsea: PDF/HTML del compendio y vista previa): tipo real por firma (lista
+     blanca), imágenes RE-CODIFICADAS con Pillow (mata polyglots y metadatos; tope de píxeles anti-bomba), PDF sin contenido
+     activo (/JavaScript, /OpenAction, /Launch, /EmbeddedFile, /XFA → rechazo, con pypdf), xlsx sin macros ni zip-bomb
+     (defusedxml explícito), texto seguro para Excel/CSV. Subidas directas navegador→Supabase (EvidenceModal): límites de
+     MIME y tamaño en la configuración del bucket (sin código). CI: `pip-audit` + `npm audit`. ClamAV solo si sobra RAM.
+   - Mediano plazo (evaluar aparte): bucket privado + URLs firmadas de vida corta (toca RRHH, bot y Excel).
+- 06-oct: el aviso de Telegram no salía → `f097d2e` pasa TELEGRAM_BOT_TOKEN y COMPENDIO_AVISO_TELEGRAM al backend en el
+  compose. Probar con un compendio NUEVO (EXP-0003 y 0005 ya tienen su 1.ª apertura).
+
 ## Decisiones tomadas (y por qué)
 - Módulo 14 propio; exportar desde el Libro Diario abre el modal AHÍ MISMO; se exporta lo marcado que está cargado.
 - 13.6 (Andrés 06-oct): link temporal + PDF + HTML offline; vigencia elegida cada vez; comprobantes en vivo; NIT visible con
