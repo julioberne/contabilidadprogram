@@ -20,6 +20,7 @@ import PreviewModal from './PreviewModal.jsx';
 import TiposModal from './TiposModal.jsx';
 import UploadModal from './UploadModal.jsx';
 import NuevaExportacion from './NuevaExportacion.jsx';
+import CalendarioCierres from './CalendarioCierres.jsx';
 import {
   RAIZ, arbolPlano, armarArbol, carpetasAutomaticas, descendientes, migas, parametrosLista,
   puedeBorrar, queryString, subcarpetas,
@@ -287,8 +288,9 @@ export default function Organizador({ user, resumen, onCambio, paquetes, pedidoN
             className={`${btn} ${vista === 'grid' ? 'bg-black text-white' : 'bg-white hover:bg-brutalNeutral'}`}>▦</button>
           <button type="button" aria-pressed={vista === 'lista'} title="Lista" onClick={() => setVista('lista')}
             className={`${btn} border-l-0 ${vista === 'lista' ? 'bg-black text-white' : 'bg-white hover:bg-brutalNeutral'}`}>☰</button>
-          <button type="button" disabled title="Vista de cierres: paquete × mes (llega en 13.5-d)"
-            className={`${btn} border-l-0 bg-white`}>🗓</button>
+          <button type="button" aria-pressed={vista === 'cierres'} title="Cierres: paquete × mes con el último folio (13.5-d)"
+            onClick={() => setVista('cierres')}
+            className={`${btn} border-l-0 ${vista === 'cierres' ? 'bg-black text-white' : 'bg-white hover:bg-brutalNeutral'}`}>🗓</button>
         </div>
         <button type="button" className={btnBlanco} onClick={nuevaCarpeta}
           title={padreActual ? 'Crear una subcarpeta aquí' : 'Crear una carpeta propia (ej. "Para el banco 2026")'}>+ CARPETA</button>
@@ -354,6 +356,11 @@ export default function Organizador({ user, resumen, onCambio, paquetes, pedidoN
           )}
           <AvisoError texto={error} />
 
+          {vista === 'cierres' ? (
+            <CalendarioCierres portfolios={portfolios} pidInicial={ubicacion.pid}
+              onAbrir={(id) => setPreview({ id, nombre: '…', mime_type: '' })}
+              onNueva={(p) => setNueva({ ...p, modo: 'periodo' })} />
+          ) : (<>
           {(autos.length > 0 || propias.length > 0) && (
             <section aria-label="Carpetas">
               <h3 className="font-bold text-[9px] tracking-wider text-gray-600 mb-1">CARPETAS</h3>
@@ -403,6 +410,7 @@ export default function Organizador({ user, resumen, onCambio, paquetes, pedidoN
               <div className="text-[10px] text-gray-600">No hay archivos sueltos en este nivel: entra a una carpeta.</div>
             )}
           </section>
+          </>)}
         </main>
       </div>
 

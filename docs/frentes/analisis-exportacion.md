@@ -23,7 +23,7 @@ B5 de "Mejor que Excel": ⇩ EXPORTACIÓN (spec `docs/specs/13-analisis/13.5-sub
 1. 13.6-c 📈 seguimiento (`b49e15f`), 13.6-d ⬇ PDF (`92983f1`, fpdf2+pypdf en requirements) y 13.6-e 💾 HTML
    offline (`a7ede78`) HECHOS, sin push. Andrés: publicar + `migrate_compendios.py` (tabla de eventos) + en Dokploy
    `COMPENDIO_AVISO_TELEGRAM=1`. Pendiente E2E: modal de seguimiento con datos, HTML en modo avión en un celular.
-2. 13.5-d `CalendarioCierres.jsx` 🗓 (backend `GET /api/accounting-files/cierres` ya existe).
+2. 13.5-d 🗓 cierres HECHO (`CalendarioCierres.jsx` + `cierres.js`; botón 🗓 del organizador habilitado).
 3. Luego: compendio ZIP del organizador; motor 13.4 (comparativo, patrimonio, flujos, certificación; ¿Grupo 2 o 3?); 13.5-d 🗓.
 - Andrés: generar el 1.er libro .xlsx real (CA-134-01, CA-135-08).
 
