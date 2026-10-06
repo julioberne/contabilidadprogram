@@ -59,8 +59,13 @@ export const api = {
   },
 
   /** Descarga el archivo exacto con su nombre (cuenta la descarga en el backend). */
-  async descargar(id, respaldo = 'archivo') {
-    const { blob: b, disposition } = await blob(`/accounting-files/${id}/download`);
+  descargar(id, respaldo = 'archivo') {
+    return api.descargarRuta(`/accounting-files/${id}/download`, respaldo);
+  },
+
+  /** Descarga cualquier binario con sesión (p. ej. el ⬇ PDF de un compendio, 13.6-d). */
+  async descargarRuta(ruta, respaldo = 'archivo') {
+    const { blob: b, disposition } = await blob(ruta);
     const url = URL.createObjectURL(b);
     const a = document.createElement('a');
     a.href = url;

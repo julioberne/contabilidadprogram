@@ -33,6 +33,13 @@ export default function CompendiosPanel() {
   ]), []);
   useRefresco(cargar, REFRESCO_PANEL_MS);
 
+  const [bajando, setBajando] = useState(null);
+  const bajarPdf = async (c) => {
+    setBajando(c.id);
+    try { await api.descargarRuta(`/compendios/${c.id}/pdf`, `${c.folio}.pdf`); }
+    catch (e) { setError(`El PDF falló: ${e.message}`); }
+    finally { setBajando(null); }
+  };
   const reemplazar = (c) => setLista((xs) => xs.map((x) => (x.id === c.id ? { ...x, ...c } : x)));
   const copiar = async (c) => {
     try { await navigator.clipboard.writeText(linkCompleto(c.ruta, window.location.origin)); setCopiado(c.id); }
@@ -91,6 +98,9 @@ export default function CompendiosPanel() {
                 {c.visitas > 0 ? ` · ✔ revisó ${c.revisadas} de ${c.n}` : ' · aún sin abrir'}</span>
               <span className="ml-auto flex flex-wrap gap-1">
                 <button type="button" className={btnBlanco} onClick={() => setSiguiendo(c)}>📈 SEGUIMIENTO</button>
+                <button type="button" className={btnBlanco} disabled={bajando === c.id} onClick={() => bajarPdf(c)}
+                  title="Portada, índice y una página por transacción con sus comprobantes">
+                  {bajando === c.id ? '⏳ PDF…' : '⬇ PDF'}</button>
                 {c.ruta && <>
                   <button type="button" className={btnBlanco} onClick={() => copiar(c)}>{copiado === c.id ? '✔ COPIADO' : '📋 LINK'}</button>
                   <a className={btnBlanco} href={`${c.ruta}?previa=1`} target="_blank" rel="noopener noreferrer"

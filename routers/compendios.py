@@ -14,7 +14,8 @@ Privado (owner/admin/contador, como el organizador 13.5):
 Público (SIN sesión: el código del link es la llave):
   GET   /c/{token}                                    la página del cliente (anota "abrió")
   GET   /api/publico/compendio/{token}/soporte/{i}/{j} comprobante leído por el servidor (anota "vio")
-  POST  /api/publico/compendio/{token}/evento          sendBeacon del visor: abrió la TX i
+  POST  /api/publico/compendio/{token}/evento          aviso del visor: abrió la TX i
+  GET   /api/publico/compendio/{token}/pdf             ⬇ PDF (13.6-d; 6/min por IP) · privado: GET /api/compendios/{id}/pdf
 La 1.ª apertura de cada compendio avisa por Telegram en segundo plano (compendio_aviso).
 Vencido, revocado o inexistente → la misma página 404 "ya no disponible".
 Cabeceras: noindex, no-referrer, no-store, nosniff y CSP con nonce (§4.7).
@@ -122,6 +123,32 @@ def actividad(limite: int = 10, _u: dict = Depends(require_contador)):
         _fallo(e)
 
 
+def _pdf(d: dict) -> bytes:
+    import compendio_pdf
+    drv = _drv()
+    return compendio_pdf.generar(d["snapshot"], d["urls"], lambda u: _traer(u, drv.max_bytes_soporte()),
+                                 drv.describir_soporte, d.get("expira_en"))
+
+
+def _respuesta_pdf(d: dict, contenido: bytes, publica: bool) -> Response:
+    import compendio_pdf
+    nombre = compendio_pdf.nombre_archivo(d["snapshot"], "pdf")
+    ascii_ = "".join(ch if 32 <= ord(ch) < 127 and ch not in '"\\' else "_" for ch in nombre)
+    cab = {"Content-Disposition": f"attachment; filename=\"{ascii_}\"; filename*=UTF-8''{quote(nombre)}",
+           "Cache-Control": "no-store"}
+    return Response(content=contenido, media_type="application/pdf", headers={**BASE, **cab} if publica else cab)
+
+
+@router.get("/api/compendios/{cid}/pdf")
+def pdf_interno(cid: int, _u: dict = Depends(require_contador)):
+    """⬇ PDF desde ⇩ Exportación (no cuenta como descarga del cliente)."""
+    try:
+        d = _drv().para_descarga(cid=cid)
+        return _respuesta_pdf(d, _pdf(d), publica=False)
+    except Exception as e:
+        _fallo(e)
+
+
 @router.get("/api/compendios/{cid}/seguimiento")
 def seguimiento(cid: int, _u: dict = Depends(require_contador)):
     try:
@@ -148,12 +175,12 @@ def _ip(request: Request) -> str:
     return (reenviada.split(",")[0].strip() if reenviada else "") or (request.client.host if request.client else "?")
 
 
-def _ritmo_ok(request: Request) -> bool:
+def _ritmo_ok(request: Request, cubeta: str = "", limite: Optional[int] = None) -> bool:
     ahora = time.monotonic()
-    marcas = _RITMO.setdefault(_ip(request), deque())
+    marcas = _RITMO.setdefault(f"{_ip(request)}|{cubeta}", deque())
     while marcas and ahora - marcas[0] > _VENTANA:
         marcas.popleft()
-    if len(marcas) >= _limite():
+    if len(marcas) >= (limite or _limite()):
         return False
     marcas.append(ahora)
     if len(_RITMO) > 5000:                      # que el mapa no crezca sin fin
@@ -224,6 +251,25 @@ def ver(token: str, request: Request):
     return HTMLResponse(html, headers={**BASE, "Cache-Control": "no-store",
                                        "Content-Security-Policy": _visor().csp(nonce)},
                         background=_tarea_aviso(anotado))
+
+
+@router.get("/api/publico/compendio/{token}/pdf", include_in_schema=False)
+def pdf_publico(token: str, request: Request):
+    """⬇ PDF del cliente (13.6-d): la misma foto que el link; cuenta la descarga (salvo ?previa=1)."""
+    if not _ritmo_ok(request, "pdf", limite=6):                 # armar un PDF es caro: 6 por minuto por IP
+        return _demasiadas()
+    drv = _drv()
+    try:
+        d = drv.para_descarga(token=token)
+        contenido = _pdf(d)
+    except drv.NoDisponible:
+        return _no_disponible()
+    except Exception as e:
+        print(f"⚠️ [compendios] PDF falló: {e}")
+        return _no_disponible(503)
+    if request.query_params.get("previa") != "1":
+        _anotar_seguro(d["id"], "pdf", request)
+    return _respuesta_pdf(d, contenido, publica=True)
 
 
 class EventoIn(BaseModel):

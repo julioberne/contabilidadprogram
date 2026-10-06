@@ -368,6 +368,78 @@ class TestAviso(unittest.TestCase):   # CA-136-12
         self.assertIn("owner", cur.sql(0))
 
 
+def _png(ancho=400, alto=200) -> bytes:
+    import io as _io
+    from PIL import Image
+    buf = _io.BytesIO()
+    Image.new("RGB", (ancho, alto), (200, 30, 30)).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _pdf_anexo(paginas=2) -> bytes:
+    from fpdf import FPDF
+    p = FPDF()
+    p.set_font("Helvetica", "", 12)
+    for k in range(paginas):
+        p.add_page()
+        p.cell(0, 10, f"ANEXO-PRUEBA {k + 1}")
+    return bytes(p.output())
+
+
+class TestPdf(unittest.TestCase):   # 13.6-d · CA-136-05/07
+
+    def _generar(self, **env):
+        from fin_sys_core import compendio_pdf
+        snap = drv.armar_snapshot(TXS[:3], EMPRESAS, OPC, "Viaje Medellín 🚕", "Nota — con guion")  # i: 0=#45 1=#60 2=#61
+        snap["folio"] = "EXP-2026-0042"
+        urls = {45: [BUCKET + "evidence/f.png", BUCKET + "evidence/factura.pdf"],
+                60: ["/uploads/voz.ogg", BUCKET + "evidence/nota.ogg"], 61: []}
+        bytes_por_url = {BUCKET + "evidence/f.png": _png(), BUCKET + "evidence/factura.pdf": _pdf_anexo(2)}
+        with mock.patch.dict(os.environ, env):
+            return compendio_pdf.generar(snap, urls, bytes_por_url.get, drv.describir_soporte, "2026-10-21T00:00:00+00:00")
+
+    def test_paginas_anexos_y_marcadores(self):
+        import io as _io
+        from pypdf import PdfReader
+        r = PdfReader(_io.BytesIO(self._generar()))
+        textos = [p.extract_text() or "" for p in r.pages]
+        # portada, índice, TX #45, sus 2 páginas de anexo, TX #60, TX #61
+        self.assertEqual(len(r.pages), 7)
+        self.assertIn("EXP-2026-0042", textos[0])
+        self.assertIn("Pegasus SAS", textos[0])
+        self.assertIn("Viaje Medellín", textos[0])                       # tildes sí, emoji fuera
+        self.assertIn("COP: Ingresos $500.000", textos[0])
+        self.assertIn("USD", textos[0])
+        self.assertIn("INDICE", textos[1])
+        self.assertIn("Venta", textos[2])
+        self.assertIn("anexo a continuación", textos[2])
+        self.assertIn("ANEXO-PRUEBA 1", textos[3])
+        self.assertIn("ANEXO-PRUEBA 2", textos[4])
+        self.assertIn("nota de voz", textos[5])
+        self.assertIn("no disponible", textos[5])
+        self.assertIn("no tiene comprobantes", textos[6])
+        titulos = [o.title if not isinstance(o, list) else "[hijos]" for o in r.outline]
+        self.assertEqual(titulos[:2], ["Portada", "Indice"])
+        self.assertIn("[hijos]", titulos)                                  # el PDF anexo cuelga de su TX
+        self.assertEqual(r.get_destination_page_number(r.outline[2]), 2)
+        self.assertEqual(r.get_destination_page_number(r.outline[4]), 5)   # TX #60 tras los 2 anexos
+        self.assertGreaterEqual(len(r.pages[1].get("/Annots") or []), 3)   # el índice enlaza a cada TX
+
+    def test_presupuesto_de_tamano(self):
+        import io as _io
+        from pypdf import PdfReader
+        r = PdfReader(_io.BytesIO(self._generar(COMPENDIO_MAX_MB="0.2")))
+        self.assertEqual(len(r.pages), 5)                                  # sin anexos
+        self.assertIn("omitido por tamaño", r.pages[2].extract_text())
+
+    def test_texto_latin1_y_plata(self):
+        from fin_sys_core import compendio_pdf as cp
+        self.assertEqual(cp._t("Año — “ok” 🚕"), 'Año - "ok" ')
+        self.assertEqual(cp.plata(1234567.5), "$1.234.567,50")
+        self.assertEqual(cp.plata(-25, "USD"), "-USD 25")
+        self.assertEqual(cp.nombre_archivo({"folio": "EXP-1", "nombre": "Viaje / Medellín"}, "pdf"), "EXP-1 Viaje Medellín.pdf")
+
+
 class TestVisor(unittest.TestCase):
 
     def test_los_datos_no_cierran_el_script(self):
@@ -405,7 +477,28 @@ class TestRouter(unittest.TestCase):
 
     PRIVADAS = [("post", "/api/compendios/preflight"), ("post", "/api/compendios"),
                 ("get", "/api/compendios"), ("patch", "/api/compendios/1"),
-                ("get", "/api/compendios/1/seguimiento"), ("get", "/api/compendios/actividad")]
+                ("get", "/api/compendios/1/seguimiento"), ("get", "/api/compendios/actividad"),
+                ("get", "/api/compendios/1/pdf")]
+
+    def test_pdf_publico_cuenta_la_descarga(self):
+        d = {"id": 9, "snapshot": {**_snap(), "folio": "EXP-7"}, "urls": {}, "expira_en": None}
+        with mock.patch.object(drv, "para_descarga", return_value=d), \
+                mock.patch.object(self.mod, "_pdf", return_value=b"%PDF-1.7 x"), \
+                mock.patch.object(drv, "anotar", return_value={"nuevo": True}) as anotar:
+            r = self.client.get("/api/publico/compendio/" + "a" * 43 + "/pdf")
+            self.client.get("/api/publico/compendio/" + "a" * 43 + "/pdf?previa=1")
+        self.assertEqual((r.status_code, r.headers["content-type"]), (200, "application/pdf"))
+        self.assertTrue(r.headers["content-disposition"].startswith('attachment; filename="EXP-7 Septiembre.pdf"'))
+        self.assertEqual(r.headers["x-robots-tag"], "noindex, nofollow")
+        self.assertEqual(anotar.call_count, 1)                              # ?previa=1 no cuenta
+        self.assertEqual(anotar.call_args.args[:2], (9, "pdf"))
+        with mock.patch.object(drv, "para_descarga", side_effect=drv.NoDisponible()):
+            self.assertEqual(self.client.get("/api/publico/compendio/x/pdf").status_code, 404)
+
+    def test_pdf_ritmo_estricto(self):
+        with mock.patch.object(drv, "para_descarga", side_effect=drv.NoDisponible()):
+            codigos = [self.client.get("/api/publico/compendio/x/pdf").status_code for _ in range(7)]
+        self.assertEqual(codigos[-1], 429)
 
     def test_evento_del_visor(self):   # CA-136-14
         ruta = "/api/publico/compendio/" + "a" * 43 + "/evento"

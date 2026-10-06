@@ -11,3 +11,5 @@ matplotlib==3.10.6
 pillow==11.3.0
 # Análisis Inteligente (13.4): libros contables .xlsx (jamás el npm "xlsx": CVEs sin parche)
 openpyxl==3.1.5
+fpdf2==2.8.3        # 13.6-d PDF del compendio para el cliente
+pypdf==5.4.0        # 13.6-d anexar comprobantes que ya son PDF

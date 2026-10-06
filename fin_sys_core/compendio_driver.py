@@ -592,7 +592,11 @@ def _anotar(cur, cid: int, tipo: str, visitante: str, dispositivo: str,
                     "WHERE id = %s RETURNING visitas, folio, nombre", (cid,))
         r = cur.fetchone()
         return {"nuevo": True, "primera": bool(r and r[0] == 1), "folio": r and r[1], "nombre": r and r[2]}
-    cur.execute("UPDATE accounting_compendios SET ultima_visita = now() WHERE id = %s", (cid,))
+    if tipo in ("pdf", "html"):                                  # 13.6-d/e: descargas del cliente
+        cur.execute(f"UPDATE accounting_compendios SET descargas_{tipo} = descargas_{tipo} + 1, "
+                    "ultima_visita = now() WHERE id = %s", (cid,))
+    else:
+        cur.execute("UPDATE accounting_compendios SET ultima_visita = now() WHERE id = %s", (cid,))
     return {"nuevo": True, "primera": False}
 
 
@@ -748,6 +752,29 @@ def _estadisticas(cur, ids: List[int]) -> Dict[int, Tuple]:
             raise
         cur.execute("ROLLBACK TO SAVEPOINT compendio_stats")
         return {}
+
+
+# ══ 13.6-d/e Descargas: la MISMA foto que el link (R-136-06) ═══════════════
+
+def para_descarga(token: Optional[str] = None, cid: Optional[int] = None, conn=None) -> Dict[str, Any]:
+    """→ {id, snapshot, urls (por tx_id, en vivo), expira_en}. Por código (cliente: solo si está
+    vigente) o por id (contador, desde ⇩ Exportación: aunque esté vencido o revocado)."""
+    with _conexion(conn) as c:
+        cur = c.cursor()
+        if token is not None:
+            f = _vigente(cur, token)
+        else:
+            cur.execute("SELECT id, folio, snapshot, expira_en, revocado_en FROM accounting_compendios WHERE id = %s",
+                        (cid,))
+            f = _fila(cur, ("id", "folio", "snapshot", "expira_en", "revocado_en"))
+            if not f:
+                raise NoEncontrado(f"El compendio {cid} no existe.")
+            if isinstance(f["snapshot"], str):
+                f["snapshot"] = json.loads(f["snapshot"])
+        urls = soportes_vivos(cur, [t["id"] for t in f["snapshot"].get("txs", [])])
+        cur.close()
+    f["snapshot"].setdefault("folio", f["folio"])
+    return {"id": f["id"], "snapshot": f["snapshot"], "urls": urls, "expira_en": _iso(f["expira_en"])}
 
 
 def max_bytes_soporte() -> int:

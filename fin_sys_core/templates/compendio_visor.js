@@ -190,9 +190,14 @@
     cuenta.textContent = 'Mostrando ' + vis.length + ' de ' + txs.length;
   }
 
+  var descargas = D.offline ? null : el('section', { class: 'caja', 'aria-label': 'Descargas' }, [
+    el('a', { class: 'boton', href: D.base + '/pdf' + (D.previa ? '?previa=1' : ''), download: '',
+      text: '⬇ Descargar PDF' }),
+    el('span', { class: 'sub', text: '  Portada, índice y una página por transacción con sus comprobantes (para imprimir o archivar).' }),
+  ]);
   var pie = el('footer', { text: 'Folio ' + (D.folio || '—') + ' · Generado con FIN-SYS' +
     (D.creado_en ? ' el ' + dia(D.creado_en) : '') + (D.expira_en ? ' · Este enlace vence el ' + dia(D.expira_en) : '') });
   app.textContent = '';
-  [cabecera, totales, seccionLista, pie].forEach(function (s) { app.appendChild(s); });
+  [cabecera, totales, seccionLista, descargas, pie].forEach(function (s) { if (s) app.appendChild(s); });
   pintar();
 })();
