@@ -31,6 +31,10 @@ jobs:
       - run: npm install --no-audit --no-fund
       - name: Tests (vitest)
         run: npx vitest run
+      - name: Lint crítico (errores que rompen en ejecución, no estilo)
+        # 2026-10-06: no-undef, claves duplicadas, código inalcanzable, reglas de hooks...
+        # El lint de estilo completo (`npm run lint`) tiene deuda vieja y no bloquea.
+        run: python3 ../scripts/lint_critico.py --js
       - name: Build de producción
         run: npm run build
       - name: Guardia de peso — el entry no debe volver a engordar
@@ -78,8 +82,13 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Sintaxis de todo el backend
         run: python -m compileall -q fin_sys_core routers kernel shared scripts server.py
+      - name: Lint crítico (ruff E9/F63/F7/F82 — nombres no definidos, sintaxis)
+        # 2026-10-06: compileall no ve un nombre mal escrito; ruff sí, sin ruido de estilo.
+        run: |
+          pip install -q ruff==0.16.10
+          python scripts/lint_critico.py --py
       - name: Tests puros (sin BD)
-        run: python -m unittest tests.test_cartera_plan tests.test_db_pool_fallback tests.test_mock_policy tests.test_bot_etapa_e tests.test_terceros_resolucion tests.test_tx_eliminar_evidencias tests.test_analytics_catalog tests.test_analytics_qa tests.test_insight_engine tests.test_bot_analisis tests.test_sms_bancolombia tests.test_bot_sms tests.test_webhooks_sms tests.test_bot_completar tests.test_terceros_cuentas tests.test_bot_webapp tests.test_terceros_borrado tests.test_export_xlsx tests.test_accounting_files tests.test_etiquetas tests.test_compendios tests.test_entrega -v
+        run: python -m unittest tests.test_cartera_plan tests.test_db_pool_fallback tests.test_mock_policy tests.test_bot_etapa_e tests.test_terceros_resolucion tests.test_tx_eliminar_evidencias tests.test_analytics_catalog tests.test_analytics_qa tests.test_insight_engine tests.test_bot_analisis tests.test_sms_bancolombia tests.test_bot_sms tests.test_webhooks_sms tests.test_bot_completar tests.test_terceros_cuentas tests.test_bot_webapp tests.test_terceros_borrado tests.test_export_xlsx tests.test_accounting_files tests.test_etiquetas tests.test_compendios tests.test_entrega tests.test_claude_kit -v
       - name: Auditoría de dependencias (pip-audit)
         # 2026-10-06: CVE conocidos en requirements.txt (Pillow, pypdf, openpyxl…:
         # las librerías que abren archivos de usuarios). Informativo: no bloquea.

@@ -144,7 +144,7 @@ python scripts/claude_kit/instalar.py --desinstalar
 | 3 | Corte por hito + kit automático + agente de mantenimiento | Claude | HECHO 01-oct (falta probar en sesión nueva) |
 | 4 | Medir a la semana y a las dos semanas (8.3) | agente de mantenimiento + Claude | EN CURSO (diario) |
 | 5 | Revisor externo, solo si la fase 4 lo justifica (8.4) | Decide Andrés | EN ESPERA |
-| 6 | Herramientas especializadas de construcción (sección 9) | Claude, con aprobación | PROPUESTO 01-oct |
+| 6 | Herramientas especializadas de construcción (sección 9) | Claude, con aprobación | EN CURSO: #1, #2 y #5 HECHOS 06-oct |
 
 ### 8.1 Fase 1 — Pendiente de Andrés
 1. Push de la rama de la guía: `git push origin claude/multi-model-mcp-orchestration-3d985e:master`; luego `git pull --ff-only` en el checkout principal.
@@ -177,7 +177,7 @@ Si tras dos semanas se sigue agotando la cuota, o se quiere una revisión indepe
 
 ## 9. Herramientas especializadas de construcción (investigación del 01-oct-2026)
 
-Investigación profunda con 26 fuentes y 25 afirmaciones verificadas (21 confirmadas, 4 refutadas), más inspección del repo y medición local. Estado: **PROPUESTO**, pendiente de aprobación de Andrés.
+Investigación profunda con 26 fuentes y 25 afirmaciones verificadas (21 confirmadas, 4 refutadas), más inspección del repo y medición local. Estado: **#1, #2 y #5 HECHOS el 06-oct** (guardia, lint crítico en hook y CI, permisos); #3 y #4 propuestos.
 
 **Principio.** El proceso mejora menos por sumar agentes que por dos cosas:
 1. Convertir las reglas no negociables en mecanismos que se cumplen solos (hooks `PreToolUse`, reglas de permisos). Una regla en `CLAUDE.md`, en una skill o en el prompt de un subagente es una petición; un hook o un permiso lo hace cumplir Claude Code. Límites: los hooks fallan abiertos (si el script falla, la acción sigue) y actúan por llamada de herramienta (un `.py` escrito y luego ejecutado puede esquivarlos).
@@ -197,11 +197,11 @@ Investigación profunda con 26 fuentes y 25 afirmaciones verificadas (21 confirm
 
 | # | Pieza | Tipo | Qué hace | Estado |
 |---|---|---|---|---|
-| 1 | `guardia` | Hook `PreToolUse`, script sin modelo | Bloquea `git push`, `session_maintenance.py` sin `--check`, `bot_telegram.py` local, `scripts/migrate_*.py`, SQL de escritura en comandos, `.env` y la API de Dokploy fuera de `deploy_prod.py`; pide confirmación para `database_driver.py` y `control_tower_driver.py`; registra en `scratch/guardia.log` | PROPUESTO |
-| 2 | `lint-al-editar` | Hook `PostToolUse` | ruff (errores graves) en `.py` y eslint en `.js`/`.jsx` del archivo recién editado; devuelve los errores a Claude. Además, ruff y `npm run lint` en el CI | PROPUESTO |
+| 1 | `guardia` | Hook `PreToolUse`, script sin modelo | Bloquea `git push`, `session_maintenance.py` sin `--check`, `bot_telegram.py` local, `scripts/migrate_*.py`, SQL de escritura en comandos, `.env` y la API de Dokploy fuera de `deploy_prod.py`; pide confirmación para `database_driver.py` y `control_tower_driver.py`; registra en `scratch/guardia.log` | HECHO 06-oct (`scripts/claude_kit/guardia.py`, 15 tests en `tests/test_claude_kit.py`) |
+| 2 | `lint-al-editar` | Hook `PostToolUse` | ruff (errores graves) en `.py` y eslint en `.js`/`.jsx` del archivo recién editado; devuelve los errores a Claude. Además, ruff y `npm run lint` en el CI | HECHO 06-oct (`scripts/lint_critico.py` + hook; en el CI: ruff E9/F63/F7/F82 y eslint solo reglas graves — el lint de estilo tiene 191 errores viejos y no bloquea) |
 | 3 | `auditor-spec` | Subagente Sonnet, solo lectura | Antes de marcar una etapa HECHA: cada `CA-` → CUMPLE / FALTA / SIN EVIDENCIA con `archivo:línea`, y casos borde sin test | PROPUESTO |
 | 4 | `/desplegar` | Skill que solo invoca Andrés | Chequeos previos (git limpio, `origin/master` = HEAD, CI en verde) → `deploy_prod.py` → sondas → línea para el frente | PROPUESTO |
-| 5 | Ajustes | — | `verificador-visual` sin Bash/PowerShell y descripciones con "cuándo" (HECHO 01-oct). Quitar `git push *` y `python -c ' *` de `.claude/settings.local.json` (decide Andrés) | PARCIAL |
+| 5 | Ajustes | — | `verificador-visual` sin Bash/PowerShell y descripciones con "cuándo" (HECHO 01-oct). Quitados `git push *` y `python -c ' *` de `.claude/settings.local.json` (06-oct) | HECHO |
 
 **Adoptar de terceros (copiar después de leer; no instalar colecciones):**
 - `systematic-debugging` y `verification-before-completion` de Superpowers (obra/superpowers, MIT, marketplace oficial, mantenido). Trae telemetría activa por defecto (`SUPERPOWERS_DISABLE_TELEMETRY` la apaga). Sus skills de git y worktrees chocan con las reglas de este repo.

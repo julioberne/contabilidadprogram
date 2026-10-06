@@ -2,11 +2,14 @@
 todas las sesiones de este PC aunque el worktree nazca de `main` vacía.
 
 Qué copia (la fuente versionada es este repo):
-  scripts/claude_kit/arranque.py, medidor.py  → ~/.claude/hooks/finsys/
+  scripts/claude_kit/{arranque,medidor,guardia,lint_al_editar,chequeo_diario}.py → ~/.claude/hooks/finsys/
   .claude/agents/*.md                          → ~/.claude/agents/
   .claude/skills/cerrar-hito/SKILL.md          → ~/.claude/skills/cerrar-hito/
-y registra los hooks SessionStart y UserPromptSubmit en ~/.claude/settings.json
-(con copia de respaldo; no toca permisos ni otras claves).
+y registra en ~/.claude/settings.json (con copia de respaldo; no toca otras claves):
+  - hooks SessionStart (arranque), UserPromptSubmit (medidor), PreToolUse (guardia) y
+    PostToolUse (lint_al_editar);
+  - un único permiso: ejecutar chequeo_diario.py (solo lee y escribe el tablero), para que la
+    tarea programada del agente de mantenimiento no se detenga esperando aprobación.
 
 Los hooks solo actúan cuando la sesión está dentro de `contabilidadprogram`.
 
@@ -30,9 +33,8 @@ DIR_HOOKS = os.path.join(HOME, "hooks", "finsys")
 SETTINGS = os.path.join(HOME, "settings.json")
 MARCA = "hooks/finsys/"  # identifica nuestras entradas en settings.json
 
-COPIAS = [
-    (os.path.join(REPO, "scripts", "claude_kit", "arranque.py"), os.path.join(DIR_HOOKS, "arranque.py")),
-    (os.path.join(REPO, "scripts", "claude_kit", "medidor.py"), os.path.join(DIR_HOOKS, "medidor.py")),
+SCRIPTS = ["arranque.py", "medidor.py", "guardia.py", "lint_al_editar.py", "chequeo_diario.py"]
+COPIAS = [(os.path.join(REPO, "scripts", "claude_kit", s), os.path.join(DIR_HOOKS, s)) for s in SCRIPTS] + [
     (os.path.join(REPO, ".claude", "skills", "cerrar-hito", "SKILL.md"),
      os.path.join(HOME, "skills", "cerrar-hito", "SKILL.md")),
 ]
@@ -50,7 +52,12 @@ HOOKS = {
     "SessionStart": {"matcher": "startup|clear|compact",
                      "hooks": [{"type": "command", "command": comando("arranque.py"), "timeout": 15}]},
     "UserPromptSubmit": {"hooks": [{"type": "command", "command": comando("medidor.py"), "timeout": 10}]},
+    "PreToolUse": {"matcher": "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit|Read",
+                   "hooks": [{"type": "command", "command": comando("guardia.py"), "timeout": 10}]},
+    "PostToolUse": {"matcher": "Edit|Write|MultiEdit",
+                    "hooks": [{"type": "command", "command": comando("lint_al_editar.py"), "timeout": 90}]},
 }
+PERMISO_CHEQUEO = f"Bash({comando('chequeo_diario.py')}*)"
 
 
 def mismo_contenido(a, b):
@@ -82,6 +89,11 @@ def settings_con_hooks(cfg, instalar):
         del hooks[evento]
     if not hooks:
         del nuevo["hooks"]
+    permisos = nuevo.setdefault("permissions", {})
+    allow = [r for r in permisos.get("allow", []) if r != PERMISO_CHEQUEO]
+    if instalar:
+        allow.append(PERMISO_CHEQUEO)
+    permisos["allow"] = allow
     return nuevo
 
 

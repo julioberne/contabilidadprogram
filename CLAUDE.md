@@ -47,7 +47,7 @@ La sesión principal orquesta y es la **única que edita**: decide, diagnostica,
 
 - El diagnóstico de bugs y todas las ediciones quedan en la sesión principal; los subagentes juntan evidencia.
 - Dos sesiones no editan los mismos archivos. Si un frente activo ya los toca, coordina con Andrés.
-- **Kit automático** (instalado en `~/.claude`, fuente en `scripts/claude_kit/`): al arrancar, tras `/clear` y tras compactar, un hook te muestra los frentes activos y el resumen del tablero del agente de mantenimiento (`scratch/tablero.md`); desde ~350k, otro hook te avisa una vez por tramo para proponer `/cerrar-hito`.
+- **Kit automático** (instalado en `~/.claude`, fuente en `scripts/claude_kit/`): al arrancar, tras `/clear` y tras compactar, un hook te muestra los frentes activos y el resumen del tablero del agente de mantenimiento (`scratch/tablero.md`); desde ~350k, otro hook te avisa una vez por tramo para proponer `/cerrar-hito`. La **guardia** bloquea las acciones prohibidas de §6 y el **lint-al-editar** te devuelve los errores graves (nombres no definidos, sintaxis, reglas de hooks) del archivo que acabas de editar: corrígelos en el acto. Lint completo a mano: `python scripts/lint_critico.py`.
 
 ## 4. Brief para delegar (las 4 partes, siempre)
 
@@ -77,6 +77,7 @@ El subagente no ve esta conversación: pon en el brief todo lo que necesita.
 - **Python:** siempre `.venv\Scripts\python.exe` (en un worktree sin `.venv`, el del checkout principal).
 - **Git:** commits pequeños con archivos explícitos (nunca `git add .`). **Publicar lo hace Andrés** con `scripts\publicar.cmd` en la terminal de la sesión (push a master + CI + deploy con sonda + `:8000` al día; `--sin-deploy`, `--simular`). Al terminar un hito, dile "listo para publicar" con la lista de commits. A mano: `git push origin <rama>:master`, `scratch\deploy_prod.py` + sonda (ruta nueva 404→401, `/api/health`).
 - **Permiso explícito antes de tocar:** `fin_sys_core/database_driver.py`, `control_tower_driver.py`, esquema de tablas existentes. `.env`: nunca.
+- **Guardia (hook `PreToolUse`):** niega push y `publicar.*`, `session_maintenance.py` sin `--check`, `bot_telegram.py`, `migrate_*.py`, SQL de escritura contra la BD, `.env` y la API de Dokploy fuera de `deploy_prod.py`; pide confirmación para los drivers 🔴. Si te bloquea, **no la esquives** (p. ej. escribiendo un `.py` que haga lo mismo): explícale a Andrés qué hace falta. Registro: `scratch/guardia.log`.
 - **Zero-impact:** funcionalidad nueva en archivos o routers nuevos (`routers/*.py` + `include_router`); módulos nuevos se registran en `frontend/src/registry/moduleRegistry.js`.
 - **Plan antes de código:** lista de archivos a tocar → aprobación de Andrés → cambios.
 - La terminal de Andrés es **PowerShell 5.1**: comandos para él con `;` y `curl.exe`, nunca `&&`.
