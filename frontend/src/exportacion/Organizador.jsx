@@ -19,6 +19,7 @@ import FolderCard from './FolderCard.jsx';
 import PreviewModal from './PreviewModal.jsx';
 import TiposModal from './TiposModal.jsx';
 import UploadModal from './UploadModal.jsx';
+import NuevaExportacion from './NuevaExportacion.jsx';
 import {
   RAIZ, arbolPlano, armarArbol, carpetasAutomaticas, descendientes, migas, parametrosLista,
   puedeBorrar, queryString, subcarpetas,
@@ -42,7 +43,7 @@ function BotonLateral({ activo, onClick, children, n, color, titulo }) {
   );
 }
 
-export default function Organizador({ user, resumen, onCambio }) {
+export default function Organizador({ user, resumen, onCambio, paquetes, pedidoNueva, onPedidoAtendido }) {
   const [ubicacion, setUbicacion] = useState(RAIZ);
   const [filtro, setFiltro] = useState(null);
   const [q, setQ] = useState('');
@@ -60,6 +61,7 @@ export default function Organizador({ user, resumen, onCambio }) {
   const [dialogo, setDialogo] = useState(null);       // elemento JSX del diálogo abierto
   const [subida, setSubida] = useState(null);         // File[] para el modal de subida
   const [verTipos, setVerTipos] = useState(false);
+  const [nueva, setNueva] = useState(null);           // {pid, anio, mes, modo, paquete} → modal de Nueva exportación
   const [arrastrando, setArrastrando] = useState(false);
   const inputRef = useRef(null);
   const turno = useRef(0);
@@ -294,8 +296,9 @@ export default function Organizador({ user, resumen, onCambio }) {
           title="Subir extractos, declaraciones, certificados (también puedes arrastrarlos)">↑ SUBIR</button>
         <input ref={inputRef} type="file" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.xlsx,.csv"
           onChange={(e) => { abrirSubida(e.target.files); e.target.value = ''; }} />
-        <button type="button" className={btnNegro} disabled
-          title="Llega en el siguiente paso (13.5-c): libros por período y relación de transacciones elegidas">📥 NUEVA EXPORTACIÓN</button>
+        <button type="button" className={btnNegro} disabled={!paquetes}
+          onClick={() => setNueva({ pid: ubicacion.pid, anio: ubicacion.anio, mes: ubicacion.mes })}
+          title="Libros por período (paquetes, empresa, período, filtros) o relación de transacciones elegidas">📥 NUEVA EXPORTACIÓN</button>
       </div>
 
       <div className="flex flex-col md:flex-row">
@@ -424,6 +427,11 @@ export default function Organizador({ user, resumen, onCambio }) {
           }} />
       )}
       {verTipos && <TiposModal tipos={tipos} admin={admin} onCambio={refrescar} onCerrar={() => setVerTipos(false)} />}
+      {(nueva || pedidoNueva) && paquetes && (
+        <NuevaExportacion paquetes={paquetes} portfolios={portfolios} carpetas={carpetas} inicial={nueva || pedidoNueva}
+          onCerrar={() => { setNueva(null); onPedidoAtendido?.(); }}
+          onGenerado={(res) => { avisar(`📥 ${res.folio || 'Exportación'} generada: ${res.nombre}`); refrescar(); }} />
+      )}
       {dialogo}
     </div>
   );

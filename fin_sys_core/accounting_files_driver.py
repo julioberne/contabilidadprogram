@@ -83,6 +83,13 @@ PAQUETES: Dict[str, Dict[str, Any]] = {
                 "hojas": ["cartera", "auxiliar_tercero"]},
     "movimientos": {"nombre": "Movimientos", "icono": "📋", "tipo": "libros",
                     "hojas": ["movimientos"]},
+    # 06-oct (investigación /deep-research): lo que pide un revisor fiscal y el
+    # soporte del IVA bimestral (formulario 300). Solo hojas que el motor ya arma.
+    "revisor_fiscal": {"nombre": "Revisor fiscal", "icono": "🔎", "tipo": "libros",
+                       "hojas": ["diario", "mayor", "balance_prueba", "estado_resultados", "balance_general",
+                                 "auxiliar_tercero", "cartera"]},
+    "iva_bimestral": {"nombre": "Soporte IVA bimestral", "icono": "🧾", "tipo": "impuestos",
+                      "hojas": ["impuestos", "auxiliar_tercero", "movimientos"]},
     "completo": {"nombre": "Libro completo", "icono": "🧮", "tipo": "libros",
                  "hojas": list(HOJAS_COMPLETO)},
 }
