@@ -24,7 +24,8 @@ Esta es la regla más importante del módulo Control Tower y aplica a todos los 
   - Control Tower → `/api/ct/*` (nuevos endpoints en bloque separado en `server.py`)
   - Control Tower UI → `/frontend/src/control-tower/` (carpeta aislada)
   - Control Tower BD → 5 tablas nuevas (`workspace_users`, `entities`, etc.) sin tocar las existentes
-  - Navegación → botón adicional en `main.jsx`, no reemplazar el existente
+  - Navegación → **una entrada** en `frontend/src/registry/moduleRegistry.js` (SSOT: Sidebar, Home y `main.jsx` la leen solos; no se edita `main.jsx` ni se hardcodean ítems en la barra)
+  - Módulo web nuevo = carpeta propia `frontend/src/<modulo>/` + esa entrada (ruta `/<id>` automática, `roles` si es restringido, `component` lazy). Ej.: ⇩ Exportación, módulo 14 (06-oct-2026), salió de ∑ Análisis a `frontend/src/exportacion/` sin tocar Análisis
 
 ---
 

@@ -647,7 +647,7 @@ en lugar del `X-Frame-Options: SAMEORIGIN` global, para que Telegram Web (iframe
 - **Respuesta `200`**: el `.xlsx` (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`) con `Content-Disposition: attachment; filename="FINSYS_<EMPRESA|CONSOLIDADO|VARIAS-n>_<desde>_<hasta>.xlsx"` (o `FINSYS_RELACION_<nombre>_<fecha>.xlsx`) y las cabeceras `X-FinSys-Transacciones`, `X-FinSys-Asientos`, `X-FinSys-Cuadra` (`1`/`0`), `X-FinSys-Advertencias` (cuántas trae la carátula).
 - **Errores**: `401` sin sesión · `403` rol sin permiso · `400` receta inválida (`detail` dice qué: hoja desconocida, fechas al revés, empresa inexistente, transacciones de otra empresa…) · `503` la base de datos no respondió (jamás un libro vacío que en realidad fue un error).
 
-## 10. Análisis 13.5 — Organizador contable 📦 (`/api/accounting-*`, `/api/analytics/export*`)
+## 10. Exportación (módulo 14, spec 13.5) — Organizador contable (`/api/accounting-*`, `/api/analytics/export*`)
 
 > Spec: `docs/specs/13-analisis/13.5-submodulo-exportacion.md` · Router: `routers/accounting_files.py` · Lógica: `fin_sys_core/accounting_files_driver.py` (+ el motor `export_xlsx.py`).
 > **Permisos:** ver y generar = owner, admin o contador (`401` sin sesión, `403` otro rol); **borrar = solo admin**. **Errores comunes:** `400` dato inválido (`detail` dice cuál) · `404` no existe · `409` nombre repetido · `503` falta la migración o falló la BD.
