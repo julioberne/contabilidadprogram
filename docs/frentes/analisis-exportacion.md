@@ -20,11 +20,11 @@ B5 de "Mejor que Excel": ⇩ EXPORTACIÓN (spec `docs/specs/13-analisis/13.5-sub
 
 ## Próximo paso (concreto)
 - 13.6-a/b + nginx `/c/` EN PRODUCCIÓN y funcionando (Andrés lo confirmó el 06-oct; origin/master = `86c66b5`).
-1. 13.6-c 📈 Seguimiento HECHO (`b49e15f`, sin push). Andrés: publicar + `migrate_compendios.py` (tabla de
-   eventos) + en Dokploy `COMPENDIO_AVISO_TELEGRAM=1` (y si quiere `COMPENDIO_AVISO_CHAT`). Luego ver el modal con
-   datos (CA-136-10/11 E2E). ↗ ABRIR desde FIN-SYS = `?previa=1` (no cuenta). Robots/vistas previas no cuentan.
-2. 13.6-d PDF (fpdf2 + pypdf) → 13.6-e HTML offline.
-3. Luego: compendio ZIP; motor 13.4 (comparativo, patrimonio, flujos, certificación; ¿Grupo 2 o 3?); 13.5-d 🗓.
+1. 13.6-c 📈 seguimiento (`b49e15f`), 13.6-d ⬇ PDF (`92983f1`, fpdf2+pypdf en requirements) y 13.6-e 💾 HTML
+   offline (`a7ede78`) HECHOS, sin push. Andrés: publicar + `migrate_compendios.py` (tabla de eventos) + en Dokploy
+   `COMPENDIO_AVISO_TELEGRAM=1`. Pendiente E2E: modal de seguimiento con datos, HTML en modo avión en un celular.
+2. 13.5-d `CalendarioCierres.jsx` 🗓 (backend `GET /api/accounting-files/cierres` ya existe).
+3. Luego: compendio ZIP del organizador; motor 13.4 (comparativo, patrimonio, flujos, certificación; ¿Grupo 2 o 3?); 13.5-d 🗓.
 - Andrés: generar el 1.er libro .xlsx real (CA-134-01, CA-135-08).
 
 ## Decisiones tomadas (y por qué)
