@@ -57,8 +57,8 @@ def _fallo(e: Exception):
     if isinstance(e, ValueError):
         raise HTTPException(status_code=400, detail=str(e))
     if drv.es_tabla_faltante(e):
-        raise HTTPException(status_code=503, detail="Los compendios aún no están instalados: "
-                                                    "falta correr scripts/migrate_compendios.py.")
+        raise HTTPException(status_code=503, detail="Falta una tabla de los compendios (o la del 📈 seguimiento): "
+                                                    "corre scripts/migrate_compendios.py.")
     raise HTTPException(status_code=503, detail=f"El compendio falló: {e}")
 
 

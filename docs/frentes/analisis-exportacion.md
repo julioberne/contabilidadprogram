@@ -20,13 +20,9 @@ B5 de "Mejor que Excel": ⇩ EXPORTACIÓN (spec `docs/specs/13-analisis/13.5-sub
 
 ## Próximo paso (concreto)
 - 13.6-a/b + nginx `/c/` EN PRODUCCIÓN y funcionando (Andrés lo confirmó el 06-oct; origin/master = `86c66b5`).
-1. **13.6-c 📈 Seguimiento del cliente — APROBADO (spec 13.6 §11, decisión 5 de §10).** Plan de archivos ya en la spec:
-   tabla `accounting_compendio_eventos` (DDL en `compendio_driver.DDL`; la migración la corre Andrés), eventos `abrio`
-   (en /c), `comprobante` (en soporte), `tx` (beacon del visor → `POST …/evento`); visitante = HMAC sin IP; dispositivo
-   del User-Agent; dedup 10 min; `GET /api/compendios/{id}/seguimiento` + `/actividad`; `CompendiosPanel` (● EN VIVO,
-   "revisó X de N", Actividad reciente, refresco 30 s) + `SeguimientoCompendio.jsx` (KPIs, Qué revisó, Actividad, 15 s);
-   aviso Telegram SOLO 1.ª apertura con `COMPENDIO_AVISO_TELEGRAM=1` (buscar en `bot_driver` cómo se le escribe al owner);
-   SIN aviso de registro al cliente (decisión de Andrés). CA-136-09…14.
+1. 13.6-c 📈 Seguimiento HECHO (`b49e15f`, sin push). Andrés: publicar + `migrate_compendios.py` (tabla de
+   eventos) + en Dokploy `COMPENDIO_AVISO_TELEGRAM=1` (y si quiere `COMPENDIO_AVISO_CHAT`). Luego ver el modal con
+   datos (CA-136-10/11 E2E). ↗ ABRIR desde FIN-SYS = `?previa=1` (no cuenta). Robots/vistas previas no cuentan.
 2. 13.6-d PDF (fpdf2 + pypdf) → 13.6-e HTML offline.
 3. Luego: compendio ZIP; motor 13.4 (comparativo, patrimonio, flujos, certificación; ¿Grupo 2 o 3?); 13.5-d 🗓.
 - Andrés: generar el 1.er libro .xlsx real (CA-134-01, CA-135-08).

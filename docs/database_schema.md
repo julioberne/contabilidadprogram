@@ -553,3 +553,18 @@ CREATE TABLE IF NOT EXISTS accounting_compendios (
 );
 CREATE INDEX IF NOT EXISTS ix_accounting_compendios_creado ON accounting_compendios (creado_en DESC);
 ```
+
+### AA. `accounting_compendio_eventos` — 📈 Seguimiento del cliente (spec 13.6 §11)
+Qué abrió el cliente y cuándo. Sin IP: `visitante` = HMAC(clave, compendio|IP|navegador)[:12].
+```sql
+CREATE TABLE IF NOT EXISTS accounting_compendio_eventos (
+    id BIGSERIAL PRIMARY KEY,
+    compendio_id INTEGER NOT NULL REFERENCES accounting_compendios(id) ON DELETE CASCADE,
+    tipo VARCHAR(20) NOT NULL CHECK (tipo IN ('abrio', 'tx', 'comprobante', 'pdf', 'html')),
+    tx_i INTEGER, soporte_j INTEGER,
+    visitante CHAR(12) NOT NULL, dispositivo VARCHAR(60),
+    en TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_compendio_eventos_compendio ON accounting_compendio_eventos (compendio_id, en DESC);
+CREATE INDEX IF NOT EXISTS ix_compendio_eventos_en ON accounting_compendio_eventos (en DESC);
+```
