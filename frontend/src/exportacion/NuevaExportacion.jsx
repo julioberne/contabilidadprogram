@@ -5,8 +5,9 @@
    Helisa usan centro de reportes, no asistente), dos pestañas:
    · 📚 Libros por período: paquete → empresa → período → libros →
      avanzado (plegado) — receta del motor 13.4, modo período.
-   · 🧾 Transacciones: buscar/filtrar/marcar → Relación (modo
-     transacciones, máx. 5000).
+   · 🧾 Transacciones: buscar/filtrar/marcar → ¿para quién? 📊 Contador
+     = Relación .xlsx (modo transacciones, máx. 5000) · 🤝 Cliente =
+     compendio con link temporal (spec 13.6, máx. 1000).
    El pre-vuelo es la compuerta: GENERAR solo se activa cuando la
    revisión corresponde EXACTAMENTE a lo que está en pantalla.
    Al generar: folio EXP-AAAA-NNNN + SHA-256, archivo al organizador
@@ -22,6 +23,8 @@ import {
   paqueteDeHojas, hojasDePaquete, recetaPeriodo, validarPeriodo, recetaTransacciones, distintos,
 } from './paquetes.js';
 import SelectorTransacciones from './SelectorTransacciones.jsx';
+import { ParaQuien, OpcionesCompendio, RevisionCompendio, ExitoCompendio } from './CompendioCliente.jsx';
+import { COMPENDIO_INICIAL, datosCompendio, validarCompendio } from './compendios.js';
 
 const campo = 'border-2 border-black px-1 py-0.5 text-[10px] bg-white';
 const chip = (activo) => `border-2 border-black px-2 py-0.5 text-[10px] font-bold ${activo ? 'bg-black text-white' : 'bg-white hover:bg-brutalNeutral'}`;
@@ -102,6 +105,8 @@ export default function NuevaExportacion({ paquetes, portfolios, carpetas, inici
   const [carpeta, setCarpeta] = useState('');
   const [seleccion, setSeleccion] = useState(() => new Set(inicial?.txIds || []));   // ids marcados en el Libro Diario
   const [nombreRelacion, setNombreRelacion] = useState('');
+  const [destino, setDestino] = useState(inicial?.destino === 'cliente' ? 'cliente' : 'contador');   // 13.6
+  const [comp, setComp] = useState(COMPENDIO_INICIAL);
   const [txs, setTxs] = useState({ lista: [], cargando: true, error: '' });
   const [prevuelo, setPrevuelo] = useState(null);         // { firma, data }
   const [ocupado, setOcupado] = useState('');             // '' | 'revisando' | 'generando'
@@ -150,9 +155,15 @@ export default function NuevaExportacion({ paquetes, portfolios, carpetas, inici
       return err ? { error: err } : recetaPeriodo(f);
     }
     if (!seleccion.size) return { error: 'Marca al menos una transacción.' };
+    const ids = [...seleccion].sort((a, b) => a - b);
+    if (destino === 'cliente') {
+      const err = validarCompendio(ids.length, comp);
+      return err ? { error: err } : { compendio: datosCompendio(ids, nombreRelacion, comp) };
+    }
     if (seleccion.size > MAX_TX) return { error: `Máximo ${MAX_TX} transacciones por relación.` };
-    return recetaTransacciones([...seleccion].sort((a, b) => a - b), nombreRelacion);
-  }, [modo, f, seleccion, nombreRelacion]);
+    return recetaTransacciones(ids, nombreRelacion);
+  }, [modo, f, seleccion, nombreRelacion, destino, comp]);
+  const esCompendio = !!solicitud.compendio;
   const firma = solicitud.error ? null : JSON.stringify(solicitud);
   const revisionVigente = prevuelo && prevuelo.firma === firma ? prevuelo.data : null;
   const puedeGenerar = !!revisionVigente && !revisionVigente.excede_tope && !ocupado;
@@ -161,13 +172,21 @@ export default function NuevaExportacion({ paquetes, portfolios, carpetas, inici
     if (solicitud.error) { setError(solicitud.error); return; }
     setOcupado('revisando'); setError('');
     try {
-      const data = await api.post('/analytics/export/preflight', { receta: solicitud.receta, paquete: solicitud.paquete });
+      const data = esCompendio
+        ? await api.post('/compendios/preflight', solicitud.compendio)
+        : await api.post('/analytics/export/preflight', { receta: solicitud.receta, paquete: solicitud.paquete });
       setPrevuelo({ firma, data });
     } catch (e) { setError(e.message); } finally { setOcupado(''); }
   };
   const generar = async () => {
     setOcupado('generando'); setError('');
     try {
+      if (esCompendio) {                      // 13.6: un link, no un archivo (no se descarga nada)
+        const res = await api.post('/compendios', solicitud.compendio);
+        setHecho({ ...res, compendio: true });
+        onGenerado?.(res);
+        return;
+      }
       const res = await api.post('/analytics/export', {
         receta: solicitud.receta, paquete: solicitud.paquete, folder_id: carpeta ? Number(carpeta) : null,
       });
@@ -204,22 +223,26 @@ export default function NuevaExportacion({ paquetes, portfolios, carpetas, inici
     <>
       <span className="mr-auto self-center text-[10px] text-gray-700">
         {solicitud.error ? `⚠ ${solicitud.error}`
-          : revisionVigente ? (revisionVigente.excede_tope ? '✘ Supera el tope de tamaño: acota el período o los libros.' : '✔ Revisado: ya puedes generar.')
+          : revisionVigente ? (revisionVigente.excede_tope ? '✘ Supera el tope de tamaño: acota el período o los libros.'
+            : esCompendio ? '✔ Revisado: ya puedes crear el compendio.' : '✔ Revisado: ya puedes generar.')
             : 'Primero REVISAR: verás conteos, cuadre y advertencias antes de generar.'}
       </span>
       <button type="button" className={btnBlanco} onClick={onCerrar}>CANCELAR</button>
       <button type="button" className={btnBlanco} disabled={!!solicitud.error || !!ocupado} onClick={revisar}>
         {ocupado === 'revisando' ? '⏳ REVISANDO…' : '🔍 REVISAR'}</button>
       <button type="button" className={btnNegro} disabled={!puedeGenerar} onClick={generar}
-        title={revisionVigente ? 'Genera el libro con folio, lo guarda en el archivo y lo descarga' : 'Revisa primero'}>
-        {ocupado === 'generando' ? '⏳ GENERANDO…' : '📥 GENERAR Y DESCARGAR'}</button>
+        title={!revisionVigente ? 'Revisa primero' : esCompendio ? 'Crea el link con folio para el cliente'
+          : 'Genera el libro con folio, lo guarda en el archivo y lo descarga'}>
+        {ocupado === 'generando' ? '⏳ GENERANDO…' : esCompendio ? '🤝 CREAR COMPENDIO' : '📥 GENERAR Y DESCARGAR'}</button>
     </>
   );
 
   return (
     <>
       <Modal titulo="📥 NUEVA EXPORTACIÓN" onCerrar={onCerrar} pie={pie} ancho="max-w-5xl">
-        {hecho ? (
+        {hecho?.compendio ? (
+          <ExitoCompendio res={hecho} />
+        ) : hecho ? (
           <div className="p-3 space-y-2 text-[11px]">
             <div className="text-[13px] font-bold">✔ {hecho.folio || 'Exportación'} generada</div>
             <div><b>{hecho.nombre}</b> · {formatoBytes(hecho.tamano_bytes)}</div>
@@ -346,20 +369,26 @@ export default function NuevaExportacion({ paquetes, portfolios, carpetas, inici
               </>
             ) : (
               <>
+                <ParaQuien destino={destino} onDestino={setDestino} />
                 <SelectorTransacciones txs={txs.lista} cargando={txs.cargando} error={txs.error}
                   seleccion={seleccion} onSeleccion={setSeleccion} nombre={nombreRelacion} onNombre={setNombreRelacion}
-                  soloMarcadasInicial={!!inicial?.txIds?.length} />
-                <label className="flex flex-wrap items-center gap-1 text-[10px]">
-                  <b>Guardar también en la carpeta</b>
-                  <select value={carpeta} onChange={(e) => setCarpeta(e.target.value)} className={campo}>
-                    <option value="">— solo en su lugar automático —</option>
-                    {carpetasPropias.map((c) => <option key={c.id} value={c.id}>📁 {c.nombre}</option>)}
-                  </select>
-                </label>
+                  soloMarcadasInicial={!!inicial?.txIds?.length}
+                  paraCliente={destino === 'cliente'} />
+                {destino === 'cliente' ? (
+                  <OpcionesCompendio valor={comp} onCambio={setComp} />
+                ) : (
+                  <label className="flex flex-wrap items-center gap-1 text-[10px]">
+                    <b>Guardar también en la carpeta</b>
+                    <select value={carpeta} onChange={(e) => setCarpeta(e.target.value)} className={campo}>
+                      <option value="">— solo en su lugar automático —</option>
+                      {carpetasPropias.map((c) => <option key={c.id} value={c.id}>📁 {c.nombre}</option>)}
+                    </select>
+                  </label>
+                )}
               </>
             )}
 
-            <Revision prevuelo={revisionVigente} />
+            {esCompendio ? <RevisionCompendio data={revisionVigente} /> : <Revision prevuelo={revisionVigente} />}
             {prevuelo && !revisionVigente && !solicitud.error && (
               <div className="text-[10px] border-2 border-dashed border-black p-1">Cambiaste algo después de revisar: vuelve a REVISAR.</div>
             )}

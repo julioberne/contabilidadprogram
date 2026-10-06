@@ -16,6 +16,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
 import { formatoBytes } from './organizador.js';
 import Organizador from './Organizador.jsx';
+import CompendiosPanel from './CompendiosPanel.jsx';
 import { btnNegro } from './Dialogos.jsx';
 
 export default function ExportacionApp({ user }) {
@@ -24,6 +25,7 @@ export default function ExportacionApp({ user }) {
   const [sinPermiso, setSinPermiso] = useState(false);
   const [paquetes, setPaquetes] = useState(null);     // { predefinidos, guardados } para Nueva exportación
   const [pedido, setPedido] = useState(null);         // atajo de la franja → abre el modal en el organizador
+  const [verCompendios, setVerCompendios] = useState(false);   // 🔗 links para clientes (13.6)
 
   const cargarResumen = useCallback(() => api.get('/accounting-files/resumen')
     .then((r) => { setResumen(r); setError(''); })
@@ -76,8 +78,13 @@ export default function ExportacionApp({ user }) {
             className="border-2 border-black px-2 py-0.5 text-[10px] font-bold bg-white hover:bg-brutalAmber"
             title="Buscar, filtrar y marcar transacciones del Libro Diario para exportar su relación">
             🧾 Transacciones (filtrar o elegir)</button>
+          <button type="button" aria-expanded={verCompendios} onClick={() => setVerCompendios((v) => !v)}
+            className={`border-2 border-black px-2 py-0.5 text-[10px] font-bold ml-auto ${verCompendios ? 'bg-black text-white' : 'bg-white hover:bg-brutalAmber'}`}
+            title="Links temporales para clientes: estado, visitas, ampliar o revocar">
+            🔗 Compendios</button>
         </div>
       )}
+      {!sinPermiso && verCompendios && <CompendiosPanel />}
 
       {sinPermiso ? (
         <div role="alert" className="bg-white border-2 border-black shadow-brutal p-2 text-[11px]">

@@ -12,7 +12,9 @@ import { filtrarTransacciones, distintos, totalesPorMoneda, TIPOS_TX, MAX_TX } f
 const pesos = (n, moneda = 'COP') => `${moneda === 'COP' ? '$' : `${moneda} `}${Number(n || 0).toLocaleString('es-CO', { maximumFractionDigits: 2 })}`;
 const campo = 'border-2 border-black px-1 py-0.5 text-[10px] bg-white';
 
-export default function SelectorTransacciones({ txs, cargando, error, seleccion, onSeleccion, nombre, onNombre, soloMarcadasInicial = false }) {
+export default function SelectorTransacciones({ txs, cargando, error, seleccion, onSeleccion, nombre, onNombre, soloMarcadasInicial = false,
+  paraCliente = false }) {
+  const etiquetaNombre = paraCliente ? 'Nombre del compendio (lo ve el cliente)' : 'Nombre de la relación (opcional)';
   const [f, setF] = useState({ q: '', desde: '', hasta: '', empresa: '', tipo: '', categoria: '', tercero: '' });
   const [soloMarcadas, setSoloMarcadas] = useState(soloMarcadasInicial);   // desde el Libro Diario: abre mostrando lo marcado
   const cambiar = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
@@ -48,8 +50,11 @@ export default function SelectorTransacciones({ txs, cargando, error, seleccion,
   return (
     <div className="space-y-2">
       <p className="text-[10px] text-gray-700">
-        Busca y filtra como en el Libro Diario; marca a mano o todas las filtradas. Se exporta una
-        <b> Relación de transacciones</b> (carátula con sello, relación, asientos, resumen y soportes).
+        Busca y filtra como en el Libro Diario; marca a mano o todas las filtradas. {paraCliente ? (
+          <>Se crea un <b>compendio para el cliente</b>: un link con la lista, los comprobantes y las ubicaciones.</>
+        ) : (
+          <>Se exporta una <b>Relación de transacciones</b> (carátula con sello, relación, asientos, resumen y soportes).</>
+        )}
       </p>
 
       {/* Filtros */}
@@ -140,7 +145,7 @@ export default function SelectorTransacciones({ txs, cargando, error, seleccion,
       </div>
 
       <label className="flex flex-wrap items-center gap-1 text-[10px]">
-        <span className="font-bold">Nombre de la relación (opcional)</span>
+        <span className="font-bold">{etiquetaNombre}</span>
         <input value={nombre} onChange={(e) => onNombre(e.target.value)} maxLength={120}
           placeholder="Ej.: Soportes para el banco — septiembre" className={`${campo} flex-1 min-w-[200px]`} />
       </label>
