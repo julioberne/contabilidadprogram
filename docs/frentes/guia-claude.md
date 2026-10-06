@@ -1,44 +1,44 @@
 # Frente: guia-claude
-Estado: ACTIVO · Actualizado: 2026-10-06 · Rama/commit: claude/multi-model-mcp-orchestration-3d985e @ 4badc82
+Estado: ACTIVO · Actualizado: 2026-10-06 18:10 · Rama/commit: claude/multi-model-mcp-orchestration-3d985e @ 292c884 (sin publicar: 342bc87, 292c884)
 
 ## Objetivo
 Método de trabajo con Claude que baja el consumo de contexto y mejora el proceso de construcción: corte por hito, kit de sesión, agente de mantenimiento y herramientas especializadas. Guía completa: `docs/guia-trabajo-claude.md` (§8 plan, §9 catálogo).
 
 ## Estado actual
-- En master: `CLAUDE.md`, `docs/frentes/`, guía §1-§9, kit (`scripts/claude_kit/`: hooks arranque y medidor, `instalar.py`, `mantenimiento.md`), `/cerrar-hito`, subagentes `lector`, `corredor-tests`, `verificador-visual`, `scripts/medir_consumo_claude.py`.
-- Instalado en `~/.claude` y verificado en uso real (el medidor avisa; `instalar.py --check` da todo igual).
-- Modelo: desde el 3-oct las sesiones principales corren 100% en Opus 5.5 (antes, 90% en Fable 5/5.1). HECHO por Andrés.
-- Sesiones pesadas archivadas. HECHO por Andrés.
-- Otras sesiones ya usan frentes (analisis-exportacion, bot-mini-app-terceros, panel-contexto-crud).
-- **Agente de mantenimiento TRABADO:** la corrida del 5-oct espera desde las 12:48 la aprobación de 3 comandos de PowerShell; el tablero sigue del 2-oct.
+- En master: `CLAUDE.md`, frentes, guía, kit (hooks arranque y medidor, `/cerrar-hito`, subagentes), `medir_consumo_claude.py`.
+- Hecho el 06-oct (falta publicar):
+  - **Guardia** (`scripts/claude_kit/guardia.py`, PreToolUse): niega a Claude push y `publicar.*`, `session_maintenance.py` sin `--check`, `bot_telegram.py`, `migrate_*.py`, SQL de escritura contra la BD, `.env`, Dokploy fuera de `deploy_prod.py`; pide confirmación para los drivers 🔴. Registro en `scratch/guardia.log`.
+  - **Lint crítico** (`scripts/lint_critico.py`): ruff E9/F63/F7/F82 + eslint solo reglas que rompen en ejecución. Hook `lint_al_editar.py` (PostToolUse) y pasos nuevos en el CI. El lint de estilo tiene 191 errores viejos y no bloquea.
+  - **Chequeo diario** (`chequeo_diario.py`): todo lo determinista del mantenimiento en un comando con un solo permiso; tarea programada con prompt nuevo de 3 pasos. Tablero del 06-oct generado y limpio.
+  - `tests/test_claude_kit.py` (19 tests puros, en el CI). Kit reinstalado en `~/.claude` (`instalar.py --check`: todo igual).
+  - Permisos `git push *` y `python -c ' *` quitados (respaldos en `scratch/settings.local.json.*`).
+  - Memoria: 5 `estado-proyecto-sep-*` → `historial-estado-proyecto-sep`. 5 docs viejos → `docs/archive/`. Spec 09.I y SPEC.md del bot al día.
+- Verificado en uso real: el lint-al-editar atrapó un nombre no definido en esta sesión; la guardia bloqueó un commit cuyo mensaje decía "git push" (falso positivo, corregido y con test).
+- Modelo: Opus 5.5 desde el 3-oct (Andrés). Contexto medio por turno: 417k (02-oct) → 407k (06-oct, 7 días).
 
 ## Próximo paso
-1. Andrés: barra lateral → Scheduled → corrida del 5-oct → aprobar con "permitir siempre" (o detenerla y usar "Run now").
-2. Construir guía §9 #1 y #2 (plan de archivos → aprobación → código):
-   - Hook `guardia` (PreToolUse, en `scripts/claude_kit/`, instalado con `instalar.py`): negar a Claude `git push`, `scripts\publicar.cmd`/`publicar.py` (los corre Andrés), `session_maintenance.py` sin `--check`, `bot_telegram.py`, `scripts/migrate_*.py`, SQL de escritura en comandos, `.env`, API de Dokploy fuera de `deploy_prod.py`; pedir confirmación para `database_driver.py` y `control_tower_driver.py`; registro en `scratch/guardia.log`; tests del hook.
-   - Hook `lint-al-editar` (PostToolUse): `ruff check --select F,E9` en `.py` y eslint en `.js`/`.jsx` del archivo editado; errores a Claude con exit 2. Agregar ruff (dependencia de desarrollo) y `npm run lint` al CI.
-3. Script único de chequeos para la tarea de mantenimiento, para que pida un solo permiso.
+1. Andrés: publicar con `scripts\publicar.cmd --sin-deploy` (solo scripts, CI y docs; no toca la app) y mirar que el CI quede verde con los pasos nuevos de lint.
+2. Mañana: confirmar que la corrida de las 10 pm terminó sola (tablero con la sección Sesiones llena y una fila nueva en `scratch/medicion-historial.csv`). Si se detiene, ver qué permiso pidió en Scheduled.
+3. Revisar `scratch/guardia.log` en los próximos días: cualquier bloqueo injusto se corrige en `guardia.py` + test.
+4. Decidir catálogo §9 #3 (`auditor-spec`) y #4 (`/desplegar`).
 
 ## Pendiente de decisión de Andrés
-- Quitar `Bash(git push *)` y `Bash(python -c ' *)` de `.claude/settings.local.json` (checkout principal y worktrees).
-- Consolidar las memorias `estado-proyecto-sep-04/07/09/11/15` y archivar 5 docs viejos (`conexion_bd_guia`, `D02_FIN_spec`, `design_system`, `module_08_project_hub`, `remediacion_2026-07`), revisando antes.
-- Spec 09.I dice PLANIFICADO pero la v1 se desplegó el 2-oct: lo corrige la sesión del frente `bot-mini-app-terceros`.
+- Propuestas del tablero: acortar 8 entradas largas del índice de memoria; `docs/PRD.md` sin cambios en 45 días.
 
 ## Decisiones tomadas (y por qué)
-- No orquestar otros modelos todavía: multiplican el consumo y no atacan el contexto reenviado.
-- Sin tope fijo de contexto y sin partir archivos (Andrés, 01-oct): se corta por hito.
-- Un solo agente escribe; los subagentes juntan evidencia.
-- Kit a nivel de usuario: llega a worktrees nacidos de `main` vacía; solo actúa en este proyecto.
-- Flujo: Claude deja el código commiteado → Andrés publica con `scripts\publicar.cmd` → Claude nunca hace push ni publica.
+- La guardia niega push y `publicar.*` a Claude porque el flujo es: Claude commitea → Andrés publica. Si bloquea, no se esquiva (CLAUDE.md §6).
+- Lint en el CI solo de errores graves: el de estilo tiene deuda vieja y bloquearía todo.
+- Un solo comando y un solo permiso para el mantenimiento: la corrida del 5-oct se trabó esperando 3 aprobaciones.
+- No orquestar otros modelos; sin tope fijo de contexto; no partir archivos; kit a nivel de usuario.
 
 ## Archivos clave
-- `CLAUDE.md`, `docs/guia-trabajo-claude.md`, `scripts/claude_kit/*`, `.claude/agents/*`, `.claude/skills/cerrar-hito/SKILL.md`, `~/.claude/settings.json` (hooks), tarea `mantenimiento-finsys`.
+- `scripts/claude_kit/{guardia,lint_al_editar,chequeo_diario,instalar}.py`, `scripts/lint_critico.py`, `scripts/claude_kit/mantenimiento.md`, `tests/test_claude_kit.py`, `.github/workflows/ci.yml`, `CLAUDE.md` §3 y §6, `~/.claude/settings.json` (hooks y permiso del chequeo).
 
 ## Cómo verificar
-- `python scripts/claude_kit/instalar.py --check` → todo "igual".
-- `.venv\Scripts\python.exe scripts\medir_consumo_claude.py --dias 7` → contexto medio por turno (base 370k; 02-oct 417k).
-- `scratch\tablero.md` con la fecha del día.
+- `.venv\Scripts\python.exe -m unittest tests.test_claude_kit` (19) · `python scripts/lint_critico.py` → sin errores graves.
+- `python scripts/claude_kit/instalar.py --check` → todo "igual" y hooks al día.
+- `scratch\tablero.md` con la fecha del día; `scratch\guardia.log` para ver qué bloqueó.
 
 ## Bloqueos y riesgos
-- Las corridas programadas se detienen en avisos de permiso y solo corren con la app abierta.
-- Los hooks fallan abiertos: el guardia reduce el riesgo, no lo elimina (ver guía §9, preguntas abiertas).
+- Los hooks fallan abiertos y actúan por llamada de herramienta: un `.py` escrito y luego ejecutado puede esquivar la guardia.
+- Las corridas programadas solo ocurren con la app abierta.
