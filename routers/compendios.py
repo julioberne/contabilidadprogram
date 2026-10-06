@@ -27,7 +27,8 @@ from typing import Deque, Dict, List, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
@@ -127,13 +128,20 @@ FORMATOS = {"pdf": "application/pdf", "html": "text/html; charset=utf-8"}
 
 
 def _generar(d: dict, formato: str) -> bytes:
-    """⬇ PDF (13.6-d) o 💾 HTML offline (13.6-e), de la misma foto que el link."""
+    """⬇ PDF (13.6-d) o 💾 HTML offline (13.6-e), de la misma foto que el link. Con caché en
+    disco (compartida por los workers) y máximo 2 armándose a la vez por worker."""
+    import compendio_cache
     import compendio_offline
     import compendio_pdf
     drv = _drv()
     modulo = compendio_pdf if formato == "pdf" else compendio_offline
-    return modulo.generar(d["snapshot"], d["urls"], lambda u: _traer(u, drv.max_bytes_soporte()),
-                          drv.describir_soporte, d.get("expira_en"))
+    k = compendio_cache.clave(d["id"], formato, d["urls"], d.get("expira_en"))
+    return compendio_cache.obtener(k, formato, lambda: modulo.generar(
+        d["snapshot"], d["urls"], lambda u: _traer(u, drv.max_bytes_soporte()), drv.describir_soporte,
+        d.get("expira_en")))
+
+
+OCUPADO = "Hay muchos archivos armándose en este momento: intenta en un minuto."
 
 
 def _respuesta_archivo(d: dict, contenido: bytes, formato: str, publica: bool) -> Response:
@@ -147,9 +155,12 @@ def _respuesta_archivo(d: dict, contenido: bytes, formato: str, publica: bool) -
 
 def _archivo_interno(cid: int, formato: str):
     """⬇ PDF o 💾 HTML desde ⇩ Exportación (no cuenta como descarga del cliente)."""
+    import compendio_cache
     try:
         d = _drv().para_descarga(cid=cid)
         return _respuesta_archivo(d, _generar(d, formato), formato, publica=False)
+    except compendio_cache.Ocupado:
+        raise HTTPException(status_code=503, detail=OCUPADO, headers={"Retry-After": "60"})
     except Exception as e:
         _fallo(e)
 
@@ -187,6 +198,11 @@ def _limite() -> int:
 
 
 def _ip(request: Request) -> str:
+    """IP del cliente. En producción nginx pone X-Real-IP con la IP real (set_real_ip_from:
+    Traefik va delante); X-Forwarded-For lo puede inventar el cliente, así que va de segundo."""
+    real = request.headers.get("x-real-ip", "").strip()
+    if real:
+        return real
     reenviada = request.headers.get("x-forwarded-for", "")
     return (reenviada.split(",")[0].strip() if reenviada else "") or (request.client.host if request.client else "?")
 
@@ -283,12 +299,16 @@ def _archivo_publico(token: str, formato: str, request: Request):
     """⬇ PDF / 💾 HTML offline del cliente: la misma foto que el link; cuenta la descarga (salvo ?previa=1)."""
     if not _ritmo_ok(request, "archivo", limite=6):             # armar un archivo es caro: 6 por minuto por IP
         return _demasiadas()
+    import compendio_cache
     drv = _drv()
     try:
         d = drv.para_descarga(token=token)
         contenido = _generar(d, formato)
     except drv.NoDisponible:
         return _no_disponible()
+    except compendio_cache.Ocupado:
+        return HTMLResponse(OCUPADO, status_code=503, headers={**BASE, "Retry-After": "60", "Cache-Control": "no-store",
+                                                               "Content-Security-Policy": CSP_SIMPLE})
     except Exception as e:
         print(f"⚠️ [compendios] {formato} falló: {e}")
         return _no_disponible(503)
@@ -332,28 +352,71 @@ def _traer(url: str, maximo: int) -> Optional[bytes]:
     return b"".join(partes)
 
 
+_HTTP = None                    # un cliente asíncrono por worker (reutiliza conexiones al bucket)
+
+
+def _cliente_http():
+    global _HTTP
+    import httpx
+    if _HTTP is None or _HTTP.is_closed:
+        _HTTP = httpx.AsyncClient(timeout=20.0, follow_redirects=False,
+                                  limits=httpx.Limits(max_connections=100, max_keepalive_connections=20))
+    return _HTTP
+
+
+async def _flujo(url: str, maximo: int):
+    """Abre el comprobante en el bucket propio SIN cargarlo entero ni ocupar un hilo.
+    → (async-iterador de bytes, Content-Length o None) o None si no está o pasa del tope."""
+    cli = _cliente_http()
+    r = await cli.send(cli.build_request("GET", url), stream=True)
+    largo = r.headers.get("content-length")
+    if r.status_code != 200 or (largo and int(largo) > maximo):
+        await r.aclose()
+        return None
+
+    async def cuerpo():
+        total = 0
+        try:
+            async for trozo in r.aiter_bytes():
+                total += len(trozo)
+                if total > maximo:                       # sin Content-Length y pasó el tope: se corta
+                    break
+                yield trozo
+        finally:
+            await r.aclose()
+    return cuerpo(), largo
+
+
 @router.get("/api/publico/compendio/{token}/soporte/{i}/{j}", include_in_schema=False)
-def ver_soporte(token: str, i: int, j: int, request: Request):
+async def ver_soporte(token: str, i: int, j: int, request: Request):
+    """Escalabilidad (06-oct): asíncrono y en streaming. Las consultas cortas a la BD van al pool
+    de hilos; la descarga del bucket no ocupa hilos, así cien clientes viendo fotos a la vez no
+    dejan sin hilos al resto de la app."""
     if not _ritmo_ok(request):
         return _demasiadas()
     drv = _drv()
     try:
-        s = drv.soporte(token, i, j)
-        contenido = _traer(s["url"], drv.max_bytes_soporte())
+        s = await run_in_threadpool(drv.soporte, token, i, j)
+        flujo = await _flujo(s["url"], drv.max_bytes_soporte())
     except drv.NoDisponible:
         return _no_disponible()
     except Exception:
         return _no_disponible(502)
-    if contenido is None:
+    if flujo is None:
         return _no_disponible(502)
+    cuerpo, largo = flujo
     cid = s.pop("_id", None)
     if request.query_params.get("previa") != "1":
-        _anotar_seguro(cid, "comprobante", request, i, j)
-    modo ="attachment" if s["tipo"] == drv.TIPO_OTRO else "inline"
+        await run_in_threadpool(_anotar_seguro, cid, "comprobante", request, i, j)
+    modo = "attachment" if s["tipo"] == drv.TIPO_OTRO else "inline"
     ascii_ = "".join(ch if 32 <= ord(ch) < 127 and ch not in '"\\' else "_" for ch in s["nombre"]) or "comprobante"
-    cabeceras = {**BASE, "Cache-Control": "private, max-age=300",
+    cabeceras = {**BASE,
+                 # Un comprobante nunca cambia (cada subida tiene ruta propia): 1 h en el navegador del cliente.
+                 "Cache-Control": "private, max-age=3600, immutable",
                  "Content-Disposition": f"{modo}; filename=\"{ascii_}\"; filename*=UTF-8''{quote(s['nombre'])}",
                  # El PDF se incrusta en la propia página: solo ella puede enmarcarlo.
                  "Content-Security-Policy": ("frame-ancestors 'self'" if s["tipo"] == drv.TIPO_PDF
                                              else "default-src 'none'; frame-ancestors 'self'")}
-    return Response(content=contenido, media_type=s["mime"], headers=cabeceras)
+    if largo:
+        cabeceras["Content-Length"] = largo
+    return StreamingResponse(cuerpo, media_type=s["mime"], headers=cabeceras)

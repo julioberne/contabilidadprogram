@@ -47,6 +47,23 @@ jobs:
             echo "::error::La carga inicial pesa $((TOTAL / 1024)) KB (>500 KB). ¿Alguna librería se coló al entry?"
             exit 1
           fi
+      - name: Sintaxis de nginx (nginx -t con la imagen de producción)
+        # 2026-10-06: un error en nginx.conf tumbaría la web entera. Se valida con
+        # la misma imagen del Dockerfile; "backend" apunta a localhost solo para el test.
+        working-directory: .
+        run: |
+          docker run --rm --add-host backend:127.0.0.1 \
+            -v "$PWD/frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
+            nginx:alpine nginx -t
+      - name: Auditoría de dependencias (npm audit, solo producción)
+        # 2026-10-06: avisa vulnerabilidades conocidas (altas o críticas) en las
+        # librerías que llegan al navegador. Informativo: no bloquea el deploy.
+        continue-on-error: true
+        run: |
+          if ! npm audit --omit=dev --audit-level=high; then
+            echo "::warning title=npm audit::Hay vulnerabilidades altas o críticas: revisar 'npm audit' en frontend/."
+            exit 1
+          fi
 
   backend:
     name: Backend (sintaxis + tests puros + import)
@@ -62,7 +79,17 @@ jobs:
       - name: Sintaxis de todo el backend
         run: python -m compileall -q fin_sys_core routers kernel shared scripts server.py
       - name: Tests puros (sin BD)
-        run: python -m unittest tests.test_cartera_plan tests.test_db_pool_fallback tests.test_mock_policy tests.test_bot_etapa_e tests.test_terceros_resolucion tests.test_tx_eliminar_evidencias tests.test_analytics_catalog tests.test_analytics_qa tests.test_insight_engine tests.test_bot_analisis tests.test_sms_bancolombia tests.test_bot_sms tests.test_webhooks_sms tests.test_bot_completar tests.test_terceros_cuentas tests.test_bot_webapp tests.test_terceros_borrado tests.test_export_xlsx tests.test_accounting_files tests.test_etiquetas -v
+        run: python -m unittest tests.test_cartera_plan tests.test_db_pool_fallback tests.test_mock_policy tests.test_bot_etapa_e tests.test_terceros_resolucion tests.test_tx_eliminar_evidencias tests.test_analytics_catalog tests.test_analytics_qa tests.test_insight_engine tests.test_bot_analisis tests.test_sms_bancolombia tests.test_bot_sms tests.test_webhooks_sms tests.test_bot_completar tests.test_terceros_cuentas tests.test_bot_webapp tests.test_terceros_borrado tests.test_export_xlsx tests.test_accounting_files tests.test_etiquetas tests.test_compendios tests.test_entrega -v
+      - name: Auditoría de dependencias (pip-audit)
+        # 2026-10-06: CVE conocidos en requirements.txt (Pillow, pypdf, openpyxl…:
+        # las librerías que abren archivos de usuarios). Informativo: no bloquea.
+        continue-on-error: true
+        run: |
+          pip install -q pip-audit
+          if ! pip-audit -r requirements.txt --progress-spinner off; then
+            echo "::warning title=pip-audit::Hay librerías con vulnerabilidades conocidas: revisar el log de este paso."
+            exit 1
+          fi
       - name: Smoke de importación del server
         # Detecta imports rotos sin necesitar BD (la conexión ocurre en el
         # lifespan, no al importar). dist vacío para el mount de estáticos.

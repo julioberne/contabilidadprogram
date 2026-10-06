@@ -31,8 +31,14 @@ B5 de "Mejor que Excel": ⇩ EXPORTACIÓN (spec `docs/specs/13-analisis/13.5-sub
    si se suman por defecto a Cierre de mes (Grupo 2 los exige).
 - Andrés: generar el 1.er libro .xlsx real (CA-134-01, CA-135-08).
 
-5. **Hito "escalabilidad + guardián" (propuesto 06-oct, Andrés: aprobar en sesión limpia)**. Sin dependencias de pago ni
-   reestructurar; un módulo y cambios puntuales:
+5. **Escalabilidad HECHA (06-oct, aprobada)**: gunicorn `--max-requests 1000 ±100 --graceful-timeout 30`; proxy de
+   comprobantes ASÍNCRONO en streaming (`_flujo`, httpx.AsyncClient por worker; caché 1 h immutable); PDF/HTML con
+   `compendio_cache.py` (disco compartido, TTL 1 h, 300 MB, semáforo 2/worker → 503 "intenta en un minuto");
+   nginx `limit_req` (/c/ 60/min burst 20 · /api/publico/ 10/s burst 60) + `set_real_ip_from` (Traefik) y el
+   backend usa X-Real-IP; purga de eventos de compendios vencidos > 180 días al crear uno; CI: `nginx -t` (bloquea),
+   `pip-audit` y `npm audit` (informativos) y test_compendios/test_entrega en la lista. Probado en :8003 con datos
+   reales: foto 317 KB en streaming; PDF 5,5 s → 2,4 s con caché. PENDIENTE (Andrés): límites del bucket en Supabase.
+   Lo que sigue del plan original:
    - Workers: gunicorn YA es el administrador (supervisa/reinicia). Sumar `--max-requests 1000 --max-requests-jitter 100
      --timeout 60 --graceful-timeout 30`; proxy de comprobantes ASÍNCRONO en streaming (httpx ya instalado) + caché del
      navegador; PDF/HTML con caché por compendio (foto inmutable; clave = lista de comprobantes) y semáforo de 2 por worker;

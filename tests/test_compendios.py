@@ -499,6 +499,62 @@ class TestVisor(unittest.TestCase):
         self.assertEqual(json.loads(m.group(1))["txs"][0]["concepto"], "</script><img src=x onerror=alert(1)>")
 
 
+def _flujo_falso(datos, pedidos=None):
+    """Reemplazo de routers.compendios._flujo (asíncrono): entrega `datos` en dos trozos."""
+    async def flujo(url, maximo):
+        if pedidos is not None:
+            pedidos.append((url, maximo))
+
+        async def cuerpo():
+            yield datos[:3]
+            yield datos[3:]
+        return cuerpo(), str(len(datos))
+    return flujo
+
+
+class TestCacheYPurga(unittest.TestCase):   # escalabilidad 06-oct
+
+    def setUp(self):
+        import tempfile
+        from fin_sys_core import compendio_cache
+        self.cc = compendio_cache
+        self.dir_original = compendio_cache.DIR
+        compendio_cache.DIR = tempfile.mkdtemp(prefix="test-cache-")
+
+    def tearDown(self):
+        self.cc.DIR = self.dir_original
+
+    def test_clave_cambia_con_comprobantes_y_vencimiento(self):
+        k = self.cc.clave(9, "pdf", {57: ["a.jpg"]}, "2026-10-21")
+        self.assertEqual(k, self.cc.clave(9, "pdf", {57: ["a.jpg"]}, "2026-10-21"))
+        self.assertNotEqual(k, self.cc.clave(9, "pdf", {57: ["a.jpg", "b.jpg"]}, "2026-10-21"))
+        self.assertNotEqual(k, self.cc.clave(9, "pdf", {57: ["a.jpg"]}, "2026-11-21"))
+        self.assertNotEqual(k, self.cc.clave(9, "html", {57: ["a.jpg"]}, "2026-10-21"))
+
+    def test_se_arma_una_sola_vez(self):
+        llamadas = []
+        armar = lambda: llamadas.append(1) or b"%PDF"   # noqa: E731
+        self.assertEqual(self.cc.obtener("k1", "pdf", armar), b"%PDF")
+        self.assertEqual(self.cc.obtener("k1", "pdf", armar), b"%PDF")
+        self.assertEqual(len(llamadas), 1)
+
+    def test_sin_turno_responde_ocupado(self):
+        import threading
+        with mock.patch.object(self.cc, "_TURNOS", threading.BoundedSemaphore(1)) as turnos,                 mock.patch.object(self.cc, "ESPERA_SEG", 0.01):
+            turnos.acquire()
+            with self.assertRaises(self.cc.Ocupado):
+                self.cc.obtener("k2", "pdf", lambda: b"x")
+            turnos.release()
+
+    def test_purga_de_eventos_al_crear(self):
+        cur = FakeCursor(R((7,)), R((99, AHORA)))
+        with mock.patch.object(drv, "_leer_txs", return_value=(TXS, [], EMPRESAS)):
+            drv.crear({"tx_ids": [57]}, None, conn=FakeConn(cur))
+        sqls = [cur.sql(k) for k in range(len(cur.ejecutadas))]
+        self.assertTrue(any("DELETE FROM accounting_compendio_eventos" in q for q in sqls))
+        self.assertIn(180, cur.ejecutadas[3][1])
+
+
 class TestRouter(unittest.TestCase):
 
     @classmethod
@@ -508,6 +564,9 @@ class TestRouter(unittest.TestCase):
         from routers import compendios
         from routers.auth_guard import create_session_token
         cls.mod = compendios
+        import tempfile
+        from fin_sys_core import compendio_cache
+        compendio_cache.DIR = tempfile.mkdtemp(prefix="test-compendios-")
         app = FastAPI()
         app.include_router(compendios.router)
         cls.client = TestClient(app)
@@ -598,7 +657,7 @@ class TestRouter(unittest.TestCase):
         self.assertIn('"previa": true', r.text)
         url = BUCKET + "evidence/f.jpg"
         with mock.patch.object(drv, "soporte", return_value={"url": url, **drv.describir_soporte(url), "_id": 9}), \
-                mock.patch.object(self.mod, "_traer", return_value=b"jpg"), mock.patch.object(drv, "anotar") as anotar:
+                mock.patch.object(self.mod, "_flujo", new=_flujo_falso(b"jpg")), mock.patch.object(drv, "anotar") as anotar:
             self.client.get("/api/publico/compendio/" + "a" * 43 + "/soporte/0/0?previa=1")
         anotar.assert_not_called()
 
@@ -610,7 +669,7 @@ class TestRouter(unittest.TestCase):
     def test_ver_comprobante_se_anota(self):
         url = BUCKET + "evidence/f.jpg"
         with mock.patch.object(drv, "soporte", return_value={"url": url, **drv.describir_soporte(url), "_id": 9}), \
-                mock.patch.object(self.mod, "_traer", return_value=b"jpg"), \
+                mock.patch.object(self.mod, "_flujo", new=_flujo_falso(b"jpg")), \
                 mock.patch.object(drv, "anotar", return_value={"nuevo": True}) as anotar:
             r = self.client.get("/api/publico/compendio/" + "a" * 43 + "/soporte/3/1")
         self.assertEqual(r.status_code, 200)
@@ -669,16 +728,18 @@ class TestRouter(unittest.TestCase):
     def test_soporte_servido_por_el_servidor(self):
         url = BUCKET + "evidence/f.pdf"
         with mock.patch.object(drv, "soporte", return_value={"url": url, **drv.describir_soporte(url)}), \
-                mock.patch.object(self.mod, "_traer", return_value=b"%PDF-1.4") as traer:
+                mock.patch.object(self.mod, "_flujo", new=_flujo_falso(b"%PDF-1.4", pedidos := [])):
             r = self.client.get("/api/publico/compendio/" + "a" * 43 + "/soporte/0/0")
         self.assertEqual((r.status_code, r.content), (200, b"%PDF-1.4"))
         self.assertEqual(r.headers["content-type"], "application/pdf")
         self.assertTrue(r.headers["content-disposition"].startswith("inline"))
         self.assertEqual(r.headers["content-security-policy"], "frame-ancestors 'self'")
-        traer.assert_called_once_with(url, drv.max_bytes_soporte())
+        self.assertEqual(pedidos, [(url, drv.max_bytes_soporte())])
+        self.assertEqual(r.headers["content-length"], "8")
+        self.assertIn("immutable", r.headers["cache-control"])
         otro = BUCKET + "evidence/x.svg"
         with mock.patch.object(drv, "soporte", return_value={"url": otro, **drv.describir_soporte(otro)}), \
-                mock.patch.object(self.mod, "_traer", return_value=b"<svg/>"):
+                mock.patch.object(self.mod, "_flujo", new=_flujo_falso(b"<svg/>")):
             r = self.client.get("/api/publico/compendio/" + "a" * 43 + "/soporte/0/1")
         self.assertTrue(r.headers["content-disposition"].startswith("attachment"))
         self.assertEqual(r.headers["content-type"], "application/octet-stream")

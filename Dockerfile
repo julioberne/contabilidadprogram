@@ -41,9 +41,15 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
 # Guía: workers ≈ min(2×vCPU+1, presupuesto_conexiones);
 # presupuesto = (límite pooler ~200 − bot 10 − margen) / DB_POOL_MAX.
 # Con el droplet actual (1-2 vCPU): 2-3 es lo correcto.
+# 2026-10-06: gunicorn ES el administrador de workers (supervisa, reinicia y
+# corta los colgados). --max-requests recicla cada worker cada ~1000 peticiones
+# (±100 para que no reinicien todos a la vez): corta fugas de memoria sin caída.
 CMD gunicorn server:app \
      --workers ${GUNICORN_WORKERS:-2} \
      --worker-class uvicorn.workers.UvicornWorker \
      --bind 0.0.0.0:8000 \
      --timeout 120 \
+     --graceful-timeout 30 \
+     --max-requests ${GUNICORN_MAX_REQUESTS:-1000} \
+     --max-requests-jitter 100 \
      --access-logfile -

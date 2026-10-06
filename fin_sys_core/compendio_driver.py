@@ -391,9 +391,35 @@ def crear(datos: Dict[str, Any], usuario: Optional[Dict[str, Any]], conn=None) -
                                 json.dumps(snap, ensure_ascii=False), json.dumps(opciones),
                                 nonce, hash_token(token), expira, _quien(usuario)))
         nuevo_id, creado = cur.fetchone()
+        _purgar_eventos(cur)
         cur.close()
     return {"id": nuevo_id, "folio": folio, "nombre": nombre, "n": snap["n"], "ruta": f"/c/{token}",
             "expira_en": _iso(expira), "creado_en": _iso(creado), "vigencia_dias": dias}
+
+
+RETENCION_EVENTOS_DIAS = int(os.getenv("COMPENDIO_RETENCION_EVENTOS_DIAS", "180"))
+SQL_PURGA_EVENTOS = """
+    DELETE FROM accounting_compendio_eventos e
+     USING accounting_compendios c
+     WHERE c.id = e.compendio_id AND c.expira_en < now() - make_interval(days => %s)
+"""
+
+
+def _purgar_eventos(cur) -> int:
+    """Escalabilidad (06-oct): el detalle de eventos de los compendios vencidos hace más de
+    180 días se borra; quedan sus totales (visitas, descargas, última visita) en el compendio.
+    Corre al crear uno nuevo (como la purga de 13.5). Sin la tabla de eventos, no hace nada."""
+    cur.execute("SAVEPOINT purga_eventos")
+    try:
+        cur.execute(SQL_PURGA_EVENTOS, (RETENCION_EVENTOS_DIAS,))
+        n = max(cur.rowcount or 0, 0)
+        cur.execute("RELEASE SAVEPOINT purga_eventos")
+        return n
+    except Exception as e:
+        if not es_tabla_faltante(e):
+            raise
+        cur.execute("ROLLBACK TO SAVEPOINT purga_eventos")
+        return 0
 
 
 # ══ Carpeta 🔗 Compendios ══════════════════════════════════════════════════
