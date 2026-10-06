@@ -17,15 +17,20 @@ APROBADO 05-oct, decisiones §10). Termina con 13.5 HECHO, desplegado y visto en
   owner/admin/contador, lazy) + etiqueta en `ModuleSettingsPanel`. `AnalisisApp.jsx` y el shell (Sidebar, useRoute,
   main.jsx, shell.css) quedan como antes de 13.5-b: el sub-ítem del menú (`51e5702` + `d59eaa7`, ya en origin) se retiró.
   113 vitest + build OK; chunk `ExportacionApp-*.js` 56 KB; carga inicial 298 KB.
-- Docs revisados: spec 13.5 v1.2 (D-135-05 = módulo 14), SPEC 13, `docs/specs/README.md`, CHECKLIST (fila 14), AGENTS.md
-  (Estado de Módulos + permisos), `docs/api_spec.md` §10, `docs/reglas_proyecto.md` (Regla 2: navegación por el registry).
+- Docs al día: spec 13.5 v1.2, SPEC 13, índice de specs, CHECKLIST (fila 14), AGENTS.md, api_spec §10, reglas_proyecto (Regla 2).
 - "📥 NUEVA EXPORTACIÓN" y la vista 🗓 están DESHABILITADOS (llegan en 13.5-c y 13.5-d).
 - **EN PRODUCCIÓN** desde el 06-oct 01:04 (deploy de `df1047f` con las funciones de `publicar`): rutas del organizador y
   `PUT /api/tags/0` 404→401, `/exportacion` sirve `ExportacionApp-Cf7bNf5p.js` (= :8000). `:8000` al día (sync de Andrés).
   Sin push: `bb04826` (`scripts/publicar`) + frentes. La 1.ª vez `publicar.cmd` se corre en el worktree (la principal aún no lo tiene).
 
 ## Próximo paso (concreto)
-0. Diseño de 📥 NUEVA EXPORTACIÓN con el informe /deep-research (contador colombiano + Siigo/Alegra/World Office/QuickBooks/Xero) → aprobación de Andrés.
+0. Diseño de 📥 NUEVA EXPORTACIÓN con el informe /deep-research (contador colombiano + Siigo/Alegra/World Office/QuickBooks/Xero;
+   workflow wf_d2d09fef-272 de la sesión 06-oct) → aprobación de Andrés. Pedidos de Andrés 06-oct que el diseño DEBE cubrir:
+   a) "el fin del módulo es la exportación tipo contador; el organizador es secundario" → Nueva exportación es lo principal;
+   b) exportar transacciones POR FILTROS (búsqueda) o SELECCIONADAS a mano (backend: modo transacciones ≤5000 tx_ids;
+      modo período con filtros categorías/terceros/tipos/moneda/cuentas_puc + nivel_puc) y c) "compendios selectivos de
+      varias cosas" (varios libros + relación de TXs + soportes subidos, con búsqueda, organización y selección → p. ej.
+      carpeta propia → ZIP con índice; hoy cada exportación es UN .xlsx: brecha a diseñar).
 1. 13.5-c: `exportacion/{paquetes,periodos}.js` (+ vitest): paquetes de `GET …/export/paquetes`; períodos relativos (ojo 1-ene).
 2. `exportacion/NuevaExportacion.jsx`: modo período con pre-vuelo (`POST …/export/preflight`) → `POST /api/analytics/export`
    → `api.descargar(id)`; modo transacciones con `SelectorTransacciones.jsx`. Habilitar el botón en `Organizador.jsx`.
