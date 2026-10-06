@@ -1,6 +1,6 @@
 # SPEC 09 — Bot IA (registro contable por chat)
 
-> **Módulo:** 09 Bot IA · **Nivel:** módulo · **Estado:** EN USO (etapas A–G en producción; G pendiente de su prueba real)
+> **Módulo:** 09 Bot IA · **Nivel:** módulo · **Estado:** EN USO (etapas A–G y la v1 de J en producción; G y J pendientes de su prueba real)
 > **Versión:** 1.2 — 30 Sep 2026 · **Reglas que aplican:** 2 (Zero-Impact), 5, 6, **6b**, 7
 > **Qué NO cubre:** la web de la bandeja (`frontend/src/bot/`) más allá de lo que cada etapa toque; las preguntas en español ("¿cuánto gasté?") pertenecen al módulo 13.
 > Referencia operativa (comandos, modelos, diagnóstico): [`docs/bot_ia.md`](../../bot_ia.md). Estado vivo: `CHECKLIST.md` fila 09.
@@ -54,7 +54,7 @@ Fuentes externas (SMS) ──POST /api/webhooks/sms──▶ FastAPI (routers/we
 | **F** | **SMS de Bancolombia → borradores automáticos** (5 plantillas reales, red de seguridad para plantillas nuevas, SMS pegado en el chat) | ✅ HECHO (30-sep-2026) — probado con SMS real; pendiente operativo: HTTPS permanente | [09.F-sms-bancolombia.md](09.F-sms-bancolombia.md) |
 | **G** | **Completar tercero y concepto desde Telegram; medios de pago del tercero** (reply con concepto + tercero + documento sin duplicados; botón 💾 Guardar / 🔁 Mover; el siguiente SMS al mismo destino llega con el tercero; ficha completa en la web) | 🔵 EN PRODUCCIÓN desde el 30-sep-2026 (`d51afb5`; correcciones de la revisión `09325ce` desplegadas el mismo día) — falta solo la prueba con SMS real (CA-09G-13) para marcarla HECHA | [09.G-completar-borrador.md](09.G-completar-borrador.md) |
 | H | OCR de comprobantes con botón dedicado (Gemini Flash) + trabajo lento fuera del poller | PLANIFICADO | [09.H-ocr-comprobantes.md](09.H-ocr-comprobantes.md) |
-| I | **Ficha de tercero con anclas de identidad**: motor único de duplicados por igualdad (documento, medios, celular, correo, nombre exacto), entidad del medio (Nequi, Bancolombia, Bre-B…), alta progresiva y avisos en la web | PLANIFICADO (propuesta 1-oct-2026, pendiente de aprobación) | [09.I-ficha-tercero-anclas.md](09.I-ficha-tercero-anclas.md) |
-| J | **Bot: Mini App de Telegram «📝 Completar tercero»** (decisión de Andrés 1-oct: Mini App primero, desde lo mínimo) + después entidad tras 💾, 📇 Ficha y `/ficha` | PLANIFICADO (misma spec que I, §10) | [09.I-ficha-tercero-anclas.md](09.I-ficha-tercero-anclas.md) |
+| I | **Ficha de tercero con anclas de identidad**: motor único de duplicados por igualdad (documento, medios, celular, correo, nombre exacto), entidad del medio (Nequi, Bancolombia, Bre-B…), alta progresiva y avisos en la web | PLANIFICADO (aprobada 1-oct-2026; se construye después de J) | [09.I-ficha-tercero-anclas.md](09.I-ficha-tercero-anclas.md) |
+| J | **Bot: Mini App de Telegram «📝 Completar tercero»** (decisión de Andrés 1-oct: Mini App primero, desde lo mínimo) + después entidad tras 💾, 📇 Ficha y `/ficha` | EN PRODUCCIÓN v1 (2-oct-2026, `b6c0e42`); falta la prueba real CA-09I-01 (misma spec que I, §10) | [09.I-ficha-tercero-anclas.md](09.I-ficha-tercero-anclas.md) |
 
 > La antigua "F — Consultas/comandos de lectura" de `docs/bot_ia.md` §9 la cubre el módulo 13 (Análisis Inteligente, hito 3). Se reasigna la letra para no dejar huecos.

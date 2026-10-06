@@ -19,3 +19,8 @@
 | `memory-bank_activeContext.md` | Contexto de sesión — reemplazado por `CHECKLIST.md` | ago 2026 |
 | `memory-bank_progress.md` | Avance por módulo — fusionado en `CHECKLIST.md` | ago 2026 |
 | `memory-bank_projectbrief.md` | Brief de proyecto — reemplazado por `docs/PRD.md` | jun 2026 |
+| `conexion_bd_guia.md` | Guía de conexión y troubleshooting de la BD de junio (anterior al failover automático de sep) | oct 2026 |
+| `D02_FIN_spec.md` | Spec histórica de Contabilidad 01–06 (numeración D01/D02/D03, anterior a `docs/specs/`) | oct 2026 |
+| `design_system.md` | Sistema de diseño de junio (lo vigente está en `AGENTS.md` → "Identidad Visual") | oct 2026 |
+| `module_08_project_hub.md` | Documentación técnica del Project Hub al 11 jun | oct 2026 |
+| `remediacion_2026-07.md` | Remediación de seguridad de julio (cerrada) | oct 2026 |
