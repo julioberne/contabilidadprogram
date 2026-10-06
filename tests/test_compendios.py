@@ -275,17 +275,18 @@ class TestSeguimiento(unittest.TestCase):   # 13.6-c
         self.assertNotEqual(v, drv.visitante_de(9, "181.50.12.8", UA_ANDROID))
 
     def test_primera_apertura_y_sin_repetir(self):   # CA-136-09
-        cur = FakeCursor(R((1,)), R((1, "EXP-2026-0007", "Viaje")))
+        cur = FakeCursor(R(), R((1,)), R((1, "EXP-2026-0007", "Viaje")))
         r = drv.anotar(9, "abrio", "181.50.12.7", UA_ANDROID, conn=FakeConn(cur))
         self.assertEqual((r["nuevo"], r["primera"], r["folio"]), (True, True, "EXP-2026-0007"))
-        self.assertIn("visitas = visitas + 1", cur.sql(1))
+        self.assertIn("pg_advisory_xact_lock", cur.sql(0))                     # simultáneas en fila
+        self.assertIn("visitas = visitas + 1", cur.sql(2))
         self.assertNotIn("181.50.12.7", json.dumps([str(p) for _, p in cur.ejecutadas]))   # CA-136-13
-        cur = FakeCursor(R((2,)), R((2, "EXP", "x")))
+        cur = FakeCursor(R(), R((2,)), R((2, "EXP", "x")))
         self.assertFalse(drv.anotar(9, "abrio", "1.1.1.1", UA_ANDROID, conn=FakeConn(cur))["primera"])
-        cur = FakeCursor(R())                                                   # repetido dentro de 10 min
+        cur = FakeCursor(R(), R())                                              # repetido dentro de 10 min
         self.assertEqual(drv.anotar(9, "abrio", "1.1.1.1", UA_ANDROID, conn=FakeConn(cur)),
                          {"nuevo": False, "primera": False, "dispositivo": "📱 Android · Chrome"})
-        self.assertEqual(len(cur.ejecutadas), 1)
+        self.assertEqual(len(cur.ejecutadas), 2)
         cur = FakeCursor()
         self.assertTrue(drv.anotar(9, "abrio", "1.1.1.1", "WhatsApp/2.23.20.0 A", conn=FakeConn(cur))["robot"])
         self.assertEqual(cur.ejecutadas, [])
@@ -298,9 +299,9 @@ class TestSeguimiento(unittest.TestCase):   # 13.6-c
         vencido = R((9, "EXP", _snap(), AHORA - timedelta(days=1), None))
         with self.assertRaises(drv.NoDisponible):
             drv.evento_publico(TestPublico.TOKEN, "tx", 0, "1.1.1.1", UA_ANDROID, conn=FakeConn(FakeCursor(vencido)))
-        cur = FakeCursor(fila, R((5,)), R())
+        cur = FakeCursor(fila, R(), R((5,)), R())
         self.assertTrue(drv.evento_publico(TestPublico.TOKEN, "tx", 1, "1.1.1.1", UA_ANDROID, conn=FakeConn(cur))["nuevo"])
-        self.assertEqual((cur.ejecutadas[1][1]["t"], cur.ejecutadas[1][1]["i"]), ("tx", 1))
+        self.assertEqual((cur.ejecutadas[2][1]["t"], cur.ejecutadas[2][1]["i"]), ("tx", 1))
 
     def test_resumir_que_reviso(self):   # CA-136-11
         snap = drv.armar_snapshot(TXS, EMPRESAS, OPC, "x", None)       # i: 0=#45, 1=#60, 2=#61, 3=#57
@@ -343,6 +344,31 @@ class TestSeguimiento(unittest.TestCase):   # 13.6-c
         f = drv.listar(conn=FakeConn(cur))[0]
         self.assertEqual((f["visitantes"], f["en_vivo"]), (0, False))
         self.assertIn("ROLLBACK TO SAVEPOINT", cur.sql(-1))
+
+
+class TestBorrar(unittest.TestCase):   # 06-oct: 🗑 compendio y 🧹 actividad
+
+    def test_vigente_no_se_borra(self):
+        with self.assertRaises(drv.Conflicto):
+            drv.eliminar(9, conn=FakeConn(FakeCursor(R(_fila_bd()))))
+        with self.assertRaises(drv.NoEncontrado):
+            drv.eliminar(9, conn=FakeConn(FakeCursor(R())))
+
+    def test_revocado_o_vencido_se_borra_con_su_actividad(self):
+        for fila in (_fila_bd(revocado_en=AHORA), _fila_bd(expira_en=AHORA - timedelta(days=1))):
+            cur = FakeCursor(R(fila), R())
+            self.assertEqual(drv.eliminar(9, conn=FakeConn(cur)), {"eliminado": True, "id": 9, "folio": "EXP-2026-0007"})
+            self.assertIn("DELETE FROM accounting_compendios WHERE id", cur.sql(1))
+
+    def test_inactivos_y_actividad(self):
+        cur = FakeCursor(R(("EXP-1",), ("EXP-2",)))
+        self.assertEqual(drv.eliminar_inactivos(conn=FakeConn(cur)), {"eliminados": 2, "folios": ["EXP-1", "EXP-2"]})
+        self.assertIn("revocado_en IS NOT NULL OR expira_en <= now()", cur.sql(0))
+        cur = FakeCursor(R((1,)), R(rowcount=37))
+        self.assertEqual(drv.borrar_actividad(9, conn=FakeConn(cur)), {"borrados": 37, "id": 9})
+        self.assertIn("DELETE FROM accounting_compendio_eventos WHERE compendio_id", cur.sql(1))
+        with self.assertRaises(drv.NoEncontrado):
+            drv.borrar_actividad(9, conn=FakeConn(FakeCursor(R())))
 
 
 class TestAviso(unittest.TestCase):   # CA-136-12
@@ -647,6 +673,30 @@ class TestRouter(unittest.TestCase):
                 mock.patch.object(aviso, "avisar_primera_apertura") as avisar:
             self.client.get("/c/" + "a" * 43)
         avisar.assert_not_called()
+
+    def test_borrar_es_solo_admin(self):
+        from routers.auth_guard import create_session_token
+        owner = {"Authorization": "Bearer " + create_session_token({"id": 1, "name": "A", "role": "owner"})}
+        for ruta in ("/api/compendios/9", "/api/compendios/9/actividad", "/api/compendios/inactivos"):
+            self.assertEqual(self.client.delete(ruta).status_code, 401, ruta)
+            self.assertEqual(self.client.delete(ruta, headers=self.contador).status_code, 403, ruta)
+        with mock.patch.object(drv, "eliminar_inactivos", return_value={"eliminados": 3, "folios": []}) as m:
+            r = self.client.delete("/api/compendios/inactivos", headers=owner)
+        self.assertEqual((r.status_code, r.json()["eliminados"]), (200, 3))
+        m.assert_called_once()
+        with mock.patch.object(drv, "eliminar", side_effect=drv.Conflicto("vigente")):
+            self.assertEqual(self.client.delete("/api/compendios/9", headers=owner).status_code, 409)
+
+    def test_cookie_del_visor(self):
+        with mock.patch.object(drv, "abrir", return_value={**_snap(), "_id": 9}),                 mock.patch.object(drv, "anotar", return_value={"nuevo": True}) as anotar:
+            r = self.client.get("/c/" + "a" * 43)
+            cookie = r.cookies.get("fsv")
+            self.assertRegex(cookie, r"^[A-Za-z0-9_-]{16,40}$")
+            self.assertIn("httponly", r.headers["set-cookie"].lower())
+            self.assertEqual(anotar.call_args.args[2], cookie)                 # la huella sale de la cookie
+            r2 = self.client.get("/c/" + "a" * 43, cookies={"fsv": cookie})
+        self.assertNotIn("set-cookie", r2.headers)                              # el mismo navegador: la misma
+        self.assertEqual(anotar.call_args.args[2], cookie)
 
     def test_vista_previa_interna_no_cuenta(self):
         with mock.patch.object(drv, "abrir", return_value={**_snap(), "_id": 9}), \

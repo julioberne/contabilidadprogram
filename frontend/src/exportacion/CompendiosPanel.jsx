@@ -15,7 +15,7 @@ import { ESTADOS, VIGENCIAS, fechaCorta, haceCuanto, linkCompleto } from './comp
 import { REFRESCO_PANEL_MS, horaCorta, textoEvento, useRefresco } from './seguimiento.js';
 import SeguimientoCompendio from './SeguimientoCompendio.jsx';
 
-export default function CompendiosPanel() {
+export default function CompendiosPanel({ admin = false }) {
   const [lista, setLista] = useState(null);          // null = cargando
   const [actividad, setActividad] = useState([]);
   const [error, setError] = useState('');
@@ -40,6 +40,20 @@ export default function CompendiosPanel() {
     catch (e) { setError(`El ${formato.toUpperCase()} falló: ${e.message}`); }
     finally { setBajando(null); }
   };
+  // 🗑 Borrar (06-oct, solo admin): un compendio revocado o vencido, o todos los inactivos de una vez.
+  const borrar = (c) => setDialogo(
+    <DialogoConfirmar titulo={`🗑 Borrar ${c.folio}`} peligro textoOk="BORRAR"
+      texto={`Se borra para siempre: el compendio, su foto y toda su actividad (visitas y qué revisó).\nEl folio ${c.folio} queda como hueco en la secuencia.`}
+      onCerrar={() => setDialogo(null)}
+      onOk={async () => { await api.del(`/compendios/${c.id}`); setLista((xs) => xs.filter((x) => x.id !== c.id)); setDialogo(null); }} />,
+  );
+  const inactivos = (lista || []).filter((c) => c.estado !== 'vigente').length;
+  const borrarInactivos = () => setDialogo(
+    <DialogoConfirmar titulo={`🗑 Borrar ${inactivos} compendio(s) inactivo(s)`} peligro textoOk="BORRAR TODOS"
+      texto={'Se borran para siempre todos los compendios REVOCADOS o VENCIDOS, con su foto y su actividad.\nLos vigentes no se tocan.'}
+      onCerrar={() => setDialogo(null)}
+      onOk={async () => { await api.del('/compendios/inactivos'); setDialogo(null); cargar(); }} />,
+  );
   const reemplazar = (c) => setLista((xs) => xs.map((x) => (x.id === c.id ? { ...x, ...c } : x)));
   const copiar = async (c) => {
     try { await navigator.clipboard.writeText(linkCompleto(c.ruta, window.location.origin)); setCopiado(c.id); }
@@ -63,7 +77,12 @@ export default function CompendiosPanel() {
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-bold text-[12px]">🔗 COMPENDIOS PARA CLIENTES</span>
         <span className="text-[10px] text-gray-600">links temporales sin login · se crean desde 📥 → 🧾 Transacciones → 🤝 Cliente</span>
-        <button type="button" className={`${btnBlanco} ml-auto`} onClick={cargar} title="Se actualiza solo cada 30 s">↻</button>
+        {admin && inactivos > 0 && (
+          <button type="button" className={`${btnPeligro} ml-auto`} onClick={borrarInactivos}
+            title="Libera espacio: borra los revocados y vencidos con su actividad">🗑 BORRAR INACTIVOS ({inactivos})</button>
+        )}
+        <button type="button" className={`${btnBlanco} ${admin && inactivos > 0 ? '' : 'ml-auto'}`} onClick={cargar}
+          title="Se actualiza solo cada 30 s">↻</button>
       </div>
       <AvisoError texto={error} />
 
@@ -111,13 +130,17 @@ export default function CompendiosPanel() {
                 </>}
                 {c.estado !== 'revocado' && <button type="button" className={btnBlanco} onClick={() => ampliar(c)}>⏳ AMPLIAR</button>}
                 {c.estado === 'vigente' && <button type="button" className={btnPeligro} onClick={() => revocar(c)}>⛔ REVOCAR</button>}
+                {admin && c.estado !== 'vigente' && (
+                  <button type="button" className={btnPeligro} onClick={() => borrar(c)}
+                    title="Borra el compendio y su actividad para liberar espacio">🗑 BORRAR</button>
+                )}
               </span>
             </li>
           );
         })}
       </ul>
       {dialogo}
-      {siguiendo && <SeguimientoCompendio compendio={siguiendo} onCerrar={() => setSiguiendo(null)} />}
+      {siguiendo && <SeguimientoCompendio compendio={siguiendo} admin={admin} onCerrar={() => setSiguiendo(null)} />}
     </section>
   );
 }

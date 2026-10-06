@@ -14,7 +14,7 @@
    ============================================================ */
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
-import { formatoBytes } from './organizador.js';
+import { formatoBytes, puedeBorrar } from './organizador.js';
 import Organizador from './Organizador.jsx';
 import CompendiosPanel from './CompendiosPanel.jsx';
 import { btnNegro } from './Dialogos.jsx';
@@ -84,7 +84,7 @@ export default function ExportacionApp({ user }) {
             🔗 Compendios</button>
         </div>
       )}
-      {!sinPermiso && verCompendios && <CompendiosPanel />}
+      {!sinPermiso && verCompendios && <CompendiosPanel admin={puedeBorrar(user)} />}
 
       {sinPermiso ? (
         <div role="alert" className="bg-white border-2 border-black shadow-brutal p-2 text-[11px]">

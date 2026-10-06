@@ -6,23 +6,31 @@
    ============================================================ */
 import { useCallback, useState } from 'react';
 import { api } from './api.js';
-import { Modal, AvisoError } from './Dialogos.jsx';
+import { Modal, AvisoError, DialogoConfirmar, btnPeligro } from './Dialogos.jsx';
 import { fechaCorta } from './compendios.js';
 import { REFRESCO_SEGUIMIENTO_MS, horaCorta, tardanza, textoEvento, useRefresco } from './seguimiento.js';
 
 const plata = (v, m) => `${m === 'COP' || !m ? '$' : `${m} `}${Number(v || 0).toLocaleString('es-CO', { maximumFractionDigits: 2 })}`;
 const chip = 'border-2 border-black px-2 py-0.5 text-[10px] font-bold bg-white';
 
-export default function SeguimientoCompendio({ compendio, onCerrar }) {
+export default function SeguimientoCompendio({ compendio, onCerrar, admin = false }) {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState('');
   const [hora, setHora] = useState(null);
+  const [dialogo, setDialogo] = useState(null);
   const cargar = useCallback(() => api.get(`/compendios/${compendio.id}/seguimiento`)
     .then((d) => { setDatos(d); setError(''); setHora(new Date()); })
     .catch((e) => setError(e.message)), [compendio.id]);
   useRefresco(cargar, REFRESCO_SEGUIMIENTO_MS);
 
   const r = datos?.resumen;
+  // 🧹 (06-oct, solo admin): borra el detalle de actividad; quedan los totales (visitas, descargas).
+  const borrarActividad = () => setDialogo(
+    <DialogoConfirmar titulo="🧹 Borrar la actividad" peligro textoOk="BORRAR ACTIVIDAD"
+      texto={`Se borra el detalle de ${compendio.folio}: quién abrió qué y cuándo.\nEl compendio y su link no cambian; quedan los totales de visitas y descargas.`}
+      onCerrar={() => setDialogo(null)}
+      onOk={async () => { await api.del(`/compendios/${compendio.id}/actividad`); setDialogo(null); cargar(); }} />,
+  );
   return (
     <Modal titulo={`📈 SEGUIMIENTO — ${compendio.folio} · ${compendio.nombre}`} onCerrar={onCerrar} ancho="max-w-4xl">
       <AvisoError texto={error} />
@@ -71,6 +79,10 @@ export default function SeguimientoCompendio({ compendio, onCerrar }) {
             <div className="px-2 py-1 border-b-2 border-black bg-brutalBg flex flex-wrap gap-2 items-baseline">
               <span className="font-bold text-[11px]">ACTIVIDAD</span>
               <span className="text-[10px] text-gray-600">se actualiza sola cada 15 s{hora ? ` · ${hora.toLocaleTimeString('es-CO', { hour12: false })}` : ''}</span>
+              {admin && datos.eventos.length > 0 && (
+                <button type="button" className={`${btnPeligro} ml-auto`} onClick={borrarActividad}
+                  title="Libera espacio: borra el detalle de actividad de este compendio">🧹 BORRAR ACTIVIDAD</button>
+              )}
             </div>
             <ol className="max-h-[28vh] overflow-auto text-[10px] divide-y divide-black/10">
               {datos.eventos.map((e, k) => (
@@ -84,6 +96,7 @@ export default function SeguimientoCompendio({ compendio, onCerrar }) {
           </section>
         </div>
       )}
+      {dialogo}
     </Modal>
   );
 }

@@ -51,6 +51,8 @@ B5 de "Mejor que Excel": ⇩ EXPORTACIÓN (spec `docs/specs/13-analisis/13.5-sub
      (defusedxml explícito), texto seguro para Excel/CSV. Subidas directas navegador→Supabase (EvidenceModal): límites de
      MIME y tamaño en la configuración del bucket (sin código). CI: `pip-audit` + `npm audit`. ClamAV solo si sobra RAM.
    - Mediano plazo (evaluar aparte): bucket privado + URLs firmadas de vida corta (toca RRHH, bot y Excel).
+- 06-oct (tarde): 🗑 borrar compendio revocado/vencido, 🗑 borrar inactivos y 🧹 borrar actividad (solo admin);
+  aperturas duplicadas corregidas (cookie `fsv` del visor + `pg_advisory_xact_lock` en `_anotar`).
 - 06-oct: el aviso de Telegram no salía → `f097d2e` pasa TELEGRAM_BOT_TOKEN y COMPENDIO_AVISO_TELEGRAM al backend en el
   compose. Probar con un compendio NUEVO (EXP-0003 y 0005 ya tienen su 1.ª apertura).
 

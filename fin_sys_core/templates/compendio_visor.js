@@ -147,7 +147,7 @@
     if (D.offline || D.previa || avisadas[t.i] || !window.fetch) return;
     avisadas[t.i] = true;
     try {
-      fetch(D.base + '/evento', { method: 'POST', keepalive: true, credentials: 'omit',
+      fetch(D.base + '/evento', { method: 'POST', keepalive: true, credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tipo: 'tx', i: t.i }) })
         .catch(function () {});
     } catch (e) { /* el seguimiento jamás estorba al cliente */ }

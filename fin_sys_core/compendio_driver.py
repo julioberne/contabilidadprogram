@@ -422,6 +422,54 @@ def _purgar_eventos(cur) -> int:
         return 0
 
 
+def eliminar(cid: int, conn=None) -> Dict[str, Any]:
+    """🗑 Borra un compendio REVOCADO o VENCIDO con toda su actividad (ON DELETE CASCADE).
+    Uno vigente no: primero se revoca (el link dejaría de funcionar sin aviso). El folio queda
+    como hueco en la secuencia, igual que en la purga de 13.5."""
+    with _conexion(conn) as c:
+        cur = c.cursor()
+        cur.execute(SQL_UNO, (cid,))
+        f = _fila(cur, _COLS)
+        if not f:
+            raise NoEncontrado(f"El compendio {cid} no existe.")
+        if estado(f) == "vigente":
+            raise Conflicto("Ese compendio sigue vigente: revócalo primero y luego bórralo.")
+        cur.execute("DELETE FROM accounting_compendios WHERE id = %s", (cid,))
+        cur.close()
+    return {"eliminado": True, "id": cid, "folio": f["folio"]}
+
+
+SQL_BORRAR_INACTIVOS = """
+    DELETE FROM accounting_compendios
+     WHERE revocado_en IS NOT NULL OR expira_en <= now()
+    RETURNING folio
+"""
+
+
+def eliminar_inactivos(conn=None) -> Dict[str, Any]:
+    """🗑 Todos los revocados y vencidos de una vez (con su actividad)."""
+    with _conexion(conn) as c:
+        cur = c.cursor()
+        cur.execute(SQL_BORRAR_INACTIVOS)
+        folios = [r[0] for r in cur.fetchall()]
+        cur.close()
+    return {"eliminados": len(folios), "folios": folios}
+
+
+def borrar_actividad(cid: int, conn=None) -> Dict[str, Any]:
+    """🧹 Borra el detalle de actividad de un compendio (libera espacio); quedan sus totales
+    (visitas, descargas, última visita) y el compendio sigue igual."""
+    with _conexion(conn) as c:
+        cur = c.cursor()
+        cur.execute("SELECT 1 FROM accounting_compendios WHERE id = %s", (cid,))
+        if not cur.fetchone():
+            raise NoEncontrado(f"El compendio {cid} no existe.")
+        cur.execute("DELETE FROM accounting_compendio_eventos WHERE compendio_id = %s", (cid,))
+        n = max(cur.rowcount or 0, 0)
+        cur.close()
+    return {"borrados": n, "id": cid}
+
+
 # ══ Carpeta 🔗 Compendios ══════════════════════════════════════════════════
 
 _COLS = ("id", "folio", "nombre", "nota", "n", "creado_por", "creado_en", "expira_en", "revocado_en",
@@ -563,9 +611,11 @@ def es_robot(ua: str) -> bool:
     return not ua or bool(_ROBOT.search(ua))
 
 
-def visitante_de(cid: int, ip: str, ua: str) -> str:
-    """Huella del visitante SIN guardar la IP: HMAC con la clave del servidor (CA-136-13)."""
-    return hmac.new(_clave(), f"visitante|{cid}|{ip}|{ua}".encode(), hashlib.sha256).hexdigest()[:12]
+def visitante_de(cid: int, quien: str, ua: str) -> str:
+    """Huella del visitante SIN guardar nada identificable: HMAC con la clave del servidor (CA-136-13).
+    `quien` = la cookie del visor (fsv, un aleatorio por navegador) o, sin ella, la IP. La cookie
+    evita que el mismo celular cuente como varios cuando alterna IPv6/IPv4 (06-oct)."""
+    return hmac.new(_clave(), f"visitante|{cid}|{quien}|{ua}".encode(), hashlib.sha256).hexdigest()[:12]
 
 
 def dispositivo_de(ua: str) -> str:
@@ -609,6 +659,9 @@ def _anotar(cur, cid: int, tipo: str, visitante: str, dispositivo: str,
             i: Optional[int] = None, j: Optional[int] = None) -> Dict[str, Any]:
     """Anota un evento (sin repetir el mismo dentro de 10 min). → {nuevo, primera, folio, nombre};
     `primera` = es la PRIMERA apertura del compendio (para el aviso por Telegram)."""
+    # Dos peticiones simultáneas del mismo visitante (p. ej. el celular que abre el link dos veces
+    # en 30 ms) verían "no está anotado" a la vez: el candado de transacción las pone en fila.
+    cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"compendio|{cid}|{visitante}|{tipo}|{i}|{j}",))
     cur.execute(SQL_ANOTAR, {"c": cid, "t": tipo, "i": i, "j": j, "v": visitante,
                              "d": (dispositivo or "")[:60], "tope": TOPE_EVENTOS})
     if not cur.fetchone():

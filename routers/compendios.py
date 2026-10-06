@@ -21,9 +21,11 @@ Vencido, revocado o inexistente → la misma página 404 "ya no disponible".
 Cabeceras: noindex, no-referrer, no-store, nosniff y CSP con nonce (§4.7).
 """
 import os
+import re
+import secrets
 import time
 from collections import deque
-from typing import Deque, Dict, List, Optional
+from typing import Deque, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
@@ -32,7 +34,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from routers.auth_guard import require_contador
+from routers.auth_guard import require_admin, require_contador
 
 router = APIRouter(tags=["Compendio para el cliente"])
 
@@ -110,6 +112,32 @@ def listar(_u: dict = Depends(require_contador)):
 def actualizar(cid: int, body: CompendioCambio = Body(...), user: dict = Depends(require_contador)):
     try:
         return _drv().actualizar(cid, body.model_dump(), user)
+    except Exception as e:
+        _fallo(e)
+
+
+# 🗑 Borrar (06-oct, pedido de Andrés): solo admin, como en el organizador. "inactivos" va ANTES
+# de /{cid} para que no se lea como un id.
+@router.delete("/api/compendios/inactivos")
+def borrar_inactivos(_u: dict = Depends(require_admin)):
+    try:
+        return _drv().eliminar_inactivos()
+    except Exception as e:
+        _fallo(e)
+
+
+@router.delete("/api/compendios/{cid}")
+def borrar(cid: int, _u: dict = Depends(require_admin)):
+    try:
+        return _drv().eliminar(cid)
+    except Exception as e:
+        _fallo(e)
+
+
+@router.delete("/api/compendios/{cid}/actividad")
+def borrar_actividad(cid: int, _u: dict = Depends(require_admin)):
+    try:
+        return _drv().borrar_actividad(cid)
     except Exception as e:
         _fallo(e)
 
@@ -237,12 +265,30 @@ def _demasiadas() -> HTMLResponse:
                                  "Content-Security-Policy": CSP_SIMPLE})
 
 
-def _anotar_seguro(cid, tipo: str, request: Request, i: Optional[int] = None, j: Optional[int] = None) -> dict:
+COOKIE_VISOR = "fsv"
+_COOKIE_OK = re.compile(r"^[A-Za-z0-9_-]{16,40}$")
+
+
+def _quien_de(request: Request) -> Tuple[str, Optional[str]]:
+    """→ (identificador del visitante, cookie nueva a poner o None). Con la cookie del visor el
+    mismo navegador es el mismo visitante aunque alterne IPv6/IPv4; sin ella (primera vez), una nueva."""
+    c = request.cookies.get(COOKIE_VISOR, "")
+    if _COOKIE_OK.match(c):
+        return c, None
+    nueva = secrets.token_urlsafe(16)
+    return nueva, nueva
+
+
+def _anotar_seguro(cid, tipo: str, request: Request, i: Optional[int] = None, j: Optional[int] = None,
+                   quien: Optional[str] = None) -> dict:
     """El seguimiento nunca tumba lo que ve el cliente: si falla (p. ej. falta la migración), se sigue."""
     if cid is None:
         return {}
+    if quien is None:
+        c = request.cookies.get(COOKIE_VISOR, "")
+        quien = c if _COOKIE_OK.match(c) else _ip(request)
     try:
-        return _drv().anotar(cid, tipo, _ip(request), request.headers.get("user-agent", ""), i, j)
+        return _drv().anotar(cid, tipo, quien, request.headers.get("user-agent", ""), i, j)
     except Exception as e:
         print(f"⚠️ [compendios] no se anotó '{tipo}' del compendio {cid}: {e}")
         return {}
@@ -276,13 +322,19 @@ def ver(token: str, request: Request):
     cid = datos.pop("_id", None)
     # ?previa=1: Andrés lo abre desde ⇩ Exportación (↗ ABRIR) → no es el cliente: ni se anota ni avisa.
     previa = request.query_params.get("previa") == "1"
-    anotado = {} if previa else _anotar_seguro(cid, "abrio", request)
+    quien, nueva = _quien_de(request)
+    anotado = {} if previa else _anotar_seguro(cid, "abrio", request, quien=quien)
     datos["base"] = f"/api/publico/compendio/{token}"
     datos["previa"] = previa
     html, nonce = _visor().pagina(datos)
-    return HTMLResponse(html, headers={**BASE, "Cache-Control": "no-store",
+    resp = HTMLResponse(html, headers={**BASE, "Cache-Control": "no-store",
                                        "Content-Security-Policy": _visor().csp(nonce)},
                         background=_tarea_aviso(anotado))
+    if nueva and not previa:
+        # Cookie propia del visor (aleatoria, sin datos): el mismo navegador = el mismo visitante.
+        resp.set_cookie(COOKIE_VISOR, nueva, max_age=365 * 24 * 3600, path="/", httponly=True, samesite="lax",
+                        secure=request.headers.get("x-forwarded-proto", request.url.scheme) == "https")
+    return resp
 
 
 @router.get("/api/publico/compendio/{token}/pdf", include_in_schema=False)
@@ -328,7 +380,9 @@ def evento(token: str, request: Request, body: EventoIn = Body(...)):
         return Response(status_code=429, headers={**BASE, "Retry-After": "60"})
     drv = _drv()
     try:
-        drv.evento_publico(token, body.tipo, body.i, _ip(request), request.headers.get("user-agent", ""))
+        c = request.cookies.get(COOKIE_VISOR, "")
+        drv.evento_publico(token, body.tipo, body.i, c if _COOKIE_OK.match(c) else _ip(request),
+                           request.headers.get("user-agent", ""))
     except drv.NoDisponible:
         return Response(status_code=404, headers=BASE)
     except Exception as e:
