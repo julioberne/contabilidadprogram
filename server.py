@@ -96,6 +96,7 @@ from routers.analytics import router as analytics_router
 from routers.webhooks_sms import router as webhooks_sms_router
 from routers.third_party_accounts import router as third_party_accounts_router
 from routers.accounting_files import router as accounting_files_router
+from routers.compendios import router as compendios_router
 
 app.include_router(portfolios_router)
 app.include_router(transactions_router)
@@ -118,6 +119,7 @@ app.include_router(analytics_router)    # Análisis Inteligente (B0+B2+B3)
 app.include_router(webhooks_sms_router) # Bot IA 09.F: webhook SMS + tokens
 app.include_router(third_party_accounts_router)  # Bot IA 09.G: medios de pago del tercero
 app.include_router(accounting_files_router)  # Análisis 13.5: organizador contable 📦
+app.include_router(compendios_router)  # Exportación 13.6: 🤝 compendio para el cliente (/c/<código>)
 
 
 # ==============================================================================

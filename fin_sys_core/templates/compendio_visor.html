@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>__TITULO__</title>
+<style>
+  /* Compendio para el cliente (spec 13.6) — visor único para el link y el HTML offline.
+     Paleta brutalista de FIN-SYS; sin fuentes externas (privacidad y offline). */
+  :root { --fondo:#FCF9F2; --neutro:#EBE6D8; --verde:#00FF66; --ambar:#FFB000; --rojo:#FF3B30; --tinta:#000; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--fondo); color: var(--tinta); }
+  body { font-family: "Roboto Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; line-height: 1.4; }
+  .marco { max-width: 980px; margin: 0 auto; padding: 12px; }
+  .caja { background: #fff; border: 2px solid #000; box-shadow: 4px 4px 0 #000; padding: 10px; margin-bottom: 12px; }
+  h1 { font-size: 17px; margin: 0 0 4px; text-transform: uppercase; }
+  .meta { font-size: 11px; color: #333; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+  .nota { white-space: pre-wrap; margin-top: 8px; border-left: 4px solid #000; padding-left: 8px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 2px solid #000; padding: 2px 8px; font-weight: 700; font-size: 12px; background: #fff; }
+  .ing { background: var(--verde); } .gas { background: var(--rojo); color: #fff; } .net { background: #000; color: var(--verde); }
+  .controles { display: flex; flex-wrap: wrap; gap: 6px; }
+  .controles input, .controles select { border: 2px solid #000; background: #fff; font: inherit; font-size: 12px; padding: 4px 6px; }
+  .controles input { flex: 1 1 200px; min-width: 0; }
+  .cuenta { font-size: 11px; color: #444; margin: 6px 0 0; }
+  ol.lista { list-style: none; margin: 0; padding: 0; }
+  ol.lista > li { border-top: 1px solid #000; }
+  ol.lista > li:first-child { border-top: 0; }
+  button.fila { all: unset; box-sizing: border-box; cursor: pointer; width: 100%; display: grid; gap: 2px 8px; padding: 8px 4px;
+    grid-template-columns: 82px 1fr auto; align-items: center; }
+  button.fila:hover, button.fila[aria-expanded="true"] { background: var(--neutro); }
+  button.fila:focus-visible { outline: 3px solid var(--ambar); }
+  .fecha { font-size: 11px; }
+  .tipo { display: inline-block; border: 1px solid #000; font-size: 10px; font-weight: 700; padding: 0 4px; margin-right: 6px; }
+  .t-INGRESO { background: var(--verde); } .t-GASTO { background: var(--rojo); color: #fff; } .t-TRANSFERENCIA { background: #000; color: #fff; }
+  .concepto { font-weight: 700; text-transform: uppercase; overflow-wrap: anywhere; }
+  .sub { font-size: 11px; color: #444; }
+  .valor { font-weight: 700; text-align: right; white-space: nowrap; }
+  .marcas { font-size: 11px; text-align: right; }
+  .detalle { background: var(--fondo); border-top: 1px dashed #000; padding: 10px 6px 12px; }
+  .datos { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px 12px; font-size: 12px; margin-bottom: 10px; }
+  .datos b { display: block; font-size: 10px; text-transform: uppercase; color: #555; }
+  .boton { display: inline-block; border: 2px solid #000; background: #fff; color: #000; padding: 4px 10px; font-weight: 700;
+    font-size: 12px; text-decoration: none; text-transform: uppercase; cursor: pointer; font-family: inherit; }
+  .boton:hover { background: var(--ambar); }
+  .galeria { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+  .soporte { border: 2px solid #000; background: #fff; padding: 6px; max-width: 100%; }
+  .soporte img { display: block; max-width: 280px; max-height: 280px; width: auto; height: auto; cursor: zoom-in; }
+  .soporte iframe { display: block; width: 560px; max-width: 100%; height: 480px; border: 1px solid #000; background: #fff; }
+  .soporte .pie { font-size: 10px; margin-top: 4px; overflow-wrap: anywhere; }
+  .no-disp { color: #777; font-style: italic; font-size: 12px; }
+  .vacio { padding: 16px; text-align: center; color: #555; }
+  .lupa { position: fixed; inset: 0; background: rgba(0,0,0,.88); display: flex; align-items: center; justify-content: center; z-index: 10; cursor: zoom-out; padding: 10px; }
+  .lupa img { max-width: 100%; max-height: 100%; border: 2px solid #fff; background: #fff; }
+  footer { font-size: 11px; color: #444; text-align: center; padding: 8px 0 24px; }
+  @media (max-width: 560px) {
+    button.fila { grid-template-columns: 1fr auto; }
+    .fecha { grid-column: 1 / -1; }
+    .soporte img { max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+<main class="marco" id="app"><div class="caja vacio">Cargando…</div></main>
+<script type="application/json" id="datos">__DATOS__</script>
+<script nonce="__NONCE__">
+__JS__
+</script>
+</body>
+</html>
