@@ -4,24 +4,36 @@
    abrir, ⏳ ampliar o ⛔ revocar. Vive en la franja de ⇩
    Exportación (no en el organizador: un compendio no es un
    archivo, es un link).
+   13.6-c 📈: arriba, la actividad reciente de los clientes; en cada
+   fila ● EN VIVO y "revisó X de N"; 📈 abre el seguimiento. Se
+   refresca solo cada 30 s mientras la pestaña está visible.
    ============================================================ */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { api } from './api.js';
 import { AvisoError, DialogoConfirmar, DialogoElegir, btnBlanco, btnPeligro } from './Dialogos.jsx';
 import { ESTADOS, VIGENCIAS, fechaCorta, haceCuanto, linkCompleto } from './compendios.js';
+import { REFRESCO_PANEL_MS, horaCorta, textoEvento, useRefresco } from './seguimiento.js';
+import SeguimientoCompendio from './SeguimientoCompendio.jsx';
 
 export default function CompendiosPanel() {
   const [lista, setLista] = useState(null);          // null = cargando
+  const [actividad, setActividad] = useState([]);
   const [error, setError] = useState('');
   const [dialogo, setDialogo] = useState(null);
   const [copiado, setCopiado] = useState(null);
+  const [siguiendo, setSiguiendo] = useState(null);
 
-  const cargar = useCallback(() => api.get('/compendios')
-    .then((d) => { setLista(Array.isArray(d) ? d : []); setError(''); })
-    .catch((e) => { setLista([]); setError(e.message); }), []);
-  useEffect(() => { cargar(); }, [cargar]);
+  const cargar = useCallback(() => Promise.all([
+    api.get('/compendios')
+      .then((d) => { setLista(Array.isArray(d) ? d : []); setError(''); })
+      .catch((e) => { setLista((x) => x || []); setError(e.message); }),
+    api.get('/compendios/actividad?limite=10')
+      .then((d) => setActividad(Array.isArray(d) ? d : []))
+      .catch(() => {}),
+  ]), []);
+  useRefresco(cargar, REFRESCO_PANEL_MS);
 
-  const reemplazar = (c) => setLista((xs) => xs.map((x) => (x.id === c.id ? c : x)));
+  const reemplazar = (c) => setLista((xs) => xs.map((x) => (x.id === c.id ? { ...x, ...c } : x)));
   const copiar = async (c) => {
     try { await navigator.clipboard.writeText(linkCompleto(c.ruta, window.location.origin)); setCopiado(c.id); }
     catch (e) { setError(`No pude copiar: ${e.message}`); }
@@ -44,9 +56,24 @@ export default function CompendiosPanel() {
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-bold text-[12px]">🔗 COMPENDIOS PARA CLIENTES</span>
         <span className="text-[10px] text-gray-600">links temporales sin login · se crean desde 📥 → 🧾 Transacciones → 🤝 Cliente</span>
-        <button type="button" className={`${btnBlanco} ml-auto`} onClick={cargar}>↻</button>
+        <button type="button" className={`${btnBlanco} ml-auto`} onClick={cargar} title="Se actualiza solo cada 30 s">↻</button>
       </div>
       <AvisoError texto={error} />
+
+      {actividad.length > 0 && (
+        <div aria-label="Actividad reciente de clientes" className="border-2 border-black bg-brutalBg p-1">
+          <div className="text-[10px] font-bold mb-0.5">📈 ACTIVIDAD RECIENTE DE CLIENTES</div>
+          <ol className="text-[10px] space-y-0.5 max-h-28 overflow-auto">
+            {actividad.map((e, k) => (
+              <li key={`${e.en}-${k}`} className="flex flex-wrap gap-1">
+                <b className="w-20 shrink-0">{horaCorta(e.en)}</b>
+                <span>{e.folio} · {e.dispositivo || 'visitante'} — {textoEvento(e)}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
       {lista === null && <div className="text-[10px]">cargando…</div>}
       {lista?.length === 0 && !error && <div className="text-[10px] text-gray-600">Aún no hay compendios.</div>}
       <ul className="divide-y divide-black/20">
@@ -56,14 +83,18 @@ export default function CompendiosPanel() {
           return (
             <li key={c.id} className="py-1 flex flex-wrap items-center gap-1 text-[10px]">
               <span className={`border border-black px-1 font-bold ${e.clase}`}>{e.texto}</span>
+              {c.en_vivo && <span className="border border-black px-1 font-bold bg-brutalGreen animate-pulse">● EN VIVO</span>}
               <b>{c.folio}</b>
               <span className="truncate max-w-[260px]" title={c.nombre}>{c.nombre}</span>
               <span className="text-gray-700">· {c.n} TX · {c.estado === 'revocado' ? `revocado ${fechaCorta(c.revocado_en)}` : `vence ${fechaCorta(c.expira_en)}`}
-                {' '}· 👁 {c.visitas}{ultima ? ` (última ${ultima})` : ''}</span>
+                {' '}· 👁 {c.visitas}{ultima ? ` (última ${ultima})` : ''}
+                {c.visitas > 0 ? ` · ✔ revisó ${c.revisadas} de ${c.n}` : ' · aún sin abrir'}</span>
               <span className="ml-auto flex flex-wrap gap-1">
+                <button type="button" className={btnBlanco} onClick={() => setSiguiendo(c)}>📈 SEGUIMIENTO</button>
                 {c.ruta && <>
                   <button type="button" className={btnBlanco} onClick={() => copiar(c)}>{copiado === c.id ? '✔ COPIADO' : '📋 LINK'}</button>
-                  <a className={btnBlanco} href={c.ruta} target="_blank" rel="noopener noreferrer">↗ ABRIR</a>
+                  <a className={btnBlanco} href={`${c.ruta}?previa=1`} target="_blank" rel="noopener noreferrer"
+                    title="Vista previa interna: no cuenta como visita del cliente">↗ ABRIR</a>
                 </>}
                 {c.estado !== 'revocado' && <button type="button" className={btnBlanco} onClick={() => ampliar(c)}>⏳ AMPLIAR</button>}
                 {c.estado === 'vigente' && <button type="button" className={btnPeligro} onClick={() => revocar(c)}>⛔ REVOCAR</button>}
@@ -73,6 +104,7 @@ export default function CompendiosPanel() {
         })}
       </ul>
       {dialogo}
+      {siguiendo && <SeguimientoCompendio compendio={siguiendo} onCerrar={() => setSiguiendo(null)} />}
     </section>
   );
 }

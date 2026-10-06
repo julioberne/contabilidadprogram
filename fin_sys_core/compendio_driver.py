@@ -92,6 +92,21 @@ DDL = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS ix_accounting_compendios_creado ON accounting_compendios (creado_en DESC)",
+    # 13.6-c 📈 Seguimiento: qué abrió el cliente y cuándo. Sin IP: el visitante es una huella HMAC.
+    """
+    CREATE TABLE IF NOT EXISTS accounting_compendio_eventos (
+        id BIGSERIAL PRIMARY KEY,
+        compendio_id INTEGER NOT NULL REFERENCES accounting_compendios(id) ON DELETE CASCADE,
+        tipo VARCHAR(20) NOT NULL CHECK (tipo IN ('abrio', 'tx', 'comprobante', 'pdf', 'html')),
+        tx_i INTEGER,
+        soporte_j INTEGER,
+        visitante CHAR(12) NOT NULL,
+        dispositivo VARCHAR(60),
+        en TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_compendio_eventos_compendio ON accounting_compendio_eventos (compendio_id, en DESC)",
+    "CREATE INDEX IF NOT EXISTS ix_compendio_eventos_en ON accounting_compendio_eventos (en DESC)",
 ]
 
 
@@ -394,10 +409,14 @@ SQL_LISTAR = _SELECT + f" ORDER BY creado_en DESC LIMIT {LIMITE_LISTA}"
 SQL_UNO = _SELECT + " WHERE id = %s FOR UPDATE"
 
 
-def _publica(f: Dict[str, Any], ahora: datetime) -> Dict[str, Any]:
+def _publica(f: Dict[str, Any], ahora: datetime, st: Optional[Tuple] = None) -> Dict[str, Any]:
     out = {k: _iso(v) for k, v in f.items() if k not in ("nonce", "token_hash")}
     out["estado"] = estado(f, ahora)
     out["ruta"] = ruta_de(f) if out["estado"] == "vigente" else None
+    visitantes, revisadas, primera, ultimo = st or (0, 0, None, None)
+    ultimo = _fecha_hora(ultimo)
+    out.update(visitantes=int(visitantes or 0), revisadas=int(revisadas or 0), primera_visita=_iso(primera),
+               en_vivo=bool(ultimo and (ahora - ultimo).total_seconds() <= VIVO_SEG))
     return out
 
 
@@ -407,8 +426,9 @@ def listar(conn=None) -> List[Dict[str, Any]]:
         cur = c.cursor()
         cur.execute(SQL_LISTAR)
         filas = _filas(cur, _COLS)
+        stats = _estadisticas(cur, [f["id"] for f in filas])
         cur.close()
-    return [_publica(f, ahora) for f in filas]
+    return [_publica(f, ahora, stats.get(f["id"])) for f in filas]
 
 
 def actualizar(cid: int, cambios: Dict[str, Any], usuario: Optional[Dict[str, Any]], conn=None) -> Dict[str, Any]:
@@ -458,8 +478,10 @@ def _vigente(cur, token: str) -> Dict[str, Any]:
     return f
 
 
-def abrir(token: str, contar: bool = True, conn=None) -> Dict[str, Any]:
-    """La foto + los comprobantes de HOY de cada TX (descritos, nunca su URL)."""
+def abrir(token: str, conn=None) -> Dict[str, Any]:
+    """La foto + los comprobantes de HOY de cada TX (descritos, nunca su URL).
+    Solo lee: la visita la anota el router aparte con anotar() (13.6-c), así un
+    fallo del registro jamás tumba la página del cliente. `_id` es para eso."""
     if not _TOKEN.match(str(token or "")):
         raise NoDisponible()
     with _conexion(conn) as c:
@@ -467,15 +489,13 @@ def abrir(token: str, contar: bool = True, conn=None) -> Dict[str, Any]:
         f = _vigente(cur, token)
         snap = f["snapshot"]
         vivos = soportes_vivos(cur, [t["id"] for t in snap.get("txs", [])])
-        if contar:
-            cur.execute("UPDATE accounting_compendios SET visitas = visitas + 1, ultima_visita = now() "
-                        "WHERE id = %s", (f["id"],))
         cur.close()
     prefijo = prefijo_bucket()
     for t in snap.get("txs", []):
         t["soportes"] = [{"j": j, **{k: v for k, v in describir_soporte(u, prefijo).items() if k != "mime"}}
                          for j, u in enumerate(vivos.get(t["id"]) or [])]
     snap["expira_en"] = _iso(f["expira_en"])
+    snap["_id"] = f["id"]
     return snap
 
 
@@ -497,7 +517,237 @@ def soporte(token: str, i: int, j: int, conn=None) -> Dict[str, Any]:
     d = describir_soporte(urls[j])
     if not d["servible"]:
         raise NoDisponible()
-    return {"url": urls[j], **d}
+    return {"url": urls[j], **d, "_id": f["id"]}
+
+
+# ══ 13.6-c 📈 Seguimiento: qué abrió el cliente y cuándo ═══════════════════
+
+TOPE_EVENTOS = 2000              # eventos de detalle por compendio (las aperturas siempre se anotan)
+VIVO_SEG = 120                   # "● EN VIVO": hubo actividad en los últimos 2 min
+EVENTOS_VISTA = 200
+
+# Vistas previas de enlaces (WhatsApp, Telegram, Facebook…) y robots: NO son el cliente.
+# Sin este filtro, mandar el link por WhatsApp contaría como "el cliente lo abrió".
+_ROBOT = re.compile(r"\bbot\b|bot/|crawler|spider|preview|facebookexternalhit|whatsapp/|telegrambot|slackbot|"
+                    r"discordbot|linkedinbot|skypeuripreview|embedly|curl/|wget/|python-|httpx|go-http|headless",
+                    re.I)
+
+
+def es_robot(ua: str) -> bool:
+    return not ua or bool(_ROBOT.search(ua))
+
+
+def visitante_de(cid: int, ip: str, ua: str) -> str:
+    """Huella del visitante SIN guardar la IP: HMAC con la clave del servidor (CA-136-13)."""
+    return hmac.new(_clave(), f"visitante|{cid}|{ip}|{ua}".encode(), hashlib.sha256).hexdigest()[:12]
+
+
+def dispositivo_de(ua: str) -> str:
+    u = (ua or "").lower()
+    if "iphone" in u:
+        so, icono = "iPhone", "📱"
+    elif "ipad" in u:
+        so, icono = "iPad", "📱"
+    elif "android" in u:
+        so, icono = "Android", "📱"
+    elif "windows" in u:
+        so, icono = "Windows", "💻"
+    elif "macintosh" in u or "mac os x" in u:
+        so, icono = "Mac", "💻"
+    elif "linux" in u or "cros" in u:
+        so, icono = "Linux", "💻"
+    else:
+        so, icono = "Otro", "🌐"
+    for marca, nombre in (("edg", "Edge"), ("opr/", "Opera"), ("samsungbrowser", "Samsung"), ("fban", "Facebook"),
+                          ("instagram", "Instagram"), ("crios", "Chrome"), ("fxios", "Firefox"), ("firefox/", "Firefox"),
+                          ("chrome/", "Chrome"), ("safari/", "Safari")):
+        if marca in u:
+            return f"{icono} {so} · {nombre}"[:60]
+    return f"{icono} {so}"[:60]
+
+
+SQL_ANOTAR = """
+    INSERT INTO accounting_compendio_eventos (compendio_id, tipo, tx_i, soporte_j, visitante, dispositivo)
+    SELECT %(c)s, %(t)s, %(i)s, %(j)s, %(v)s, %(d)s
+     WHERE NOT EXISTS (SELECT 1 FROM accounting_compendio_eventos
+                        WHERE compendio_id = %(c)s AND visitante = %(v)s AND tipo = %(t)s
+                          AND tx_i IS NOT DISTINCT FROM %(i)s AND soporte_j IS NOT DISTINCT FROM %(j)s
+                          AND en > now() - interval '10 minutes')
+       AND (%(t)s = 'abrio'
+            OR (SELECT count(*) FROM accounting_compendio_eventos WHERE compendio_id = %(c)s) < %(tope)s)
+    RETURNING id
+"""
+
+
+def _anotar(cur, cid: int, tipo: str, visitante: str, dispositivo: str,
+            i: Optional[int] = None, j: Optional[int] = None) -> Dict[str, Any]:
+    """Anota un evento (sin repetir el mismo dentro de 10 min). → {nuevo, primera, folio, nombre};
+    `primera` = es la PRIMERA apertura del compendio (para el aviso por Telegram)."""
+    cur.execute(SQL_ANOTAR, {"c": cid, "t": tipo, "i": i, "j": j, "v": visitante,
+                             "d": (dispositivo or "")[:60], "tope": TOPE_EVENTOS})
+    if not cur.fetchone():
+        return {"nuevo": False, "primera": False}
+    if tipo == "abrio":
+        cur.execute("UPDATE accounting_compendios SET visitas = visitas + 1, ultima_visita = now() "
+                    "WHERE id = %s RETURNING visitas, folio, nombre", (cid,))
+        r = cur.fetchone()
+        return {"nuevo": True, "primera": bool(r and r[0] == 1), "folio": r and r[1], "nombre": r and r[2]}
+    cur.execute("UPDATE accounting_compendios SET ultima_visita = now() WHERE id = %s", (cid,))
+    return {"nuevo": True, "primera": False}
+
+
+def anotar(cid: int, tipo: str, ip: str, ua: str, i: Optional[int] = None, j: Optional[int] = None,
+           conn=None) -> Dict[str, Any]:
+    """Lo que el router anota al servir la página (abrio) o un comprobante. Los robots no cuentan."""
+    if es_robot(ua):
+        return {"nuevo": False, "primera": False, "robot": True}
+    dispositivo = dispositivo_de(ua)
+    with _conexion(conn) as c:
+        cur = c.cursor()
+        r = _anotar(cur, cid, tipo, visitante_de(cid, ip, ua), dispositivo, i, j)
+        cur.close()
+    return {**r, "dispositivo": dispositivo}
+
+
+def evento_publico(token: str, tipo: str, i, ip: str, ua: str, conn=None) -> Dict[str, Any]:
+    """Aviso del visor (sendBeacon): el cliente abrió la TX i. Solo 'tx' y solo índices de la foto."""
+    if tipo != "tx" or not isinstance(i, int) or isinstance(i, bool) or not _TOKEN.match(str(token or "")):
+        raise NoDisponible()
+    with _conexion(conn) as c:
+        cur = c.cursor()
+        f = _vigente(cur, token)
+        if not (0 <= i < len(f["snapshot"].get("txs", []))):
+            raise NoDisponible()
+        r = {"nuevo": False} if es_robot(ua) else _anotar(cur, f["id"], "tx", visitante_de(f["id"], ip, ua),
+                                                          dispositivo_de(ua), i, None)
+        cur.close()
+    return r
+
+
+def _fecha_hora(v) -> Optional[datetime]:
+    if isinstance(v, str):
+        v = datetime.fromisoformat(v)
+    return v
+
+
+def resumir(snapshot: Dict[str, Any], eventos: List[Dict[str, Any]], total_comprobantes: Dict[int, int],
+            creado_en=None, ahora: Optional[datetime] = None) -> Dict[str, Any]:
+    """Pura: eventos (en orden) → KPIs, "qué revisó" por TX y la línea de tiempo (más reciente primero)."""
+    ahora = ahora or _ahora()
+    txs = snapshot.get("txs", [])
+    eventos = sorted(eventos, key=lambda e: _fecha_hora(e["en"]))
+    numero: Dict[str, int] = {}
+    por_i: Dict[int, Dict[str, Any]] = {}
+    for e in eventos:
+        numero.setdefault(e["visitante"], len(numero) + 1)
+        i = e.get("tx_i")
+        if e["tipo"] in ("tx", "comprobante") and isinstance(i, int) and 0 <= i < len(txs):
+            d = por_i.setdefault(i, {"aperturas": 0, "vistos": set(), "ultima": None})
+            if e["tipo"] == "tx":
+                d["aperturas"] += 1
+            elif e.get("soporte_j") is not None:
+                d["vistos"].add(e["soporte_j"])
+            d["ultima"] = e["en"]
+    aperturas = [e for e in eventos if e["tipo"] == "abrio"]
+    primera = _fecha_hora(aperturas[0]["en"]) if aperturas else None
+    ultima = _fecha_hora(eventos[-1]["en"]) if eventos else None
+    creado = _fecha_hora(creado_en)
+    por_tx = []
+    for t in txs:
+        d = por_i.get(t["i"])
+        por_tx.append({"i": t["i"], "id": t["id"], "fecha": t.get("fecha"), "concepto": t.get("concepto"),
+                       "neto": t.get("neto"), "moneda": t.get("moneda"), "revisada": d is not None,
+                       "aperturas": d["aperturas"] if d else 0, "comprobantes_vistos": len(d["vistos"]) if d else 0,
+                       "comprobantes_total": total_comprobantes.get(t["id"], 0),
+                       "ultima": _iso(d["ultima"]) if d else None})
+
+    def concepto(i):
+        return txs[i].get("concepto") if isinstance(i, int) and 0 <= i < len(txs) else None
+
+    linea = [{"en": _iso(e["en"]), "tipo": e["tipo"], "i": e.get("tx_i"), "j": e.get("soporte_j"),
+              "concepto": concepto(e.get("tx_i")), "visitante": f"Visitante {numero[e['visitante']]}",
+              "dispositivo": e.get("dispositivo") or ""} for e in reversed(eventos)][:EVENTOS_VISTA]
+    return {
+        "resumen": {
+            "aperturas": len(aperturas), "visitantes": len(numero), "revisadas": len(por_i), "total": len(txs),
+            "primera": _iso(primera), "ultima": _iso(ultima),
+            "en_vivo": bool(ultima and (ahora - ultima).total_seconds() <= VIVO_SEG),
+            "horas_hasta_primera": round((primera - creado).total_seconds() / 3600, 1) if primera and creado else None,
+        },
+        "por_tx": por_tx, "eventos": linea,
+    }
+
+
+_COLS_EV = ("tipo", "tx_i", "soporte_j", "visitante", "dispositivo", "en")
+
+
+def seguimiento(cid: int, conn=None) -> Dict[str, Any]:
+    with _conexion(conn) as c:
+        cur = c.cursor()
+        cur.execute("SELECT id, folio, nombre, snapshot, creado_en, expira_en, revocado_en "
+                    "FROM accounting_compendios WHERE id = %s", (cid,))
+        f = _fila(cur, ("id", "folio", "nombre", "snapshot", "creado_en", "expira_en", "revocado_en"))
+        if not f:
+            raise NoEncontrado(f"El compendio {cid} no existe.")
+        snap = json.loads(f["snapshot"]) if isinstance(f["snapshot"], str) else f["snapshot"]
+        cur.execute("SELECT " + ", ".join(_COLS_EV) + " FROM accounting_compendio_eventos "
+                    "WHERE compendio_id = %s ORDER BY en, id LIMIT %s", (cid, TOPE_EVENTOS + 1000))
+        eventos = _filas(cur, _COLS_EV)
+        vivos = soportes_vivos(cur, [t["id"] for t in snap.get("txs", [])])
+        cur.close()
+    return {"id": f["id"], "folio": f["folio"], "nombre": f["nombre"], "estado": estado(f),
+            "creado_en": _iso(f["creado_en"]), "expira_en": _iso(f["expira_en"]),
+            **resumir(snap, eventos, {k: len(v) for k, v in vivos.items()}, f["creado_en"])}
+
+
+SQL_ACTIVIDAD = """
+    SELECT e.en, e.tipo, e.tx_i, e.soporte_j, e.dispositivo, c.id, c.folio, c.nombre,
+           c.snapshot->'txs'->e.tx_i->>'concepto'
+      FROM accounting_compendio_eventos e
+      JOIN accounting_compendios c ON c.id = e.compendio_id
+     ORDER BY e.en DESC, e.id DESC
+     LIMIT %s
+"""
+
+
+def actividad(limite: int = 10, conn=None) -> List[Dict[str, Any]]:
+    """Lo último que hicieron los clientes en TODOS los compendios (arriba del panel 🔗)."""
+    limite = max(1, min(int(limite or 10), 50))
+    cols = ("en", "tipo", "i", "j", "dispositivo", "compendio_id", "folio", "nombre", "concepto")
+    with _conexion(conn) as c:
+        cur = c.cursor()
+        cur.execute(SQL_ACTIVIDAD, (limite,))
+        filas = _filas(cur, cols)
+        cur.close()
+    return [{k: _iso(v) for k, v in f.items()} for f in filas]
+
+
+SQL_STATS = """
+    SELECT compendio_id, count(DISTINCT visitante),
+           count(DISTINCT tx_i) FILTER (WHERE tipo IN ('tx', 'comprobante')),
+           min(en) FILTER (WHERE tipo = 'abrio'), max(en)
+      FROM accounting_compendio_eventos
+     WHERE compendio_id = ANY(%s)
+     GROUP BY compendio_id
+"""
+
+
+def _estadisticas(cur, ids: List[int]) -> Dict[int, Tuple]:
+    """Por compendio: visitantes, revisadas, 1.ª apertura, último evento. Si la tabla de
+    eventos aún no existe (migración pendiente), el panel sigue funcionando sin ellas."""
+    if not ids:
+        return {}
+    cur.execute("SAVEPOINT compendio_stats")
+    try:
+        cur.execute(SQL_STATS, (list(ids),))
+        out = {int(r[0]): tuple(r[1:]) for r in cur.fetchall()}
+        cur.execute("RELEASE SAVEPOINT compendio_stats")
+        return out
+    except Exception as e:
+        if not es_tabla_faltante(e):
+            raise
+        cur.execute("ROLLBACK TO SAVEPOINT compendio_stats")
+        return {}
 
 
 def max_bytes_soporte() -> int:

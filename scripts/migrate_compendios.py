@@ -3,7 +3,9 @@
 migrate_compendios.py — Exportación 13.6: 🤝 Compendio para el cliente.
 =========================================================================
 En UNA transacción, idempotente (se puede correr las veces que sea):
-  1. Tabla NUEVA accounting_compendios (+ índice). Ninguna tabla existente cambia.
+  1. Tablas NUEVAS accounting_compendios (13.6-a) y accounting_compendio_eventos
+     (13.6-c 📈 seguimiento) + índices. Ninguna tabla existente cambia; si la
+     primera ya existe, solo se agrega la segunda.
      El folio usa la secuencia accounting_files_folio_seq de 13.5 (debe existir:
      scripts/migrate_exports.py ya corrió el 05-oct).
   2. Verificación: tabla presente y secuencia presente.
@@ -12,7 +14,8 @@ El DDL vive en fin_sys_core/compendio_driver.py (una sola fuente).
 La BD es la MISMA en local y en producción: correrla ANTES del deploy.
 
 Uso:  python scripts/migrate_compendios.py [--dry-run]
-Rollback: DROP TABLE accounting_compendios; (los links dejan de existir).
+Rollback: DROP TABLE accounting_compendio_eventos; DROP TABLE accounting_compendios;
+(los links dejan de existir).
 """
 import os
 import sys
@@ -61,10 +64,13 @@ def run():
             cur.execute(sql)
         print("1. tabla e índice: OK")
 
-        cur.execute("SELECT to_regclass('accounting_compendios') IS NOT NULL")
-        ok = cur.fetchone()[0]
+        cur.execute("SELECT to_regclass('accounting_compendios') IS NOT NULL, "
+                    "to_regclass('accounting_compendio_eventos') IS NOT NULL")
+        compendios, eventos = cur.fetchone()
+        ok = compendios and eventos
         cur.execute("SELECT COUNT(*) FROM accounting_compendios")
-        print("2. presente:", ok, "| compendios:", cur.fetchone()[0])
+        print("2. presentes: compendios", compendios, "| eventos (13.6-c)", eventos,
+              "| compendios creados:", cur.fetchone()[0])
 
         if DRY_RUN:
             conn.rollback()

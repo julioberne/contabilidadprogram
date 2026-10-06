@@ -30,7 +30,7 @@
     return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : iso;
   }
   function sinTildes(s) { return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
-  function urlSoporte(t, s) { return s.data || (D.base + '/soporte/' + t.i + '/' + s.j); }
+  function urlSoporte(t, s) { return s.data || (D.base + '/soporte/' + t.i + '/' + s.j + (D.previa ? '?previa=1' : '')); }
 
   // ── Cabecera y totales ─────────────────────────────────────────────
   var empresas = (D.empresas || []).map(function (e) { return e.nombre + (e.nit ? ' · NIT ' + e.nit : ''); }).join(' — ');
@@ -42,6 +42,7 @@
       D.rango && D.rango.desde ? el('span', { text: dia(D.rango.desde) + ' a ' + dia(D.rango.hasta) }) : null,
       el('span', { text: D.n + ' transacción' + (D.n === 1 ? '' : 'es') }),
       D.expira_en ? el('span', { text: 'Válido hasta el ' + dia(D.expira_en) }) : null,
+      D.previa ? el('span', { class: 'chip', text: '👁 Vista previa interna: no cuenta como visita del cliente' }) : null,
     ]),
     D.nota ? el('div', { class: 'nota', text: D.nota }) : null,
   ]);
@@ -127,6 +128,18 @@
     return el('div', { class: 'detalle' }, [datos, acciones, galeria]);
   }
 
+  // ── 13.6-c: avisar al servidor qué transacción se abrió (una vez por página) ──
+  var avisadas = {};
+  function avisar(t) {
+    if (D.offline || D.previa || avisadas[t.i] || !window.fetch) return;
+    avisadas[t.i] = true;
+    try {
+      fetch(D.base + '/evento', { method: 'POST', keepalive: true, credentials: 'omit',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tipo: 'tx', i: t.i }) })
+        .catch(function () {});
+    } catch (e) { /* el seguimiento jamás estorba al cliente */ }
+  }
+
   // ── Lista ──────────────────────────────────────────────────────────
   var abierta = null;
   function fila(t) {
@@ -149,6 +162,7 @@
       if (ya) { ya.remove(); boton.setAttribute('aria-expanded', 'false'); abierta = null; return; }
       if (abierta) abierta();
       li.appendChild(detalle(t));
+      avisar(t);
       boton.setAttribute('aria-expanded', 'true');
       abierta = function () { var d = li.querySelector('.detalle'); if (d) d.remove(); boton.setAttribute('aria-expanded', 'false'); };
     });

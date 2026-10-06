@@ -8,10 +8,14 @@ Privado (owner/admin/contador, como el organizador 13.5):
   POST  /api/compendios               foto + folio + link /c/<código>
   GET   /api/compendios               carpeta 🔗 Compendios (estado, visitas, link si está vigente)
   PATCH /api/compendios/{id}          {ampliar_dias} o {revocar: true}
+  GET   /api/compendios/{id}/seguimiento   📈 KPIs, qué revisó por TX y línea de tiempo (13.6-c)
+  GET   /api/compendios/actividad          lo último que hicieron los clientes (todos los compendios)
 
 Público (SIN sesión: el código del link es la llave):
-  GET   /c/{token}                                    la página del cliente
-  GET   /api/publico/compendio/{token}/soporte/{i}/{j} comprobante leído por el servidor
+  GET   /c/{token}                                    la página del cliente (anota "abrió")
+  GET   /api/publico/compendio/{token}/soporte/{i}/{j} comprobante leído por el servidor (anota "vio")
+  POST  /api/publico/compendio/{token}/evento          sendBeacon del visor: abrió la TX i
+La 1.ª apertura de cada compendio avisa por Telegram en segundo plano (compendio_aviso).
 Vencido, revocado o inexistente → la misma página 404 "ya no disponible".
 Cabeceras: noindex, no-referrer, no-store, nosniff y CSP con nonce (§4.7).
 """
@@ -24,6 +28,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 from routers.auth_guard import require_contador
 
@@ -107,6 +112,24 @@ def actualizar(cid: int, body: CompendioCambio = Body(...), user: dict = Depends
         _fallo(e)
 
 
+@router.get("/api/compendios/actividad")
+def actividad(limite: int = 10, _u: dict = Depends(require_contador)):
+    try:
+        return _drv().actividad(limite)
+    except Exception as e:
+        if _drv().es_tabla_faltante(e):
+            return []            # la tabla de eventos llega con la migración: sin ella, sin actividad
+        _fallo(e)
+
+
+@router.get("/api/compendios/{cid}/seguimiento")
+def seguimiento(cid: int, _u: dict = Depends(require_contador)):
+    try:
+        return _drv().seguimiento(cid)
+    except Exception as e:
+        _fallo(e)
+
+
 # ── Público: límite de ritmo por IP (en memoria, sin guardar la IP) ──
 
 _VENTANA = 60.0
@@ -155,6 +178,28 @@ def _demasiadas() -> HTMLResponse:
                                  "Content-Security-Policy": CSP_SIMPLE})
 
 
+def _anotar_seguro(cid, tipo: str, request: Request, i: Optional[int] = None, j: Optional[int] = None) -> dict:
+    """El seguimiento nunca tumba lo que ve el cliente: si falla (p. ej. falta la migración), se sigue."""
+    if cid is None:
+        return {}
+    try:
+        return _drv().anotar(cid, tipo, _ip(request), request.headers.get("user-agent", ""), i, j)
+    except Exception as e:
+        print(f"⚠️ [compendios] no se anotó '{tipo}' del compendio {cid}: {e}")
+        return {}
+
+
+def _tarea_aviso(r: dict):
+    """1.ª apertura → aviso por Telegram DESPUÉS de responder (el cliente no espera)."""
+    if not r.get("primera"):
+        return None
+    import compendio_aviso
+    if not compendio_aviso.activo():
+        return None
+    return BackgroundTask(compendio_aviso.avisar_primera_apertura,
+                          r.get("folio") or "", r.get("nombre") or "", r.get("dispositivo") or "")
+
+
 @router.get("/c/{token}", include_in_schema=False)
 def ver(token: str, request: Request):
     if not _ritmo_ok(request):
@@ -169,10 +214,35 @@ def ver(token: str, request: Request):
             return _no_disponible()
         return HTMLResponse("El compendio no se pudo abrir. Intenta más tarde.", status_code=503,
                             headers={**BASE, "Cache-Control": "no-store", "Content-Security-Policy": CSP_SIMPLE})
+    cid = datos.pop("_id", None)
+    # ?previa=1: Andrés lo abre desde ⇩ Exportación (↗ ABRIR) → no es el cliente: ni se anota ni avisa.
+    previa = request.query_params.get("previa") == "1"
+    anotado = {} if previa else _anotar_seguro(cid, "abrio", request)
     datos["base"] = f"/api/publico/compendio/{token}"
+    datos["previa"] = previa
     html, nonce = _visor().pagina(datos)
     return HTMLResponse(html, headers={**BASE, "Cache-Control": "no-store",
-                                       "Content-Security-Policy": _visor().csp(nonce)})
+                                       "Content-Security-Policy": _visor().csp(nonce)},
+                        background=_tarea_aviso(anotado))
+
+
+class EventoIn(BaseModel):
+    tipo: str
+    i: Optional[int] = None
+
+
+@router.post("/api/publico/compendio/{token}/evento", include_in_schema=False)
+def evento(token: str, request: Request, body: EventoIn = Body(...)):
+    if not _ritmo_ok(request):
+        return Response(status_code=429, headers={**BASE, "Retry-After": "60"})
+    drv = _drv()
+    try:
+        drv.evento_publico(token, body.tipo, body.i, _ip(request), request.headers.get("user-agent", ""))
+    except drv.NoDisponible:
+        return Response(status_code=404, headers=BASE)
+    except Exception as e:
+        print(f"⚠️ [compendios] evento no anotado: {e}")
+    return Response(status_code=204, headers={**BASE, "Cache-Control": "no-store"})
 
 
 def _traer(url: str, maximo: int) -> Optional[bytes]:
@@ -205,7 +275,10 @@ def ver_soporte(token: str, i: int, j: int, request: Request):
         return _no_disponible(502)
     if contenido is None:
         return _no_disponible(502)
-    modo = "attachment" if s["tipo"] == drv.TIPO_OTRO else "inline"
+    cid = s.pop("_id", None)
+    if request.query_params.get("previa") != "1":
+        _anotar_seguro(cid, "comprobante", request, i, j)
+    modo ="attachment" if s["tipo"] == drv.TIPO_OTRO else "inline"
     ascii_ = "".join(ch if 32 <= ord(ch) < 127 and ch not in '"\\' else "_" for ch in s["nombre"]) or "comprobante"
     cabeceras = {**BASE, "Cache-Control": "private, max-age=300",
                  "Content-Disposition": f"{modo}; filename=\"{ascii_}\"; filename*=UTF-8''{quote(s['nombre'])}",

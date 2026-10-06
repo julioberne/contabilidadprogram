@@ -34,7 +34,7 @@ def csp(nonce: str) -> str:
     return ("default-src 'none'; "
             f"script-src 'nonce-{nonce}'; style-src 'unsafe-inline'; "
             "img-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'self' blob:; "
-            "connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+            "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")   # 'self': aviso 13.6-c
 
 
 def pagina(datos: Dict[str, Any]) -> Tuple[str, str]:

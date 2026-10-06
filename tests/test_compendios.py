@@ -26,7 +26,15 @@ sys.path.insert(0, os.path.join(_ROOT, "fin_sys_core"))
 import fin_sys_core  # noqa: E402,F401  (un solo objeto por módulo)
 from fin_sys_core import compendio_driver as drv  # noqa: E402
 from fin_sys_core import compendio_visor as visor  # noqa: E402
-from tests.test_accounting_files import FakeConn, FakeCursor, R  # noqa: E402
+from tests.test_accounting_files import FakeConn, FakeCursor, R, _PgError  # noqa: E402
+from fin_sys_core import compendio_aviso as aviso  # noqa: E402
+
+UA_ANDROID = ("Mozilla/5.0 (Linux; Android 14; SM-A546E) AppleWebKit/537.36 (KHTML, like Gecko) "
+              "Chrome/129.0.0.0 Mobile Safari/537.36")
+UA_IPHONE = ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) "
+             "Version/17.6 Mobile/15E148 Safari/604.1")
+UA_WINDOWS_EDGE = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                   "Chrome/129.0.0.0 Safari/537.36 Edg/129.0.0.0")
 
 BUCKET = drv.prefijo_bucket()
 AHORA = datetime.now(timezone.utc)
@@ -217,16 +225,17 @@ class TestPublico(unittest.TestCase):
             with self.assertRaises(drv.NoDisponible):
                 drv.abrir(self.TOKEN, conn=FakeConn(cur))
 
-    def test_abrir_describe_comprobantes_sin_su_url_y_cuenta_la_visita(self):
+    def test_abrir_describe_comprobantes_sin_su_url_y_solo_lee(self):
         snap = _snap()
         cur = FakeCursor(R((9, "EXP-2026-0007", snap, AHORA + timedelta(days=3), None)),
-                         R((45, None, [BUCKET + "evidence/f.jpg"]), (57, "/uploads/v.pdf", [])), R())
+                         R((45, None, [BUCKET + "evidence/f.jpg"]), (57, "/uploads/v.pdf", [])))
         d = drv.abrir(self.TOKEN, conn=FakeConn(cur))
         por_id = {t["id"]: t for t in d["txs"]}
         self.assertEqual(por_id[45]["soportes"], [{"j": 0, "nombre": "f.jpg", "tipo": "imagen", "servible": True}])
         self.assertFalse(por_id[57]["soportes"][0]["servible"])
         self.assertNotIn("supabase", json.dumps(d))                            # CA-136-02
-        self.assertIn("visitas = visitas + 1", cur.sql(2))
+        self.assertEqual(len(cur.ejecutadas), 2)                               # la visita la anota el router aparte
+        self.assertEqual(d["_id"], 9)
         self.assertEqual(cur.ejecutadas[0][1], (drv.hash_token(self.TOKEN),))
 
     def test_soporte_solo_por_indice_y_del_bucket(self):   # CA-136-04
@@ -241,6 +250,122 @@ class TestPublico(unittest.TestCase):
         for i, j, respuestas in casos:
             with self.assertRaises(drv.NoDisponible, msg=f"{i},{j}"):
                 drv.soporte(self.TOKEN, i, j, conn=FakeConn(FakeCursor(*respuestas)))
+
+
+class TestSeguimiento(unittest.TestCase):   # 13.6-c
+
+    def test_robots_y_vistas_previas_no_son_el_cliente(self):
+        for ua in ("WhatsApp/2.23.20.0 A", "TelegramBot (like TwitterBot)", "facebookexternalhit/1.1",
+                   "Mozilla/5.0 (compatible; Googlebot/2.1)", "curl/8.4.0", "python-requests/2.31", ""):
+            self.assertTrue(drv.es_robot(ua), ua)
+        for ua in (UA_ANDROID, UA_IPHONE, UA_WINDOWS_EDGE, "Mozilla/5.0 (Linux; Android 10; CUBOT X30) Chrome/120.0"):
+            self.assertFalse(drv.es_robot(ua), ua)
+
+    def test_dispositivo(self):
+        self.assertEqual(drv.dispositivo_de(UA_ANDROID), "📱 Android · Chrome")
+        self.assertEqual(drv.dispositivo_de(UA_IPHONE), "📱 iPhone · Safari")
+        self.assertEqual(drv.dispositivo_de(UA_WINDOWS_EDGE), "💻 Windows · Edge")
+        self.assertEqual(drv.dispositivo_de("algo raro"), "🌐 Otro")
+
+    def test_visitante_es_huella_sin_ip(self):   # CA-136-13
+        v = drv.visitante_de(9, "181.50.12.7", UA_ANDROID)
+        self.assertRegex(v, r"^[0-9a-f]{12}$")
+        self.assertEqual(v, drv.visitante_de(9, "181.50.12.7", UA_ANDROID))
+        self.assertNotEqual(v, drv.visitante_de(10, "181.50.12.7", UA_ANDROID))   # otra huella por compendio
+        self.assertNotEqual(v, drv.visitante_de(9, "181.50.12.8", UA_ANDROID))
+
+    def test_primera_apertura_y_sin_repetir(self):   # CA-136-09
+        cur = FakeCursor(R((1,)), R((1, "EXP-2026-0007", "Viaje")))
+        r = drv.anotar(9, "abrio", "181.50.12.7", UA_ANDROID, conn=FakeConn(cur))
+        self.assertEqual((r["nuevo"], r["primera"], r["folio"]), (True, True, "EXP-2026-0007"))
+        self.assertIn("visitas = visitas + 1", cur.sql(1))
+        self.assertNotIn("181.50.12.7", json.dumps([str(p) for _, p in cur.ejecutadas]))   # CA-136-13
+        cur = FakeCursor(R((2,)), R((2, "EXP", "x")))
+        self.assertFalse(drv.anotar(9, "abrio", "1.1.1.1", UA_ANDROID, conn=FakeConn(cur))["primera"])
+        cur = FakeCursor(R())                                                   # repetido dentro de 10 min
+        self.assertEqual(drv.anotar(9, "abrio", "1.1.1.1", UA_ANDROID, conn=FakeConn(cur)),
+                         {"nuevo": False, "primera": False, "dispositivo": "📱 Android · Chrome"})
+        self.assertEqual(len(cur.ejecutadas), 1)
+        cur = FakeCursor()
+        self.assertTrue(drv.anotar(9, "abrio", "1.1.1.1", "WhatsApp/2.23.20.0 A", conn=FakeConn(cur))["robot"])
+        self.assertEqual(cur.ejecutadas, [])
+
+    def test_evento_publico_solo_tx_y_del_rango(self):   # CA-136-14
+        fila = R((9, "EXP", _snap(), AHORA + timedelta(days=3), None))
+        for tipo, i in (("abrio", 0), ("tx", 5), ("tx", -1), ("tx", True), ("tx", "0"), ("tx", None)):
+            with self.assertRaises(drv.NoDisponible, msg=f"{tipo},{i}"):
+                drv.evento_publico(TestPublico.TOKEN, tipo, i, "1.1.1.1", UA_ANDROID, conn=FakeConn(FakeCursor(fila)))
+        vencido = R((9, "EXP", _snap(), AHORA - timedelta(days=1), None))
+        with self.assertRaises(drv.NoDisponible):
+            drv.evento_publico(TestPublico.TOKEN, "tx", 0, "1.1.1.1", UA_ANDROID, conn=FakeConn(FakeCursor(vencido)))
+        cur = FakeCursor(fila, R((5,)), R())
+        self.assertTrue(drv.evento_publico(TestPublico.TOKEN, "tx", 1, "1.1.1.1", UA_ANDROID, conn=FakeConn(cur))["nuevo"])
+        self.assertEqual((cur.ejecutadas[1][1]["t"], cur.ejecutadas[1][1]["i"]), ("tx", 1))
+
+    def test_resumir_que_reviso(self):   # CA-136-11
+        snap = drv.armar_snapshot(TXS, EMPRESAS, OPC, "x", None)       # i: 0=#45, 1=#60, 2=#61, 3=#57
+        t0 = AHORA - timedelta(hours=3)
+        ev = [
+            {"tipo": "abrio", "tx_i": None, "soporte_j": None, "visitante": "aaa", "dispositivo": "📱 Android · Chrome", "en": t0},
+            {"tipo": "tx", "tx_i": 3, "soporte_j": None, "visitante": "aaa", "dispositivo": "📱 Android · Chrome", "en": t0 + timedelta(minutes=1)},
+            {"tipo": "comprobante", "tx_i": 3, "soporte_j": 0, "visitante": "aaa", "dispositivo": "x", "en": t0 + timedelta(minutes=2)},
+            {"tipo": "abrio", "tx_i": None, "soporte_j": None, "visitante": "bbb", "dispositivo": "💻 Windows · Edge", "en": AHORA - timedelta(seconds=30)},
+            {"tipo": "tx", "tx_i": 99, "soporte_j": None, "visitante": "bbb", "dispositivo": "x", "en": AHORA - timedelta(seconds=20)},
+        ]
+        r = drv.resumir(snap, ev, {57: 2, 45: 1}, creado_en=t0 - timedelta(hours=2), ahora=AHORA)
+        self.assertEqual(r["resumen"]["aperturas"], 2)
+        self.assertEqual(r["resumen"]["visitantes"], 2)
+        self.assertEqual((r["resumen"]["revisadas"], r["resumen"]["total"]), (1, 4))
+        self.assertTrue(r["resumen"]["en_vivo"])
+        self.assertEqual(r["resumen"]["horas_hasta_primera"], 2.0)
+        por_id = {t["id"]: t for t in r["por_tx"]}
+        self.assertEqual((por_id[57]["revisada"], por_id[57]["aperturas"], por_id[57]["comprobantes_vistos"],
+                          por_id[57]["comprobantes_total"]), (True, 1, 1, 2))
+        self.assertFalse(por_id[45]["revisada"])
+        self.assertEqual(r["eventos"][0]["visitante"], "Visitante 2")             # más reciente primero
+        self.assertEqual(r["eventos"][-1]["visitante"], "Visitante 1")
+        self.assertEqual(r["eventos"][2]["concepto"], "Pago gym")
+        self.assertIsNone(r["eventos"][0]["concepto"])                           # índice fuera de la foto
+        vacio = drv.resumir(snap, [], {}, ahora=AHORA)["resumen"]
+        self.assertEqual((vacio["aperturas"], vacio["en_vivo"], vacio["primera"]), (0, False, None))
+
+    def test_listar_con_estadisticas_y_sin_tabla_de_eventos(self):
+        cur = FakeCursor(R(_fila_bd()), R(), R((9, 2, 1, AHORA - timedelta(hours=1), AHORA - timedelta(seconds=10))), R())
+        f = drv.listar(conn=FakeConn(cur))[0]
+        self.assertEqual((f["visitantes"], f["revisadas"], f["en_vivo"]), (2, 1, True))
+
+        class SinEventos(FakeCursor):
+            def execute(self, sql, params=None):
+                if "FROM accounting_compendio_eventos" in sql:
+                    raise _PgError("relation does not exist")
+                super().execute(sql, params)
+        cur = SinEventos(R(_fila_bd()))
+        f = drv.listar(conn=FakeConn(cur))[0]
+        self.assertEqual((f["visitantes"], f["en_vivo"]), (0, False))
+        self.assertIn("ROLLBACK TO SAVEPOINT", cur.sql(-1))
+
+
+class TestAviso(unittest.TestCase):   # CA-136-12
+
+    def test_sin_variable_no_avisa(self):
+        with mock.patch.dict(os.environ, {"COMPENDIO_AVISO_TELEGRAM": "", "TELEGRAM_BOT_TOKEN": "x"}), \
+                mock.patch.object(aviso, "enviar") as enviar:
+            self.assertEqual(aviso.avisar_primera_apertura("EXP-1", "Viaje", "📱 Android"), 0)
+        enviar.assert_not_called()
+
+    def test_avisa_a_los_chats_configurados(self):
+        with mock.patch.dict(os.environ, {"COMPENDIO_AVISO_TELEGRAM": "1", "TELEGRAM_BOT_TOKEN": "x",
+                                          "COMPENDIO_AVISO_CHAT": "111, 222"}), \
+                mock.patch.object(aviso, "enviar", side_effect=[True, Exception("caído")]) as enviar:
+            self.assertEqual(aviso.avisar_primera_apertura("EXP-1", "Viaje", "📱 Android"), 1)
+        self.assertEqual([c.args[0] for c in enviar.call_args_list], ["111", "222"])
+        self.assertIn("EXP-1", enviar.call_args_list[0].args[1])
+
+    def test_destinos_por_defecto_owners_con_telegram(self):
+        with mock.patch.dict(os.environ, {"COMPENDIO_AVISO_CHAT": ""}):
+            cur = FakeCursor(R(("555",), ("777",)))
+            self.assertEqual(aviso.destinos(conn=FakeConn(cur)), ["555", "777"])
+        self.assertIn("owner", cur.sql(0))
 
 
 class TestVisor(unittest.TestCase):
@@ -279,7 +404,72 @@ class TestRouter(unittest.TestCase):
         self.mod._RITMO.clear()
 
     PRIVADAS = [("post", "/api/compendios/preflight"), ("post", "/api/compendios"),
-                ("get", "/api/compendios"), ("patch", "/api/compendios/1")]
+                ("get", "/api/compendios"), ("patch", "/api/compendios/1"),
+                ("get", "/api/compendios/1/seguimiento"), ("get", "/api/compendios/actividad")]
+
+    def test_evento_del_visor(self):   # CA-136-14
+        ruta = "/api/publico/compendio/" + "a" * 43 + "/evento"
+        with mock.patch.object(drv, "evento_publico", return_value={"nuevo": True}) as m:
+            r = self.client.post(ruta, json={"tipo": "tx", "i": 2}, headers={"User-Agent": UA_ANDROID})
+        self.assertEqual(r.status_code, 204)
+        self.assertEqual(m.call_args.args[1:3], ("tx", 2))
+        self.assertEqual(m.call_args.args[4], UA_ANDROID)
+        with mock.patch.object(drv, "evento_publico", side_effect=drv.NoDisponible()):
+            self.assertEqual(self.client.post(ruta, json={"tipo": "tx", "i": 99}).status_code, 404)
+
+    def test_primera_apertura_avisa_en_segundo_plano(self):   # CA-136-12
+        snap = {**_snap(), "_id": 9}
+        with mock.patch.object(drv, "abrir", return_value=snap), \
+                mock.patch.object(drv, "anotar", return_value={"nuevo": True, "primera": True, "folio": "EXP-7",
+                                                               "nombre": "Viaje", "dispositivo": "📱 Android"}) as anotar, \
+                mock.patch.object(aviso, "activo", return_value=True), \
+                mock.patch.object(aviso, "avisar_primera_apertura") as avisar:
+            r = self.client.get("/c/" + "a" * 43, headers={"User-Agent": UA_ANDROID})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(anotar.call_args.args[:2], (9, "abrio"))
+        avisar.assert_called_once_with("EXP-7", "Viaje", "📱 Android")
+        self.assertNotIn('"_id"', r.text)
+        with mock.patch.object(drv, "abrir", return_value={**_snap(), "_id": 9}), \
+                mock.patch.object(drv, "anotar", return_value={"nuevo": True, "primera": False}), \
+                mock.patch.object(aviso, "avisar_primera_apertura") as avisar:
+            self.client.get("/c/" + "a" * 43)
+        avisar.assert_not_called()
+
+    def test_vista_previa_interna_no_cuenta(self):
+        with mock.patch.object(drv, "abrir", return_value={**_snap(), "_id": 9}), \
+                mock.patch.object(drv, "anotar") as anotar:
+            r = self.client.get("/c/" + "a" * 43 + "?previa=1")
+        self.assertEqual(r.status_code, 200)
+        anotar.assert_not_called()
+        self.assertIn('"previa": true', r.text)
+        url = BUCKET + "evidence/f.jpg"
+        with mock.patch.object(drv, "soporte", return_value={"url": url, **drv.describir_soporte(url), "_id": 9}), \
+                mock.patch.object(self.mod, "_traer", return_value=b"jpg"), mock.patch.object(drv, "anotar") as anotar:
+            self.client.get("/api/publico/compendio/" + "a" * 43 + "/soporte/0/0?previa=1")
+        anotar.assert_not_called()
+
+    def test_si_el_registro_falla_la_pagina_igual_sale(self):
+        with mock.patch.object(drv, "abrir", return_value={**_snap(), "_id": 9}), \
+                mock.patch.object(drv, "anotar", side_effect=_PgError("relation does not exist")):
+            self.assertEqual(self.client.get("/c/" + "a" * 43).status_code, 200)
+
+    def test_ver_comprobante_se_anota(self):
+        url = BUCKET + "evidence/f.jpg"
+        with mock.patch.object(drv, "soporte", return_value={"url": url, **drv.describir_soporte(url), "_id": 9}), \
+                mock.patch.object(self.mod, "_traer", return_value=b"jpg"), \
+                mock.patch.object(drv, "anotar", return_value={"nuevo": True}) as anotar:
+            r = self.client.get("/api/publico/compendio/" + "a" * 43 + "/soporte/3/1")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual((anotar.call_args.args[0], anotar.call_args.args[1], anotar.call_args.args[4:6]),
+                         (9, "comprobante", (3, 1)))
+
+    def test_seguimiento_y_actividad(self):
+        with mock.patch.object(drv, "seguimiento", return_value={"resumen": {"aperturas": 2}}):
+            r = self.client.get("/api/compendios/9/seguimiento", headers=self.contador)
+        self.assertEqual((r.status_code, r.json()["resumen"]["aperturas"]), (200, 2))
+        with mock.patch.object(drv, "actividad", side_effect=_PgError("relation does not exist")):
+            r = self.client.get("/api/compendios/actividad", headers=self.contador)
+        self.assertEqual((r.status_code, r.json()), (200, []))
 
     def test_privadas_401_y_403(self):
         for metodo, ruta in self.PRIVADAS:

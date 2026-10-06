@@ -92,7 +92,8 @@ export function ExitoCompendio({ res }) {
           className="border-2 border-black px-1 py-1 bg-brutalBg font-mono text-[11px] w-full" /></label>
       <div className="flex flex-wrap gap-1">
         <button type="button" className={btnNegro} onClick={copiar}>{copiado ? '✔ COPIADO' : '📋 COPIAR LINK'}</button>
-        <a className={btnBlanco} href={link} target="_blank" rel="noopener noreferrer">↗ ABRIR</a>
+        <a className={btnBlanco} href={`${link}?previa=1`} target="_blank" rel="noopener noreferrer"
+          title="Vista previa interna: no cuenta como visita del cliente">↗ ABRIR</a>
         <a className={btnBlanco} target="_blank" rel="noopener noreferrer"
           href={urlWhatsApp(textoWhatsApp({ ...res, link }))}>💬 WHATSAPP</a>
       </div>
