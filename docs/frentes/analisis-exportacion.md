@@ -24,19 +24,18 @@ APROBADO 05-oct, decisiones §10). Termina con 13.5 HECHO, desplegado y visto en
   Sin push: `bb04826` (`scripts/publicar`) + frentes. La 1.ª vez `publicar.cmd` se corre en el worktree (la principal aún no lo tiene).
 
 ## Próximo paso (concreto)
-0. Diseño de 📥 NUEVA EXPORTACIÓN con el informe /deep-research (contador colombiano + Siigo/Alegra/World Office/QuickBooks/Xero;
-   informe GUARDADO en `docs/specs/13-analisis/investigacion-nueva-exportacion-2026-10-06.md`: leer §Hallazgos 10 y 11)
-   → aprobación de Andrés. Pedidos de Andrés 06-oct que el diseño DEBE cubrir:
-   a) "el fin del módulo es la exportación tipo contador; el organizador es secundario" → Nueva exportación es lo principal;
-   b) exportar transacciones POR FILTROS (búsqueda) o SELECCIONADAS a mano (backend: modo transacciones ≤5000 tx_ids;
-      modo período con filtros categorías/terceros/tipos/moneda/cuentas_puc + nivel_puc) y c) "compendios selectivos de
-      varias cosas" (varios libros + relación de TXs + soportes subidos, con búsqueda, organización y selección → p. ej.
-      carpeta propia → ZIP con índice; hoy cada exportación es UN .xlsx: brecha a diseñar).
-1. 13.5-c: `exportacion/{paquetes,periodos}.js` (+ vitest): paquetes de `GET …/export/paquetes`; períodos relativos (ojo 1-ene).
-2. `exportacion/NuevaExportacion.jsx`: modo período con pre-vuelo (`POST …/export/preflight`) → `POST /api/analytics/export`
-   → `api.descargar(id)`; modo transacciones con `SelectorTransacciones.jsx`. Habilitar el botón en `Organizador.jsx`.
-3. `contabilidad-v2/components/SeleccionExportarBar.jsx` + casillas en `LibroDiario.jsx:105-110` (CA-135-09).
-4. 13.5-d: `CalendarioCierres.jsx` (`GET /api/accounting-files/cierres`) y habilitar 🗓.
+- 13.5-c web HECHO (06-oct, sin push): franja 📥 en `ExportacionApp`, `NuevaExportacion.jsx` (📚 período: paquete →
+  empresa → período con atajos → libros en 3 grupos → avanzado plegado + ★ guardar paquete; 🧾 transacciones con
+  `SelectorTransacciones.jsx`), `periodos.js` + `paquetes.js` (+10 vitest), paquetes `revisor_fiscal` e `iva_bimestral`
+  en el driver. Verificado en :8003 hasta el pre-vuelo (A–J LISTO); GENERAR no se probó en E2E para no gastar folio:
+  la PRIMERA generación real la hace Andrés (será EXP-2026-0001).
+1. Andrés: `.\scripts\publicar.cmd` → generar un libro real y abrirlo en Excel (CA-134-01 + E2E de GENERAR).
+2. Casillas en `LibroDiario.jsx:105-110` + `SeleccionExportarBar.jsx` que abre NuevaExportacion en modo transacciones
+   con la selección (CA-135-08/09).
+3. Compendio de entrega: elegir varios archivos del organizador → ZIP con índice y folio propio (backend nuevo).
+4. Motor 13.4 (imprescindible según la investigación): comparativo, cambios en el patrimonio, flujos de efectivo,
+   bloque de certificación (Ley 222 art. 37) y folio inicial. Preguntar a Andrés: ¿Grupo 2 o Grupo 3?
+5. 13.5-d: `CalendarioCierres.jsx` (`GET /api/accounting-files/cierres`) y habilitar 🗓.
 
 ## Decisiones tomadas (y por qué)
 - Módulo 14 propio (06-oct): vista independiente como los demás; arquitectura modular = carpeta + 1 entrada en el
