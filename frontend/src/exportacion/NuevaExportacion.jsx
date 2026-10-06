@@ -100,7 +100,7 @@ export default function NuevaExportacion({ paquetes, portfolios, carpetas, inici
   const [guardadoActivo, setGuardadoActivo] = useState(null);
   const [avanzado, setAvanzado] = useState(false);
   const [carpeta, setCarpeta] = useState('');
-  const [seleccion, setSeleccion] = useState(() => new Set());
+  const [seleccion, setSeleccion] = useState(() => new Set(inicial?.txIds || []));   // ids marcados en el Libro Diario
   const [nombreRelacion, setNombreRelacion] = useState('');
   const [txs, setTxs] = useState({ lista: [], cargando: true, error: '' });
   const [prevuelo, setPrevuelo] = useState(null);         // { firma, data }
@@ -347,7 +347,8 @@ export default function NuevaExportacion({ paquetes, portfolios, carpetas, inici
             ) : (
               <>
                 <SelectorTransacciones txs={txs.lista} cargando={txs.cargando} error={txs.error}
-                  seleccion={seleccion} onSeleccion={setSeleccion} nombre={nombreRelacion} onNombre={setNombreRelacion} />
+                  seleccion={seleccion} onSeleccion={setSeleccion} nombre={nombreRelacion} onNombre={setNombreRelacion}
+                  soloMarcadasInicial={!!inicial?.txIds?.length} />
                 <label className="flex flex-wrap items-center gap-1 text-[10px]">
                   <b>Guardar también en la carpeta</b>
                   <select value={carpeta} onChange={(e) => setCarpeta(e.target.value)} className={campo}>

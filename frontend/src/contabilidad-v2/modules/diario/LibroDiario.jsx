@@ -3,6 +3,9 @@ import React from 'react';
 import NumInput from '../../../shared/NumInput';
 import { useEmpresa } from '../../engine/EmpresaProvider.jsx';
 import { API } from '../../../config';
+import { getRenderableModules } from '../../../registry/moduleRegistry.js';
+import SeleccionExportarBar from '../../components/SeleccionExportarBar.jsx';
+import { alternarId, marcarVarias, seleccionadas, estadoCabecera } from './seleccion.js';
 
 const fmtCOP = (v) => `$${Number(v || 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -65,6 +68,15 @@ export default function LibroDiario({
     }
   };
 
+  // ☑ Casillas para exportar (spec 13.5 §4.3, 2026-10-06): solo para los
+  // roles del módulo 14 ⇩ Exportación. La casilla no expande la fila ni
+  // edita (CA-135-09); se exporta lo marcado que está cargado.
+  const puedeExportar = React.useMemo(() => getRenderableModules().some((m) => m.id === 'exportacion'), []);
+  const [seleccion, setSeleccion] = React.useState(() => new Set());
+  const marcadas = React.useMemo(() => seleccionadas(seleccion, transactions), [seleccion, transactions]);
+  const cabecera = estadoCabecera(seleccion, transactions);
+  const columnas = puedeExportar ? 10 : 9;
+
   return (
         <div className="w-full">
           <div className="bg-white border-2 border-black p-2 shadow-brutal overflow-hidden flex flex-col">
@@ -83,6 +95,14 @@ export default function LibroDiario({
               <table className="w-full border-2 border-black text-left text-xs">
                 <thead className="bg-black text-white uppercase font-bold">
                   <tr>
+                    {puedeExportar && (
+                      <th className="p-2 border-r border-black w-6 text-center">
+                        <input type="checkbox" aria-label="Marcar todas las visibles" title="Marcar todas las visibles"
+                          disabled={!transactions.length} checked={cabecera === 'todas'}
+                          ref={(el) => { if (el) el.indeterminate = cabecera === 'algunas'; }}
+                          onChange={(e) => setSeleccion(marcarVarias(seleccion, transactions, e.target.checked))} />
+                      </th>
+                    )}
                     <th className="p-2 border-r border-black">Tipo</th>
                     <th className="p-2 border-r border-black">Valor Neto</th>
                     <th className="p-2 border-r border-black">Concepto</th>
@@ -97,7 +117,7 @@ export default function LibroDiario({
                 <tbody className="divide-y divide-black bg-white">
                   {transactions.length === 0 ? (
                     <tr>
-                      <td colSpan="9" className="p-8 text-center uppercase text-gray-400 font-bold">
+                      <td colSpan={columnas} className="p-8 text-center uppercase text-gray-400 font-bold">
                         No hay registros en este portafolio. Agrega uno manual o habla por micrófono.
                       </td>
                     </tr>
@@ -105,10 +125,19 @@ export default function LibroDiario({
                     transactions.map((tx) => (
                       <React.Fragment key={tx.id}>
                       <tr 
-                        className={`hover:bg-brutalBg transition-all cursor-pointer ${expandedTxId === tx.id ? 'bg-brutalBg' : ''}`} 
+                        className={`hover:bg-brutalBg transition-all cursor-pointer ${seleccion.has(tx.id) ? 'bg-brutalAmber/30' : expandedTxId === tx.id ? 'bg-brutalBg' : ''}`}
                         title="Click para ver detalles · Doble clic en celda para editar"
                         onClick={() => setExpandedTxId(expandedTxId === tx.id ? null : tx.id)}
                       >
+                        {/* ☑ Casilla: no expande ni edita (CA-135-09) */}
+                        {puedeExportar && (
+                          <td className="p-2 border-r border-black text-center" onClick={(e) => e.stopPropagation()}
+                              onDoubleClick={(e) => e.stopPropagation()}>
+                            <input type="checkbox" aria-label={`Marcar transacción ${tx.id}`} checked={seleccion.has(tx.id)}
+                              onChange={() => setSeleccion(alternarId(seleccion, tx.id))} />
+                          </td>
+                        )}
+
                         {/* Tipo */}
                         <td className="p-2 border-r border-black font-bold">
                           {editingCell && editingCell.txId === tx.id && editingCell.field === "type" ? (
@@ -358,7 +387,7 @@ export default function LibroDiario({
                       {/* ═══ FILA EXPANDIBLE: Detalles de la Transacción ═══ */}
                       {expandedTxId === tx.id && (
                         <tr>
-                          <td colSpan="9" className="p-0 border-t border-black">
+                          <td colSpan={columnas} className="p-0 border-t border-black">
                             <div className="bg-brutalBg p-3 border-b-2 border-black">
                               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px] font-mono">
 
@@ -518,6 +547,10 @@ export default function LibroDiario({
               )}
             </div>
           </div>
+          {/* Fuera de la tarjeta: su overflow-hidden anularía el sticky */}
+          {puedeExportar && (
+            <SeleccionExportarBar txs={marcadas} onLimpiar={() => setSeleccion(new Set())} />
+          )}
         </div>
   );
 }

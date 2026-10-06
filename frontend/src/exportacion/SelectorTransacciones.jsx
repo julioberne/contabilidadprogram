@@ -12,9 +12,9 @@ import { filtrarTransacciones, distintos, totalesPorMoneda, TIPOS_TX, MAX_TX } f
 const pesos = (n, moneda = 'COP') => `${moneda === 'COP' ? '$' : `${moneda} `}${Number(n || 0).toLocaleString('es-CO', { maximumFractionDigits: 2 })}`;
 const campo = 'border-2 border-black px-1 py-0.5 text-[10px] bg-white';
 
-export default function SelectorTransacciones({ txs, cargando, error, seleccion, onSeleccion, nombre, onNombre }) {
+export default function SelectorTransacciones({ txs, cargando, error, seleccion, onSeleccion, nombre, onNombre, soloMarcadasInicial = false }) {
   const [f, setF] = useState({ q: '', desde: '', hasta: '', empresa: '', tipo: '', categoria: '', tercero: '' });
-  const [soloMarcadas, setSoloMarcadas] = useState(false);
+  const [soloMarcadas, setSoloMarcadas] = useState(soloMarcadasInicial);   // desde el Libro Diario: abre mostrando lo marcado
   const cambiar = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
 
   const filtradas = useMemo(() => filtrarTransacciones(txs, f), [txs, f]);
