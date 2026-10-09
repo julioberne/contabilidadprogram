@@ -6,37 +6,38 @@ Evaluación del bot de Telegram pedida por Andrés el 9-oct (7 puntos): que resp
 ESE borrador, plantillas SMS que faltaban, Mini App con mensaje original + concepto/monto + anclar el dato
 del SMS en la ficha, etiquetas nuevas desde el bot y una bitácora de anomalías visible en la web.
 
-## Estado actual (plan aprobado: A → B → C → D → E)
-- A HECHO 68058eb: registro message_id→borrador en bot_messages (OUT con external_message_id, sin esquema
-  nuevo) + respaldo «#N» del texto del mensaje del bot; reply nunca crea borrador; monto por reply; tercero
-  «Nombre 1007289007»; aviso de faltantes informativo; botonera sin 👤/📝; solo el último mensaje con botones.
-- B HECHO 5d9922d: familias transferencia_llave, pago_boton, retiro_cajero (GASTO), ahorro_bolsillo
-  (TRANSFERENCIA, destino por 💳 Cuenta); «plantilla nueva» solo si el texto dice Bancolombia; botón
-  💳 Cuenta (acc/accsel/accset/accno); traslado sin destino no confirma; `_faltantes` en editar_draft.
-- Falta: C (Mini App), D (etiquetas ➕ Nueva), E (tabla `bot_anomalias` + `/anomalias` + pestaña en Bot IA web).
-- Sin push: 68058eb, 5d9922d (+ los que siguen). CA-09I-01 (prueba real de la Mini App) sigue pendiente.
+## Estado actual: A-E HECHOS, sin push (listo para publicar)
+- A 68058eb: registro message_id→borrador (bot_messages OUT con external_message_id) + respaldo «#N» del
+  texto respondido; reply nunca crea borrador; monto por reply; «Tercero Nombre 1007289007»; aviso de
+  faltantes informativo; botonera sin 👤/📝; solo el último mensaje del borrador lleva botones.
+- B 5d9922d: familias transferencia_llave, pago_boton, retiro_cajero (GASTO), ahorro_bolsillo (TRANSFERENCIA);
+  «plantilla nueva» solo si dice Bancolombia (publicidad fuera); 💳 Cuenta; traslado sin destino no confirma.
+- C 1076c3d: Mini App con 📩 mensaje original, concepto y monto editables, casilla «recordar dato del SMS»
+  al asignar + bloque 📲 (💾 / 🔁 mover). Verificación visual PENDIENTE (en :8002 no hay sesión; la clave no
+  se teclea): verla en Telegram tras publicar.
+- D 28a3e0a: 🏷️ ➕ Nueva etiqueta (force_reply, kind pedir_etiqueta) y «Etiqueta: x» en replies.
+- E 41b55e1: tabla `bot_anomalias` (la crea server._startup al desplegar), `/anomalias`, pestaña
+  Bot IA → 📓 Bitácora, GET/PUT /api/bot/anomalias. Antes del deploy, registrar() avisa y no rompe.
 
 ## Próximo paso
-C: `frontend/src/tg/TelegramTerceroApp.jsx` → bloque «📩 Mensaje original» (draft.raw_text), campos
-Concepto y Monto (PUT /api/bot/drafts/{id} con avisar_chat), casilla «Recordar «X» en esta ficha»
-(POST /api/third-parties/{id}/accounts con payload.sms.medio; 409 → ofrecer /mover). Luego D y E.
+1. Andrés: `scripts\publicar.cmd` (push a master + CI + deploy). Sonda: `GET /api/bot/anomalias` → 401.
+2. Prueba real: SMS nuevo → reply «parqueadero» + «12100» al mensaje viejo; 📝 Completar (mensaje original,
+   casilla recordar); 🏷️ ➕ Nueva; 💳 Cuenta en un SMS de bolsillo; `/anomalias`; pestaña 📓 en la web.
+3. Sugerencias en espera de OK: categoría/empresa habitual en la ficha del tercero; categoría y ✅ en la Mini
+   App; recordatorio diario de borradores (43 pendientes al 9-oct); fotos en la Mini App; filtro de remitente
+   en MacroDroid. CA-09I-01 sigue pendiente.
 
 ## Decisiones de Andrés (9-oct)
-- Retiro en cajero = GASTO. Quitar 👤 Tercero y 📝 Concepto. Texto suelto SÍ crea borrador (con aviso
-  informativo de lo que falta). Bolsillo = traslado + botón de cuentas. Bitácora informativa, no restrictiva,
-  con pestaña en el módulo Bot IA de la web (registro tal cual, sin inferencias).
+- Retiro en cajero = GASTO. Quitar 👤 Tercero y 📝 Concepto. Texto suelto SÍ crea borrador (aviso informativo).
+  Bolsillo = traslado + botón de cuentas. Bitácora informativa, no restrictiva, con pestaña en Bot IA.
 
 ## Archivos clave
-- `fin_sys_core/bot_driver.py`: `_draft_por_reply`, `_flujo_respuesta`, `_parse_reply`/`_monto_de`,
-  `_botones_borrador`, callbacks acc*, `editar_draft` (cuentas), `_faltantes`, `log_outbound`/`vincular_mensaje`.
-- `fin_sys_core/bot_telegram.py`: `_datos_respuesta`, `_botonera_en`. `fin_sys_core/sms_bancolombia.py`, `bot_sms.py`.
-- Tests: `tests/test_bot_reply.py`, `tests/test_sms_plantillas_oct.py` (en CI), `tests/test_bot_cuentas_db.py` (BD).
+- `fin_sys_core/bot_driver.py` (`_draft_por_reply`, `_flujo_respuesta`, `_parse_reply`, callbacks acc*/tagnew,
+  `editar_draft` cuentas, `_faltantes`), `bot_telegram.py` (`_botonera_en`), `sms_bancolombia.py`, `bot_sms.py`,
+  `bot_anomalias.py`, `etiquetas.crear_o_usar`, `routers/bot_anomalias.py`, `frontend/src/tg/BorradorEditable.jsx`,
+  `frontend/src/bot/{BotApp,BotBitacoraPanel}.jsx`.
 
 ## Cómo verificar
-- Puros: `.venv\Scripts\python.exe -m unittest tests.test_bot_reply tests.test_sms_plantillas_oct tests.test_bot_sms`.
-- BD (worktree sin .env): scratchpad `correr_tests.py` carga el .env principal → tests `_db` (chat test-tg-…).
-- 4 errores de `test_compendios` en local = DLL bloqueada por Windows (no es del bot).
-
-## Riesgos
-- `vincular_mensaje` deja filas OUT sin chat_link_id (las limpia la retención). Mensajes del bot anteriores
-  al deploy se resuelven por el «#N» de su texto.
+- Puros (en CI): `tests.test_bot_reply tests.test_sms_plantillas_oct tests.test_bot_anomalias` + los de siempre.
+- BD (worktree sin .env): scratchpad `correr_tests.py` → `test_bot_cuentas_db test_bot_etiquetas_db` + `_db` del bot (57 OK).
+- `frontend`: vitest 156 OK, build OK. 4 errores de `test_compendios` en local = DLL bloqueada por Windows.
