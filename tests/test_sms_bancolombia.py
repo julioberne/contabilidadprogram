@@ -177,7 +177,8 @@ class TestRedDeSeguridad(unittest.TestCase):
 
     INFORMATIVO = ("Bancolombia: Muy bien. Inscribiste la cuenta de un tercero desde APP Bancolombia. "
                    "Si no fuiste tu, llamanos ahora: 6045109095 o 018000931987. Juntos en cada paso.")
-    DESCONOCIDO_CON_DINERO = ("Bancolombia: Retiraste $200.000,00 en CAJERO CC ANDINO de tu T.Deb *5379 "
+    # «Retiraste» ya es familia (9-oct-2026); el avance sigue sin muestra real
+    DESCONOCIDO_CON_DINERO = ("Bancolombia: Realizaste un avance por $200.000,00 con tu T.Cred *5379 "
                               "el 01/10/2026 a las 09:15. Dudas: 018000931987.")
 
     def test_informativo_sin_dinero_no_es_movimiento(self):

@@ -102,21 +102,21 @@ def medio_de_sms(sms):
     """El identificador de la CONTRAPARTE que trae un SMS ya parseado
     (sms_bancolombia.parsear). → (tipo, valor) | None
       transferencia_enviada  → celular o cuenta de destino
-      pago_qr                → llave de destino
+      pago_qr, transferencia_llave → llave de destino
       transferencia_recibida → nombre del remitente tal como lo escribe el banco
-      compra_tarjeta         → nombre del comercio tal como lo escribe el banco"""
+      compra_tarjeta, pago_boton → nombre del comercio tal como lo escribe el banco"""
     if not sms:
         return None
     familia = sms.get("familia")
     if familia == "transferencia_enviada":
         tipo = "celular" if sms.get("destino_es_celular") else "cuenta"
         crudo = sms.get("destino")
-    elif familia == "pago_qr":
+    elif familia in ("pago_qr", "transferencia_llave"):
         tipo, crudo = "llave", sms.get("destino")
-    elif familia in ("transferencia_recibida", "compra_tarjeta"):
+    elif familia in ("transferencia_recibida", "compra_tarjeta", "pago_boton"):
         tipo, crudo = "nombre_banco", sms.get("contraparte_nombre")
     else:
-        return None
+        return None             # retiro_cajero, ahorro_bolsillo: no hay contraparte
     valor = normalizar(tipo, crudo)
     return (tipo, valor) if valor else None
 

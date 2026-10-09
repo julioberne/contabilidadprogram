@@ -217,7 +217,7 @@ class TestTickSms(_ConChatDePrueba):
         self.assertEqual(self._fila(mid)[0], COLA + "_info")
 
     def test_plantilla_nueva_con_dinero_crea_borrador_con_monto_y_texto(self):
-        sms = ("Bancolombia: Retiraste $200.000,00 en CAJERO CC ANDINO de tu T.Deb *0000 "
+        sms = ("Bancolombia: Realizaste un avance por $200.000,00 con tu T.Cred *0000 "  # sin familia aún
                "el 01/10/2026 a las 09:15. Dudas: 018000931987.")
         mid = self._encolar(sms)
         self._procesar()
@@ -238,7 +238,7 @@ class TestTickSms(_ConChatDePrueba):
         self.assertEqual(raw, sms)
         texto = [e for e in self.enviados if e[0] == self.chat_id][0][1]
         self.assertIn("PLANTILLA NUEVA", texto)
-        self.assertIn("Retiraste $200.000,00", texto)               # el SMS viaja en el aviso
+        self.assertIn("avance por $200.000,00", texto)               # el SMS viaja en el aviso
 
     def test_sms_pegado_en_el_chat_usa_el_parser_y_no_duplica(self):
         import bot_driver

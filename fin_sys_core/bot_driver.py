@@ -161,9 +161,11 @@ def render_summary(draft_id: int, payload: dict, inferred=None, missing=None) ->
         f"Monto: {_fmt_money(payload.get('amount'))} COP" + _inf("amount"),
         f"Concepto: {payload.get('concept') or '—'}",
         f"Categoría: {payload.get('category')}" + _inf("category"),
-        f"Pago: {payload.get('payment_method')}" + _inf("payment_method"),
+        f"Pago: {payload.get('payment_method') or '— (elígela con 💳 Cuenta)'}" + _inf("payment_method"),
         f"Tercero: {tp.get('name')} ({tp.get('identification_type')} {tp.get('identification_number')})" + _inf("third_party"),
     ]
+    if payload.get("type") == "TRANSFERENCIA":
+        lineas.insert(6, f"Destino: {payload.get('dest_account_name') or '— (elígela con 💳 Cuenta)'}")
     contacto = [v for v in (tp.get("phone") and f"📞 {tp['phone']}",
                             tp.get("email") and f"✉ {tp['email']}",
                             tp.get("address") and f"🏠 {tp['address']}") if v]
@@ -540,10 +542,12 @@ def _botones_borrador(draft_id: int):
     return [
         [("✅ Confirmar", f"ok:{draft_id}"), ("❌ Descartar", f"no:{draft_id}")],
         [("🏢 Cambiar empresa", f"emp:{draft_id}"), ("🏷️ Etiquetas", f"tags:{draft_id}")],
+        # 💳 Cuenta: cuenta de pago o destino de un traslado entre cuentas propias.
         # Etapa 09.I: la Mini App de Telegram abre el borrador y la MISMA ficha
         # de tercero de la web. El dato `webapp:<url>` lo traduce el adaptador
         # a un botón web_app.
-        [("📝 Completar", f"webapp:{WEBAPP_BASE}/tg.html?draft={draft_id}")],
+        [("💳 Cuenta", f"acc:{draft_id}"),
+         ("📝 Completar", f"webapp:{WEBAPP_BASE}/tg.html?draft={draft_id}")],
         [("💤 Dejar en borrador", f"hold:{draft_id}")],
     ]
 
@@ -1396,6 +1400,12 @@ def _botones_tags(cur, draft_id, payload):
     return filas
 
 
+def _cuentas_reales(cur):
+    """Cuentas de 💳 Cuentas (user_accounts) para los botones. → [(id, name)]"""
+    cur.execute("SELECT id, name FROM user_accounts ORDER BY id LIMIT 14")
+    return [(r[0], str(r[1]).strip()) for r in cur.fetchall()]
+
+
 def _empresas_reales(cur):
     """Empresas del árbol para los botones de destino. → [(entity_id, label)].
     Se listan ENTIDADES (no portafolios): es el lenguaje de Andrés; el
@@ -1762,6 +1772,69 @@ def handle_callback(channel: str, chat_id: str, data: str):
                            "número lo crea si no existe (nunca duplica: el documento manda).")
             return out
 
+        # ── 💳 Cuenta (9-oct-2026): cuenta de pago o destino de un traslado ──
+        if accion == "acc":
+            cur.execute("SELECT payload FROM transaction_drafts WHERE id = %s AND chat_link_id = %s",
+                        (draft_id, link["id"]))
+            row = cur.fetchone()
+            conn.commit()
+            if not row:
+                out["alert"] = "Borrador no encontrado."
+                return out
+            payload = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+            filas = [[(f"💳 Cuenta de pago: {payload.get('payment_method') or 'elegir'}"[:60],
+                       f"accsel:{draft_id}:o")],
+                     [(f"↔️ Traslado a: {payload.get('dest_account_name') or 'elegir destino'}"[:60],
+                       f"accsel:{draft_id}:d")]]
+            if payload.get("dest_account_id"):
+                filas.append([("✖ No es traslado", f"accno:{draft_id}")])
+            filas.append([("« Volver", f"accback:{draft_id}")])
+            out["alert"] = "¿Qué cuenta cambias?"
+            out["edit_buttons"] = filas
+            return out
+
+        if accion == "accsel":
+            lado = "d" if len(partes) > 2 and partes[2] == "d" else "o"
+            cuentas = _cuentas_reales(cur)
+            conn.commit()
+            if not cuentas:
+                out["alert"] = "No tienes cuentas. Créalas en 💳 Cuentas de la web."
+                return out
+            filas = [[(nombre[:60], f"accset:{draft_id}:{lado}:{cid}")] for cid, nombre in cuentas]
+            filas.append([("« Volver", f"acc:{draft_id}")])
+            out["alert"] = "Elige la cuenta de pago" if lado == "o" else "¿A qué cuenta va el traslado?"
+            out["edit_buttons"] = filas
+            return out
+
+        if accion in ("accset", "accno"):
+            if accion == "accset":
+                try:
+                    lado, cid = partes[2], int(partes[3])
+                except (IndexError, ValueError):
+                    out["alert"] = "Botón inválido."
+                    return out
+                cambio = {"dest_account_id" if lado == "d" else "account_id": cid}
+            else:
+                cambio = {"dest_account_id": None}
+            conn.commit()
+            editado = editar_draft(draft_id, cambio, hub_user_id=link["hub_user_id"])
+            if editado.get("error"):
+                out["alert"] = editado["error"][:190]
+                out["edit_buttons"] = _botones_borrador(draft_id)
+                return out
+            p = editado["payload"]
+            out["alert"] = ("✖ Ya no es traslado" if accion == "accno" else
+                            f"↔️ {p.get('dest_account_name')}" if cambio.get("dest_account_id")
+                            else f"💳 {p.get('payment_method')}")[:190]
+            out["edit_text"] = render_summary(draft_id, p)
+            out["edit_buttons"] = _botones_borrador(draft_id)
+            return out
+
+        if accion == "accback":
+            conn.commit()
+            out["edit_buttons"] = _botones_borrador(draft_id)
+            return out
+
         if accion == "emp":
             filas = [[(label, f"empset:{draft_id}:{eid}")]
                      for eid, label in _empresas_reales(cur)]
@@ -1936,8 +2009,14 @@ def _ejecutar_confirmacion(conn, cur, draft_id, payload, media_path,
         account_id, err = _resolver_cuenta(cur, payload.get("payment_method"))
         if err:
             return _revertir(conn, cur, draft_id,
-                             err + " Descarta el borrador y reenvía la operación "
-                                   "nombrando una de tus cuentas.")
+                             err + " Elige la cuenta con 💳 Cuenta (o en la Bandeja web) "
+                                   "y confirma de nuevo.")
+    # 4b. Un traslado SIN cuenta destino descontaría del origen sin abonar en
+    #     ninguna parte (database_driver solo abona si hay destino): se frena.
+    if payload.get("type") == "TRANSFERENCIA" and _cuenta_existente(cur, payload.get("dest_account_id")) is None:
+        return _revertir(conn, cur, draft_id,
+                         "Falta la cuenta destino del traslado: elígela con 💳 Cuenta y "
+                         "confirma de nuevo.")
 
     # 5. Contrato oficial + pipeline oficial (el mismo de la web)
     from routers.schemas import TransactionInput
@@ -2026,6 +2105,19 @@ _CAMPOS_EDITABLES = {"type", "amount", "concept", "category", "payment_method",
                      "tags"}
 
 
+def _faltantes(payload: dict):
+    """Lo que impide confirmar (compute_missing + las cuentas): «cuenta» si no
+    hay cuenta de pago ni por id ni por nombre; «cuenta destino» si es un
+    traslado sin destino. Recalculado en cada edición, así el aviso del
+    resumen nunca se queda viejo."""
+    faltan = compute_missing(payload)
+    if not payload.get("account_id") and not (payload.get("payment_method") or "").strip():
+        faltan.append("cuenta")
+    if payload.get("type") == "TRANSFERENCIA" and not payload.get("dest_account_id"):
+        faltan.append("cuenta destino")
+    return faltan
+
+
 def editar_draft(draft_id: int, cambios: dict, hub_user_id=None) -> dict:
     """Edición determinista desde la bandeja web (Etapa C). Sin LLM.
 
@@ -2035,7 +2127,9 @@ def editar_draft(draft_id: int, cambios: dict, hub_user_id=None) -> dict:
     """
     campos = {k: v for k, v in (cambios or {}).items() if k in _CAMPOS_EDITABLES}
     tercero = cambios.get("third_party") if isinstance((cambios or {}).get("third_party"), dict) else None
-    if not campos and not tercero:
+    # 💳 Cuenta (9-oct-2026): cuentas POR ID — la de pago y la destino de un traslado
+    cuentas = {k: cambios[k] for k in ("account_id", "dest_account_id") if k in (cambios or {})}
+    if not campos and not tercero and not cuentas:
         return {"error": "Nada que editar: ningún campo editable en la petición."}
 
     if "type" in campos and campos["type"] not in TIPOS_VALIDOS:
@@ -2099,8 +2193,34 @@ def editar_draft(draft_id: int, cambios: dict, hub_user_id=None) -> dict:
             payload["third_party"] = tp
             editados.add("third_party")
 
-        payload["inferred_fields"] = sorted(set(payload.get("inferred_fields") or []) - editados)
-        payload["missing_fields"] = compute_missing(payload)
+        tipo_provisional = False
+        for clave, valor in cuentas.items():
+            if clave == "dest_account_id" and valor is None:
+                # «No es traslado»: vuelve a GASTO, marcado inferido para que se revise
+                payload["dest_account_id"] = payload["dest_account_name"] = None
+                if payload.get("type") == "TRANSFERENCIA":
+                    payload["type"], tipo_provisional = "GASTO", True
+                continue
+            cur.execute("SELECT id, name FROM user_accounts WHERE id = %s",
+                        (int(valor) if str(valor).isdigit() else -1,))
+            fila_cta = cur.fetchone()
+            if not fila_cta:
+                conn.rollback()
+                return {"error": "Esa cuenta ya no existe. Revísala en 💳 Cuentas de la web."}
+            if clave == "account_id":
+                payload["account_id"], payload["payment_method"] = fila_cta[0], str(fila_cta[1]).strip()
+                editados.add("payment_method")
+            else:
+                payload["dest_account_id"], payload["dest_account_name"] = fila_cta[0], str(fila_cta[1]).strip()
+                payload["type"] = "TRANSFERENCIA"
+                editados.add("type")
+        if payload.get("dest_account_id") and str(payload.get("dest_account_id")) == str(payload.get("account_id")):
+            conn.rollback()
+            return {"error": "La cuenta destino no puede ser la misma cuenta de pago."}
+
+        payload["inferred_fields"] = sorted((set(payload.get("inferred_fields") or []) - editados)
+                                            | ({"type"} if tipo_provisional else set()))
+        payload["missing_fields"] = _faltantes(payload)
 
         cur.execute("""
             UPDATE transaction_drafts

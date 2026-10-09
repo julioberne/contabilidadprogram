@@ -22,8 +22,11 @@ dígitos y los montos en formato 11,900.00 y 7.000,00 según la familia):
     Bancolombia: ANDRES JULIAN DIAZ BERNATE pagaste $30,000.00 por codigo QR
     desde tu cuenta *3037 a la llave 0087671656 el 26/09/2026 a las 17:52.
 
-Familias sin muestra real (Retiraste, pagos PSE, avances…) NO se inventan:
-se agregan a FAMILIAS cuando Andrés envíe un SMS de cada una.
+  transferencia_llave, pago_boton, retiro_cajero, ahorro_bolsillo (30-sep a
+    9-oct-2026): muestras reales junto a cada regex, más abajo.
+
+Familias sin muestra real (pagos PSE, avances…) NO se inventan: se agregan a
+FAMILIAS cuando Andrés envíe un SMS de cada una.
 Spec: docs/specs/09-bot-ia/09.F-sms-bancolombia.md (R-09F-03, R-09F-04).
 
 Contrato de salida (todas las familias):
@@ -90,6 +93,54 @@ RE_PAGO_QR = re.compile(
     + r"\s+por\s+c[oó]digo\s+QR\s+desde\s+tu\s+cuenta\s+\*?(?P<origen>\d{2,6})"
     + r"\s+a\s+la\s+llave\s+(?P<llave>\S+)"
     + r"\s+el\s+" + _FECHA + _HORA,
+    re.IGNORECASE,
+)
+
+
+# Bre-B a una llave CON el nombre del destinatario (8 SMS reales entre el 30-sep
+# y el 8-oct-2026, que antes caían en «plantilla nueva»):
+#   "Bancolombia: ANDRES, transferiste $70,000.00 a la llave 6550482 desde tu
+#    cuenta *3037 a DIDLEXYS MELEANNY VILLASMIL DOMINGUEZ el 08/10/26 a las
+#    12:11. Con Bre-b es de una y gratis. …"
+RE_TRANSFERISTE_LLAVE = re.compile(
+    r"transferiste\s+" + _MONEDA + _MONTO
+    + r"\s+a\s+la\s+llave\s+(?P<llave>\S+)"
+    + r"\s+desde\s+tu\s+cuenta\s+\*?(?P<origen>\d{2,6})"
+    + r"\s+a\s+(?P<nombre>.+?)\s+el\s+" + _FECHA + _HORA,
+    re.IGNORECASE,
+)
+
+# Pago por Botón Bancolombia (9-oct-2026): fecha sin «el» y hora con segundos.
+#   "Bancolombia: Transferiste $12,100.00 por Boton Bancolombia a CAMARA DE
+#    COMERCIO DE BOGOTA desde producto *3037. 09/10/2026 11:03:17 ¿Dudas? …"
+RE_PAGO_BOTON = re.compile(
+    _PREFIJO + r"Transferiste\s+" + _MONEDA + _MONTO
+    + r"\s+por\s+Bot[oó]n\s+Bancolombia\s+a\s+(?P<comercio>.+?)"
+    + r"\s+desde\s+(?:tu\s+)?producto\s+\*?(?P<origen>\d{2,6})\.?"
+    + r"\s+(?:el\s+)?" + _FECHA
+    + r"(?:\s+(?:a\s+las\s+)?(?P<hora>\d{1,2}:\d{2})(?::\d{2})?)?",
+    re.IGNORECASE,
+)
+
+# Retiro en cajero con tarjeta débito (3-oct-2026):
+#   "Bancolombia: Retiraste $500.000,00 en CAR_GALERIA de tu T.Deb **5379 el
+#    03/10/2026 a las 03:51. Si tienes dudas, …"
+RE_RETIRASTE = re.compile(
+    _PREFIJO + r"Retiraste\s+" + _MONEDA + _MONTO
+    + r"\s+en\s+(?P<lugar>.+?)\s+de\s+tu\s+T\.?\s*(?P<tipo_tarjeta>Deb|Cred)[a-zé]*\.?"
+    + r"\s*\*{0,3}(?P<tarjeta>\d{4})"
+    + r",?\s+el\s+" + _FECHA + _HORA,
+    re.IGNORECASE,
+)
+
+# Ahorro a un bolsillo de la misma cuenta (1-oct-2026):
+#   "Bancolombia: ANDRES, tu ahorro de $400.000 ya lo tienes en tu bolsillo
+#    Personal de tu cuenta de ahorros *3037, el 01/10/2026 a las 07:33. …"
+RE_AHORRO_BOLSILLO = re.compile(
+    r"tu\s+ahorro\s+de\s+" + _MONEDA + _MONTO
+    + r"\s+ya\s+lo\s+tienes\s+en\s+tu\s+bolsillo\s+(?P<bolsillo>.+?)"
+    + r"\s+de\s+tu\s+cuenta(?:\s+de\s+ahorros)?\s+\*{0,3}(?P<origen>\d{2,6})"
+    + r",?\s+el\s+" + _FECHA + _HORA,
     re.IGNORECASE,
 )
 
@@ -208,15 +259,57 @@ def _build_pago_qr(nombre, m, texto):
     return d
 
 
+def _build_transferencia_llave(nombre, m, texto):
+    # Como «Transferiste … a la cuenta»: GASTO inferido. La llave es el medio
+    # (ancla fuerte); el nombre del destinatario, el respaldo por igualdad.
+    d = _base(nombre, m, texto, "GASTO", True)
+    llave = m.group("llave").rstrip(".,;")
+    d.update(origen_last4=last4(m.group("origen")), destino=llave,
+             destino_last4=last4(llave), destino_es_celular=es_celular(llave),
+             contraparte_nombre=_limpiar_nombre(m.group("nombre")))
+    return d
+
+
+def _build_pago_boton(nombre, m, texto):
+    d = _base(nombre, m, texto, "GASTO", False)      # pagarle a un comercio ES un gasto
+    d.update(origen_last4=last4(m.group("origen")),
+             contraparte_nombre=_limpiar_nombre(m.group("comercio")))
+    return d
+
+
+def _build_retiro(nombre, m, texto):
+    # Andrés (9-oct-2026): el retiro en cajero se registra como GASTO desde la
+    # tarjeta. El cajero NO es un tercero: no se ancla ningún medio.
+    d = _base(nombre, m, texto, "GASTO", False)
+    es_credito = m.group("tipo_tarjeta").lower().startswith("cred")
+    d.update(origen_last4=m.group("tarjeta"), origen_campo="last4_tarjeta",
+             lugar=_limpiar_nombre(m.group("lugar")),
+             tarjeta_tipo="credito" if es_credito else "debito")
+    return d
+
+
+def _build_ahorro_bolsillo(nombre, m, texto):
+    # Andrés (9-oct-2026): traslado entre cuentas propias (cuenta → bolsillo).
+    # El bolsillo comparte los 4 dígitos de la cuenta: la cuenta destino NO se
+    # resuelve por número; se elige con 💳 Cuenta (nada se adivina).
+    d = _base(nombre, m, texto, "TRANSFERENCIA", False)
+    d.update(origen_last4=last4(m.group("origen")),
+             bolsillo=_limpiar_nombre(m.group("bolsillo")))
+    return d
+
+
 # (nombre, regex compilada, builder(nombre, match, texto) -> dict)
 # Se evalúan en orden; la primera que hace search() gana.
 FAMILIAS = (
+    ("pago_boton", RE_PAGO_BOTON, _build_pago_boton),
     ("transferencia_enviada", RE_TRANSFERISTE, _build_transferencia),
+    ("transferencia_llave", RE_TRANSFERISTE_LLAVE, _build_transferencia_llave),
     ("compra_tarjeta", RE_COMPRASTE, _build_compra),
+    ("retiro_cajero", RE_RETIRASTE, _build_retiro),
     ("transferencia_recibida", RE_RECIBISTE, _build_recibida),
     ("transferencia_recibida", RE_RECIBISTE_LLAVE, _build_recibida),
     ("pago_qr", RE_PAGO_QR, _build_pago_qr),
-    # ("retiro", RE_RETIRASTE, _build_retiro),    # pendiente de muestra real
+    ("ahorro_bolsillo", RE_AHORRO_BOLSILLO, _build_ahorro_bolsillo),
 )
 
 
@@ -237,6 +330,17 @@ _RE_ENMASCARADO = re.compile(r"\*{1,3}(\d{4})(?!\d)")
 def tiene_dinero(texto) -> bool:
     """¿El texto menciona un monto? ($11,900.00 · COP 50.000 · USD1,00)"""
     return bool(_RE_DINERO.search(texto or ""))
+
+
+_RE_BANCO = re.compile(r"\bbancolombia\b", re.IGNORECASE)
+
+
+def es_del_banco(texto) -> bool:
+    """¿El texto dice que es de Bancolombia? MacroDroid reenvía TODOS los SMS con
+    el mismo remitente (85540): sin esto, la publicidad con «$» de otros
+    remitentes (Cali Mio, factura Claro) llegaba como «plantilla nueva» y
+    creaba borradores basura (#602, #620, #622)."""
+    return bool(_RE_BANCO.search(texto or ""))
 
 
 def extraer_generico(texto) -> dict:

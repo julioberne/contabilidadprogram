@@ -29,8 +29,8 @@ import re
 from datetime import date
 
 from draft_builder import build_payload, compute_missing, resolver_portafolio
-from sms_bancolombia import (REMITENTE_DEFAULT, es_celular, extraer_generico, parsear,
-                             tiene_dinero)
+from sms_bancolombia import (REMITENTE_DEFAULT, es_celular, es_del_banco, extraer_generico,
+                             parsear, tiene_dinero)
 from terceros_cuentas import buscar_tercero_seguro, describir as describir_medio, medio_de_sms
 
 # ── Esquema propio (self-heal en server._startup + scripts/migrate_sms_bancolombia.py) ──
@@ -174,9 +174,15 @@ def tercero_de_medio(cur, medio, contraparte=None):
     if tercero is not None:
         return tercero, True
     if tipo == "celular" or (tipo == "llave" and es_celular(valor)):
-        return resolver_tercero_por_celular(cur, valor), False
+        tercero = resolver_tercero_por_celular(cur, valor)
+        if tercero is not None or not contraparte:
+            return tercero, False
     if tipo == "nombre_banco":
         return resolver_tercero_por_nombre(cur, contraparte or valor), False
+    if contraparte:
+        # Llave/cuenta que el banco acompaña con el NOMBRE (Bre-B): si la llave
+        # aún no está en ninguna ficha, igualdad exacta del nombre.
+        return resolver_tercero_por_nombre(cur, contraparte), False
     return None, False
 
 
@@ -196,6 +202,16 @@ def concepto_sms(sms, transferencia_propia=False) -> str:
         return f"Transferencia recibida de {sms.get('contraparte_nombre') or '—'} en *{o} (SMS)"
     if fam == "pago_qr":
         return f"Pago con QR a la llave {sms.get('destino') or '—'} desde *{o} (SMS)"
+    if fam == "transferencia_llave":
+        return (f"Transferencia Bre-B a {sms.get('contraparte_nombre') or '—'} "
+                f"(llave {sms.get('destino') or '—'}) desde *{o} (SMS)")
+    if fam == "pago_boton":
+        return f"Pago Botón Bancolombia a {sms.get('contraparte_nombre') or '—'} desde *{o} (SMS)"
+    if fam == "retiro_cajero":
+        tarjeta = "T.Cred" if sms.get("tarjeta_tipo") == "credito" else "T.Deb"
+        return f"Retiro en cajero {sms.get('lugar') or '—'} con {tarjeta} *{o} (SMS)"
+    if fam == "ahorro_bolsillo":
+        return f"Ahorro al bolsillo {sms.get('bolsillo') or '—'} de la cuenta *{o} (SMS)"
     return f"{fam} (SMS)"
 
 
@@ -233,7 +249,7 @@ def construir_borrador_sms(cur, texto_sms, remitente, portafolio_preferido):
         raise ValueError("No hay portafolios en FIN-SYS: crea uno en la web primero.")
 
     account_id = cuenta_nombre = None
-    dest_account_id = None
+    dest_account_id = dest_nombre = None
     tercero = None
     medio = None                      # (tipo, valor) de la contraparte según el SMS
     por_medio = False                 # el tercero salió de un medio de pago registrado
@@ -248,14 +264,15 @@ def construir_borrador_sms(cur, texto_sms, remitente, portafolio_preferido):
         # 3) ¿El destino es otra cuenta MÍA? → transferencia entre cuentas (determinista)
         if (tercero is None and sms["familia"] == "transferencia_enviada"
                 and not sms.get("destino_es_celular") and sms.get("destino_last4")):
-            dest_account_id, _ = resolver_cuenta_por_last4(cur, sms["destino_last4"])
+            dest_account_id, dest_nombre = resolver_cuenta_por_last4(cur, sms["destino_last4"])
 
     # Plantilla DESCONOCIDA pero con dinero (R-09F-13): lectura literal de
     # monto, fecha y de MI cuenta si exactamente UNO de los *NNNN del texto
     # está registrado (cuenta o tarjeta). Todo queda marcado "inferido" y el
     # concepto vacío: el borrador exige revisión humana antes de confirmar.
+    # Solo si el texto dice que es del banco (la publicidad no es movimiento).
     generico = None
-    if sms is None and tiene_dinero(texto_sms):
+    if sms is None and tiene_dinero(texto_sms) and es_del_banco(texto_sms):
         generico = extraer_generico(texto_sms)
         mias = {}
         for l4 in generico["last4_candidatos"]:
@@ -282,6 +299,7 @@ def construir_borrador_sms(cur, texto_sms, remitente, portafolio_preferido):
         payload["payment_method"] = ""
         payload["account_id"] = None
     payload["dest_account_id"] = dest_account_id
+    payload["dest_account_name"] = dest_nombre
 
     fuente = sms or generico or {}
     if generico:
@@ -302,6 +320,8 @@ def construir_borrador_sms(cur, texto_sms, remitente, portafolio_preferido):
     missing = compute_missing(payload)
     if not account_id:
         missing.append("cuenta")
+    if payload.get("type") == "TRANSFERENCIA" and not dest_account_id:
+        missing.append("cuenta destino")      # ahorro a bolsillo: se elige con 💳 Cuenta
     inferred = sorted(set(inferred))
     payload["inferred_fields"] = inferred
     payload["missing_fields"] = missing
@@ -353,6 +373,9 @@ def encabezado_sms(res) -> str:
         lineas.append(f"👤 Tercero por medio de pago registrado ({describir_medio(*res['medio'])})")
     # Contraparte que el banco nombró pero no existe (igual) en Terceros
     sms = res.get("sms") or {}
+    if sms.get("familia") == "ahorro_bolsillo" and not (res.get("payload") or {}).get("dest_account_id"):
+        lineas.append(f"↔️ Traslado al bolsillo «{sms.get('bolsillo') or '—'}»: elige la cuenta destino "
+                      "con 💳 Cuenta (si no existe, créala en 💳 Cuentas de la web)")
     tp = (res.get("payload") or {}).get("third_party") or {}
     if sms.get("contraparte_nombre") and tp.get("identification_number") == "999999999":
         lineas.append(f"👤 El banco dice: {sms['contraparte_nombre']} — asígnalo respondiendo "
