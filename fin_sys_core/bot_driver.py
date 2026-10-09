@@ -72,15 +72,19 @@ AYUDA = (
     "  /resumen — el resumen automático consolidado, ya mismo\n"
     "  /ayuda — este mensaje\n\n"
     "Para completar un borrador (también los que llegan por SMS 📲),\n"
-    "RESPONDE (reply) a su mensaje. Puedes mandar todo junto:\n"
+    "RESPONDE (reply) a CUALQUIER mensaje suyo. Una respuesta nunca crea\n"
+    "otro borrador. Puedes mandar todo junto:\n"
     "    abono cuota 1\n"
+    "    50000\n"
     "    Tercero: Leidy Molina cc 1007289007\n"
     "  · lo que va sin marca es el concepto\n"
+    "  · una línea con solo un valor (50000, $50.000, 50 mil) es el monto\n"
     "  · \"Tercero: nombre\" busca uno existente (o un número: documento o\n"
-    "    celular); con \"cc\"/\"nit\" y el número lo crea si no existe —\n"
-    "    el documento manda, así que nunca se duplica\n"
+    "    celular); con el documento (\"cc 123\" o al final del nombre) lo\n"
+    "    crea si no existe — el documento manda, así que nunca se duplica\n"
     "  · \"Tercero nuevo: Nombre\" lo crea sin documento (provisional)\n"
-    "  · el botón 👤 Tercero muestra los más recientes\n"
+    "  · foto o ubicación respondiendo → van a ESE borrador\n"
+    "  · 📝 Completar abre la ficha del borrador dentro de Telegram\n"
     "  · 💾 Guardar (borradores de SMS): registra la cuenta, celular o llave\n"
     "    del SMS en la ficha del tercero — la próxima vez el borrador llega\n"
     "    con ese tercero ya puesto. Nada se guarda solo.\n"
@@ -176,7 +180,11 @@ def render_summary(draft_id: int, payload: dict, inferred=None, missing=None) ->
     if payload.get("apply_iva"):
         lineas.append("IVA 19%: se calculará al confirmar")
     if missing:
-        lineas.append(f"\n⚠ Falta: {', '.join(missing)} — descarta y reenvía la operación completa")
+        # Aviso informativo, no restrictivo (Andrés, 9-oct): el borrador se
+        # completa después; solo no se puede confirmar mientras falte algo.
+        ejemplo = " (ej. 50000)" if "monto" in missing else ""
+        lineas.append(f"\n⚠ Falta: {', '.join(missing)}. Complétalo cuando quieras: responde "
+                      f"a este mensaje{ejemplo} o toca 📝 Completar.")
     lineas.append(f"\nResponde:\n▸ Confirmar #{draft_id}\n▸ Descartar #{draft_id}")
     return "\n".join(lineas)
 
@@ -224,7 +232,12 @@ def handle_message(msg: dict):
             conn.commit()
             return reply
         if cmd in ("confirmar", "descartar"):
-            draft_id = arg if arg is not None else _unico_borrador(cur, link)
+            draft_id = arg
+            if draft_id is None and msg.get("reply_to_message_id"):
+                destino = _draft_por_reply(cur, link, msg)   # «Confirmar» respondiendo a un borrador
+                draft_id = destino["id"] if destino else None
+            if draft_id is None:
+                draft_id = _unico_borrador(cur, link)
             conn.commit()               # persistir dedupe ANTES de confirmar
             if draft_id is None:
                 return (f"¿Cuál borrador? Indícame el número: {cmd.capitalize()} #N\n"
@@ -253,6 +266,16 @@ def handle_message(msg: dict):
             from insight_engine import resumen_texto
             return resumen_texto(None)
 
+        # ── ↩️ Texto, foto o ubicación RESPONDIENDO a un mensaje de un
+        #    borrador (09.G, ampliado 9-oct): completa ESE borrador; si ya no
+        #    es editable se avisa. Una respuesta jamás crea otro borrador. ──
+        if msg.get("reply_to_message_id") and msg.get("kind") in ("text", "photo", "location"):
+            destino = _draft_por_reply(cur, link, msg)
+            if destino is not None:
+                reply = _flujo_respuesta(cur, link, destino, msg)
+                conn.commit()
+                return reply
+
         # ── 📸 Foto (Etapa E): evidencia de un borrador o borrador nuevo ──
         if msg.get("kind") == "photo":
             reply = _flujo_foto(cur, link, msg, msg_row_id)
@@ -264,16 +287,6 @@ def handle_message(msg: dict):
             reply = _flujo_ubicacion(cur, link, msg)
             conn.commit()
             return reply
-
-        # ── 📝 Texto RESPONDIENDO a un borrador (Etapa 09.G): completar
-        #    tercero / concepto de ESE borrador, jamás crear otro ──
-        if msg.get("kind") == "text" and msg.get("reply_to_message_id"):
-            draft_id = _draft_por_reply(cur, link, msg)
-            if draft_id is not None:
-                reply = _flujo_reply(cur, link, draft_id, msg.get("text") or "")
-                conn.commit()
-                if reply is not None:
-                    return reply
 
         # ── Entrada no soportada en el MVP ──
         if msg.get("kind") == "unsupported":
@@ -348,22 +361,38 @@ def _responder_analisis(pregunta: str, portfolio_id, nombre_portafolio):
     return out
 
 
-def log_outbound(channel: str, chat_id: str, content: str, chat_link_id=None, draft_id=None):
-    """Auditoría de mensajes salientes (best-effort, nunca rompe el flujo)."""
+def log_outbound(channel: str, chat_id: str, content: str, chat_link_id=None, draft_id=None,
+                 message_id=None, kind="text"):
+    """Auditoría de mensajes salientes (best-effort, nunca rompe el flujo).
+    Con `message_id` (el id que dio el canal) y `draft_id`, la fila es además
+    el registro «este mensaje es del borrador N»: responder a CUALQUIER mensaje
+    de un borrador lo completa (ver _draft_por_reply). El índice único de
+    bot_messages solo cubre las filas IN: las OUT pueden llevar el id."""
     from db_pool import get_conn, put_conn
     try:
         conn = get_conn()
         try:
             cur = conn.cursor()
             cur.execute("""
-                INSERT INTO bot_messages (chat_link_id, raw_chat_id, direction, channel, kind, content, draft_id)
-                VALUES (%s, %s, 'OUT', %s, 'text', %s, %s)
-            """, (chat_link_id, str(chat_id), channel, (content or "")[:2000], draft_id))
+                INSERT INTO bot_messages (chat_link_id, raw_chat_id, direction, channel, kind, content,
+                                          draft_id, external_message_id)
+                VALUES (%s, %s, 'OUT', %s, %s, %s, %s, %s)
+            """, (chat_link_id, str(chat_id), channel, kind, (content or "")[:2000], draft_id,
+                  str(message_id) if message_id else None))
             conn.commit()
         finally:
             put_conn(conn)
     except Exception:
         pass
+
+
+def vincular_mensaje(channel: str, chat_id: str, draft_id, message_id, kind="ref"):
+    """Registra que un mensaje ya enviado (y ya auditado) pertenece a un
+    borrador — p. ej. los que salen tras un botón. `kind` distingue mensajes
+    con un significado propio al responderles (p. ej. el que pide el nombre
+    de una etiqueta nueva)."""
+    if draft_id and message_id:
+        log_outbound(channel, chat_id, "", draft_id=draft_id, message_id=message_id, kind=kind)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -467,6 +496,12 @@ def _crear_borrador(cur, link, texto, msg, msg_row_id):
     payload = draft["payload"]
     inferred = draft["inferred_fields"]
     missing = draft["missing_fields"]
+    if not (payload.get("concept") or "").strip():
+        # Texto suelto sin concepto estructurado («Billar»): el concepto ES lo
+        # que escribió el humano (literal). Lo que falte se avisa sin bloquear.
+        payload["concept"] = re.sub(r"\s+", " ", texto).strip()[:255]
+        missing = compute_missing(payload)
+        payload["missing_fields"] = missing
 
     media_db = None
     if msg.get("media_path"):
@@ -498,16 +533,17 @@ def _botones_borrador(draft_id: int):
     """Botonera estándar bajo el resumen (Etapa E). Formato canal-agnóstico:
     filas de (etiqueta, callback_data). El texto 'Confirmar #N' del resumen
     se mantiene como fallback para canales sin botones."""
+    # 9-oct-2026 (Andrés: «tiene muchos botones»): 👤 Tercero y 📝 Concepto
+    # salen de la botonera. Concepto, monto y tercero se completan RESPONDIENDO
+    # a cualquier mensaje del borrador o en la Mini App. Sus callbacks (tp:,
+    # cpt:) siguen atendidos para los mensajes viejos que aún los tienen.
     return [
         [("✅ Confirmar", f"ok:{draft_id}"), ("❌ Descartar", f"no:{draft_id}")],
         [("🏢 Cambiar empresa", f"emp:{draft_id}"), ("🏷️ Etiquetas", f"tags:{draft_id}")],
-        # Etapa 09.G: completar el borrador sin salir del chat (Regla 6b: el
-        # tercero sale de third_parties o lo crea el humano; nada se adivina)
-        [("👤 Tercero", f"tp:{draft_id}"), ("📝 Concepto", f"cpt:{draft_id}")],
-        # Etapa 09.I: la Mini App de Telegram abre la MISMA ficha de la web
-        # (buscar/crear/editar/eliminar el tercero y sus medios de pago). El
-        # dato `webapp:<url>` lo traduce el adaptador a un botón web_app.
-        [("📝 Completar tercero", f"webapp:{WEBAPP_BASE}/tg.html?draft={draft_id}")],
+        # Etapa 09.I: la Mini App de Telegram abre el borrador y la MISMA ficha
+        # de tercero de la web. El dato `webapp:<url>` lo traduce el adaptador
+        # a un botón web_app.
+        [("📝 Completar", f"webapp:{WEBAPP_BASE}/tg.html?draft={draft_id}")],
         [("💤 Dejar en borrador", f"hold:{draft_id}")],
     ]
 
@@ -614,7 +650,14 @@ def _flujo_ubicacion(cur, link, msg):
     if draft_id is None:
         return ("Recibí la ubicación pero no tienes borradores pendientes.\n"
                 "Primero envíame el gasto/ingreso y luego la ubicación.")
+    return _ubicacion_a_borrador(cur, link, draft_id, msg)
 
+
+def _ubicacion_a_borrador(cur, link, draft_id, msg):
+    """Escribe la ubicación de `msg` en el borrador (si sigue editable)."""
+    lat, lon = msg.get("latitude"), msg.get("longitude")
+    if lat is None or lon is None:
+        return NO_SOPORTADO
     cur.execute("""
         SELECT payload FROM transaction_drafts
          WHERE id = %s AND chat_link_id = %s AND status IN ('BORRADOR', 'ERROR')
@@ -659,6 +702,14 @@ _RE_DOC = re.compile(
     r"\b(?P<tipo>nit|c\.?\s?c\.?|c\.?\s?e\.?|c[eé]dula)\s*[:.#]?\s*(?:n[o°º]\.?\s*)?"
     r"(?P<num>\d[\d.\-]{3,19})", re.IGNORECASE)
 _RE_NUM_FINAL = re.compile(r"[,;]\s*(?P<num>\d[\d.\-]{3,19})\s*$")
+# «Leidy Molina 1007289007»: número pelado al final de un nombre = documento
+# (o celular si tiene forma de celular: 10 dígitos que empiezan por 3)
+_RE_NUM_PELADO_FINAL = re.compile(r"\s(?P<num>\d[\d.\-]{5,19})\s*$")
+# Monto respondido: «50000» · «$50.000» · «50 mil» · «1,5 millones» · «Monto: 50.000»
+_RE_MARCA_MONTO = re.compile(r"^\s*(?:monto|valor)\b\s*:?\s*", re.IGNORECASE)
+_RE_MONTO = re.compile(
+    r"^\s*\$?\s*(?P<num>\d[\d.,]*)\s*(?P<mult>mil(?:es)?|k|mill[oó]n(?:es)?|m)?\s*(?:pesos|cop)?\s*$",
+    re.IGNORECASE)
 _RE_CEL = re.compile(
     r"\b(?:cel(?:ular)?|tel(?:[eé]fono)?|whatsapp|wpp)\s*[:.]?\s*(?P<cel>\+?\d[\d ]{6,14}\d)",
     re.IGNORECASE)
@@ -683,8 +734,14 @@ def _parse_tercero(valor, nuevo=False):
         num, v = m.group("num").strip(".-"), v[:m.start()] + " " + v[m.end():]
     else:
         m = _RE_NUM_FINAL.search(v.rstrip())
+        if not m:
+            pelado = _RE_NUM_PELADO_FINAL.search(v.rstrip())
+            if pelado and re.search(r"[^\W\d_]", v[:pelado.start()]):   # hay un nombre antes
+                m = pelado
         if m:
             num, v = m.group("num").strip(".-"), v[:m.start()]
+            if not phone and re.fullmatch(r"3\d{9}", re.sub(r"\D", "", num)):
+                phone, num = re.sub(r"\D", "", num), None             # «Nequi 3193301184»
     nombre = re.sub(r"\s+", " ", v).strip(" ,;.-:")
     buscar_num = None
     if nombre and re.fullmatch(r"[\d\s.+\-]+", nombre):       # solo un número
@@ -695,15 +752,49 @@ def _parse_tercero(valor, nuevo=False):
             "email": email, "buscar_num": buscar_num, "nuevo": bool(nuevo)}
 
 
+def _monto_de(texto):
+    """«50000» · «$50.000» · «50 mil» · «1,5 millones» → float; otra cosa → None.
+    Un número pelado de 10 o más dígitos NO es un monto: es un documento o un
+    celular (se trata como tercero)."""
+    m = _RE_MONTO.match(texto or "")
+    if not m:
+        return None
+    crudo, mult = m.group("num"), (m.group("mult") or "").lower()
+    if not mult and "$" not in texto and re.fullmatch(r"\d{10,}", crudo):
+        return None
+    from sms_bancolombia import normalizar_monto
+    valor = normalizar_monto(crudo)
+    if not valor or valor <= 0:
+        return None
+    if mult in ("mil", "miles", "k"):
+        valor *= 1_000
+    elif mult:
+        valor *= 1_000_000
+    return round(valor, 2)
+
+
 def _parse_reply(texto):
-    """Reply al resumen de un borrador → {"concepto": str|None, "tercero": dict|None}.
-    Lo que no lleva marcador ES el concepto (traducción literal, no adivinanza);
-    una línea de tercero jamás se mezcla con el concepto."""
-    concepto, tercero = [], None
+    """Reply a un mensaje de un borrador → {"concepto": str|None,
+    "tercero": dict|None, "monto": float|None}.
+    Una línea que es SOLO un monto («50000», «$50.000», «50 mil», «Monto: …»)
+    es el monto; una que es solo un número largo (celular o documento) busca
+    el tercero; lo que no lleva marcador ES el concepto (traducción literal,
+    no adivinanza); una línea de tercero jamás se mezcla con el concepto."""
+    concepto, tercero, monto = [], None, None
     for linea in (texto or "").splitlines():
         linea = linea.strip()
         if not linea:
             continue
+        if not (_RE_MARCA_CORTA.match(linea) or _RE_MARCA_INICIO.match(linea)):
+            m = _RE_MARCA_MONTO.match(linea)
+            numero = _monto_de(linea[m.end():] if m else linea)
+            if numero is not None:
+                monto = numero
+                continue
+            if not m and re.fullmatch(r"\+?\d{10,15}", linea):     # celular o documento suelto
+                if tercero is None:
+                    tercero = _parse_tercero(linea)
+                continue
         m = _RE_MARCA_CORTA.match(linea)                      # "c: …" / "t: …"
         if m:
             linea = ("concepto: " if m.group(1).lower() == "c" else "tercero: ") + linea[m.end():]
@@ -726,7 +817,7 @@ def _parse_reply(texto):
             else:
                 concepto.append(valor)
     texto_concepto = re.sub(r"\s+", " ", " ".join(concepto)).strip()
-    return {"concepto": texto_concepto or None, "tercero": tercero}
+    return {"concepto": texto_concepto or None, "tercero": tercero, "monto": monto}
 
 
 def _tercero_dict(row):
@@ -1135,35 +1226,115 @@ def _resolver_tercero_dictado(cur, t):
                     f"(o \"Tercero nuevo: {nombre}\" para crearlo sin documento)"), False
 
 
+# «#N» del borrador escrito en un mensaje del bot: «🧾 BORRADOR #635», «…al
+# borrador #635», «Confirmar #635». Lectura literal del mensaje respondido.
+_RE_BORRADOR_EN_TEXTO = re.compile(r"borrador\s*#\s*(\d+)", re.IGNORECASE)
+_RE_COMANDO_EN_TEXTO = re.compile(r"(?:confirmar|descartar)\s*#\s*(\d+)", re.IGNORECASE)
+
+
 def _draft_por_reply(cur, link, msg):
-    """reply_to_message_id → id de un borrador editable de este chat, o None."""
-    if not msg.get("reply_to_message_id"):
+    """¿A qué borrador de este chat pertenece el mensaje al que se responde?
+    → {"id", "status", "kind"} o None. Tres vías deterministas, en orden:
+      1) el registro de mensajes del bot (bot_messages OUT con su message_id):
+         cubre TODOS los mensajes de un borrador, no solo el último;
+      2) bot_summary_message_id (el último mensaje con la botonera);
+      3) el «#N» escrito en el mensaje del bot al que se responde (mensajes
+         enviados antes del registro y los de instrucciones).
+    Devuelve el borrador AUNQUE ya no sea editable: quien llama le explica
+    al humano que está confirmado/descartado en vez de crear otro."""
+    rid = msg.get("reply_to_message_id")
+    if not rid:
         return None
+    draft_id, kind = None, None
     cur.execute("""
-        SELECT id FROM transaction_drafts
-         WHERE chat_link_id = %s AND bot_summary_message_id = %s
-           AND status IN ('BORRADOR', 'ERROR')
-    """, (link["id"], str(msg["reply_to_message_id"])))
+        SELECT draft_id, kind FROM bot_messages
+         WHERE direction = 'OUT' AND channel = %s AND raw_chat_id = %s
+           AND external_message_id = %s AND draft_id IS NOT NULL
+         ORDER BY id DESC LIMIT 1
+    """, (msg.get("channel"), str(msg.get("chat_id")), str(rid)))
     row = cur.fetchone()
-    return row[0] if row else None
+    if row:
+        draft_id, kind = row[0], row[1]
+    else:
+        cur.execute("""
+            SELECT id FROM transaction_drafts
+             WHERE chat_link_id = %s AND bot_summary_message_id = %s
+        """, (link["id"], str(rid)))
+        row = cur.fetchone()
+        if row:
+            draft_id = row[0]
+        elif msg.get("reply_to_bot"):
+            texto = msg.get("reply_to_text") or ""
+            m = _RE_BORRADOR_EN_TEXTO.search(texto) or _RE_COMANDO_EN_TEXTO.search(texto)
+            if m:
+                draft_id = int(m.group(1))
+    if draft_id is None:
+        return None
+    cur.execute("SELECT id, status FROM transaction_drafts WHERE id = %s AND chat_link_id = %s",
+                (draft_id, link["id"]))
+    row = cur.fetchone()
+    if not row:
+        return None                     # el #N no es de este chat: no se toca
+    return {"id": row[0], "status": row[1], "kind": kind}
+
+
+def _flujo_respuesta(cur, link, destino, msg):
+    """Texto, foto o ubicación RESPONDIENDO a un mensaje de un borrador: va a
+    ESE borrador y jamás crea otro (pedido de Andrés, 9-oct-2026: los replies
+    que no se asociaban generaban borradores erróneos que tocaba descartar)."""
+    draft_id, status = destino["id"], destino["status"]
+    if status not in ("BORRADOR", "ERROR"):
+        estado = {"CONFIRMADO": "confirmado", "DESCARTADO": "descartado",
+                  "PROCESANDO": "confirmándose"}.get(status, str(status).lower())
+        return (f"El borrador #{draft_id} ya está {estado}: no lo cambio desde el chat.\n"
+                "Para corregirlo, hazlo en la web. Si es un movimiento nuevo, escríbelo "
+                "sin responder a ningún mensaje.")
+    kind = msg.get("kind")
+    if kind == "location":
+        return _ubicacion_a_borrador(cur, link, draft_id, msg)
+    if kind == "photo":
+        if not msg.get("media_path"):
+            return ("No pude guardar la foto (falló la subida al archivo). "
+                    "Inténtalo de nuevo en un momento.")
+        adjunto = _adjuntar_evidencia(cur, link, draft_id, msg["media_path"])
+        texto = (msg.get("text") or "").strip()
+        if not texto or not isinstance(adjunto, dict):
+            return adjunto
+        # El pie de foto completa el mismo borrador. La evidencia queda firme
+        # ANTES: editar_draft usa otra conexión con FOR UPDATE sobre la fila.
+        cur.connection.commit()
+        completado = _flujo_reply(cur, link, draft_id, texto)
+        if isinstance(completado, dict):
+            completado["text"] = adjunto["text"] + "\n" + completado["text"]
+            return completado
+        return adjunto["text"] + "\n" + str(completado)
+    return _flujo_reply(cur, link, draft_id, msg.get("text") or "")
 
 
 def _flujo_reply(cur, link, draft_id, texto):
     """Texto respondiendo al resumen de un borrador (Etapa 09.G). Puede traer
     concepto y tercero a la vez, en una o varias líneas."""
     datos = _parse_reply(texto)
-    concepto, t = datos["concepto"], datos["tercero"]
-    if not concepto and not t:
-        return None
+    concepto, t, monto = datos["concepto"], datos["tercero"], datos.get("monto")
+    if not concepto and not t and monto is None:
+        return (f"No encontré nada que poner en el borrador #{draft_id}. Responde con el "
+                "concepto, el monto (ej. 50000) o «Tercero: nombre cc 123».")
     notas, payload, botones = [], None, None
 
+    cambios = {}
     if concepto:
-        editado = editar_draft(draft_id, {"concept": concepto[:255]},
-                               hub_user_id=link["hub_user_id"])
+        cambios["concept"] = concepto[:255]
+    if monto is not None:
+        cambios["amount"] = monto
+    if cambios:
+        editado = editar_draft(draft_id, cambios, hub_user_id=link["hub_user_id"])
         if editado.get("error"):
             return editado["error"]
         payload = editado["payload"]
-        notas.append(f"📝 Concepto → «{concepto[:255]}»")
+        if concepto:
+            notas.append(f"📝 Concepto → «{concepto[:255]}»")
+        if monto is not None:
+            notas.append(f"💰 Monto → {_fmt_money(monto)} COP")
 
     if t:
         accion, dato, puede_crear = _resolver_tercero_dictado(cur, t)
@@ -1282,23 +1453,30 @@ def _portafolio_de_entidad(cur, entity_id):
         return None
 
 
-def guardar_summary_message_id(draft_id: int, message_id) -> None:
-    """El adaptador registra el message_id del resumen enviado — habilita el
-    reply-con-foto y la edición del mensaje al confirmar por botón."""
+def guardar_summary_message_id(draft_id: int, message_id):
+    """El adaptador registra el message_id del ÚLTIMO mensaje del borrador (el
+    que lleva su botonera). → el message_id anterior (o None), para que el
+    adaptador le quite los botones. Los mensajes anteriores siguen sirviendo
+    para responder: quedan en bot_messages (log_outbound con message_id)."""
     from db_pool import get_conn, put_conn
     try:
         conn = get_conn()
         try:
             cur = conn.cursor()
             cur.execute("""
-                UPDATE transaction_drafts SET bot_summary_message_id = %s
-                WHERE id = %s
+                UPDATE transaction_drafts d SET bot_summary_message_id = %s
+                  FROM (SELECT id, bot_summary_message_id AS previo FROM transaction_drafts
+                         WHERE id = %s FOR UPDATE) v
+                 WHERE d.id = v.id
+             RETURNING v.previo
             """, (str(message_id), draft_id))
+            fila = cur.fetchone()
             conn.commit()
+            return fila[0] if fila else None
         finally:
             put_conn(conn)
     except Exception:
-        pass   # best-effort: sin esto solo se pierde el reply-con-foto
+        return None   # best-effort: sin esto solo queda un botón viejo a la vista
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1331,6 +1509,9 @@ def handle_callback(channel: str, chat_id: str, data: str):
         except (IndexError, ValueError):
             out["alert"] = "Botón inválido."
             return out
+        # El adaptador registra el mensaje que mande ("text") como de ESTE
+        # borrador: responderle también lo completa.
+        out["draft_id"] = draft_id
 
         if accion == "ok":
             conn.commit()
@@ -1727,8 +1908,9 @@ def _ejecutar_confirmacion(conn, cur, draft_id, payload, media_path,
     missing = compute_missing(payload)
     if missing:
         return _revertir(conn, cur, draft_id,
-                         f"Faltan campos: {', '.join(missing)}. Descarta el borrador y "
-                         "reenvía la operación completa (o edítalo en la Bandeja web).")
+                         f"Faltan campos: {', '.join(missing)}. Complétalo respondiendo al "
+                         "mensaje del borrador (ej. 50000 para el monto), en 📝 Completar o "
+                         "en la Bandeja web, y confirma de nuevo.")
 
     # 2. Portafolio REAL (mata el portafolio-fantasma: registrar_transaccion
     #    crea silenciosamente cualquier nombre que no exista)
@@ -1965,7 +2147,8 @@ def marcar_aviso_chat(draft_id: int, hub_user_id=None) -> bool:
         put_conn(conn)
 
 
-def avisar_chat_pendientes(send_fn, conn=None, limite=20, canal="telegram") -> int:
+def avisar_chat_pendientes(send_fn, conn=None, limite=20, canal="telegram",
+                           quitar_botones=None) -> int:
     """Tick del poller (etapa 09.I): reenvía al chat el resumen de los borradores
     marcados con payload.avisar_chat (editados desde la Mini App). La marca se
     quita ANTES de enviar: un fallo de Telegram no reenvía en bucle (el humano
@@ -2014,8 +2197,11 @@ def avisar_chat_pendientes(send_fn, conn=None, limite=20, canal="telegram") -> i
                     # humano puede reabrir la ficha) y no se reintenta en bucle.
                     print(f"⚠️ [BOT] el aviso del borrador #{did} no salió (Telegram devolvió error).")
                     continue
-                guardar_summary_message_id(did, mid)
-                log_outbound("telegram", chat_id, texto, chat_link_id=link_id, draft_id=did)
+                previo = guardar_summary_message_id(did, mid)
+                if quitar_botones and previo and str(previo) != str(mid):
+                    quitar_botones(chat_id, previo)     # solo el último mensaje lleva botonera
+                log_outbound("telegram", chat_id, texto, chat_link_id=link_id, draft_id=did,
+                             message_id=mid)
                 conn.commit()
                 n += 1
             except Exception as e:

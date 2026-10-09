@@ -24,13 +24,13 @@ class TestBotonMiniApp(unittest.TestCase):
         web = [(lbl, d) for fila in filas for lbl, d in fila if d.startswith("webapp:")]
         self.assertEqual(len(web), 1)
         etiqueta, data = web[0]
-        self.assertEqual(etiqueta, "📝 Completar tercero")
+        self.assertEqual(etiqueta, "📝 Completar")
         self.assertTrue(data.startswith("webapp:https://"), data)      # Telegram exige HTTPS
         self.assertTrue(data.endswith("/tg.html?draft=507"), data)
         self.assertEqual(data, f"webapp:{bot_driver.WEBAPP_BASE}/tg.html?draft=507")
-        # va después de 👤 Tercero / 📝 Concepto y antes de 💤 Dejar en borrador
+        # va después de 🏷️ Etiquetas y antes de 💤 Dejar en borrador
         datas = [d for fila in filas for _, d in fila]
-        self.assertLess(datas.index("tp:507"), datas.index(data))
+        self.assertLess(datas.index("tags:507"), datas.index(data))
         self.assertLess(datas.index(data), datas.index("hold:507"))
 
     def test_los_demas_botones_siguen_cabiendo_en_64_bytes(self):

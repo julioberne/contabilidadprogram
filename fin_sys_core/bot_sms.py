@@ -355,8 +355,8 @@ def encabezado_sms(res) -> str:
     sms = res.get("sms") or {}
     tp = (res.get("payload") or {}).get("third_party") or {}
     if sms.get("contraparte_nombre") and tp.get("identification_number") == "999999999":
-        lineas.append(f"👤 El banco dice: {sms['contraparte_nombre']} — asígnalo con el botón "
-                      "👤 Tercero o respondiendo \"Tercero: …\"")
+        lineas.append(f"👤 El banco dice: {sms['contraparte_nombre']} — asígnalo respondiendo "
+                      "\"Tercero: …\" o en 📝 Completar")
     return "\n".join(lineas) + "\n\n"
 
 
@@ -481,7 +481,7 @@ def _procesar_uno(conn, cur, fila, send_fn, kind="sms"):
     mid = send_fn(str(chat_id), resumen, buttons=_botones_borrador(draft_id))
     if mid:
         guardar_summary_message_id(draft_id, mid)
-    log_outbound("telegram", str(chat_id), resumen, link_id, draft_id)
+    log_outbound("telegram", str(chat_id), resumen, link_id, draft_id, message_id=mid)
     return True
 
 

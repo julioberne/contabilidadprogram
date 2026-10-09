@@ -71,12 +71,12 @@ class TestParseReply(unittest.TestCase):
 
     def test_concepto_con_prefijo(self):
         self.assertEqual(bot_driver._parse_reply("Concepto: arriendo septiembre"),
-                         {"concepto": "arriendo septiembre", "tercero": None})
+                         {"concepto": "arriendo septiembre", "tercero": None, "monto": None})
         self.assertEqual(bot_driver._parse_reply("c: mercado")["concepto"], "mercado")
 
     def test_sin_prefijo_es_concepto_literal(self):
         self.assertEqual(bot_driver._parse_reply("fue el arriendo"),
-                         {"concepto": "fue el arriendo", "tercero": None})
+                         {"concepto": "fue el arriendo", "tercero": None, "monto": None})
 
     def test_tercero_solo_nombre(self):
         r = bot_driver._parse_reply("Tercero: Juan Pérez")
@@ -101,7 +101,7 @@ class TestParseReply(unittest.TestCase):
         self.assertEqual((t["nombre"], t["num"], t["nuevo"]), ("Ana Gómez", None, True))
 
     def test_vacio(self):
-        self.assertEqual(bot_driver._parse_reply("   "), {"concepto": None, "tercero": None})
+        self.assertEqual(bot_driver._parse_reply("   "), {"concepto": None, "tercero": None, "monto": None})
 
     # ── Los dos mensajes reales de Andrés que la primera versión se tragó ──
 
@@ -265,11 +265,13 @@ class TestPendienteCorresponde(unittest.TestCase):
 
 class TestBotones(unittest.TestCase):
 
-    def test_botonera_tiene_tercero_y_concepto_y_cabe_en_64_bytes(self):
+    def test_botonera_sin_tercero_ni_concepto_y_cabe_en_64_bytes(self):
+        # 9-oct-2026: concepto, monto y tercero se completan respondiendo al
+        # mensaje o en la Mini App; los botones 👤/📝 salieron de la botonera.
         filas = bot_driver._botones_borrador(123456)
         datas = [d for fila in filas for _, d in fila]
-        self.assertIn("tp:123456", datas)
-        self.assertIn("cpt:123456", datas)
+        self.assertNotIn("tp:123456", datas)
+        self.assertNotIn("cpt:123456", datas)
         for d in datas:
             if d.startswith("webapp:"):      # botón web_app (etapa 09.I): lleva URL, no callback
                 continue

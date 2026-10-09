@@ -187,6 +187,20 @@ def _descargar_foto(m: dict):
     return subir_evidencia(nombre, contenido, mime)
 
 
+def _datos_respuesta(m: dict) -> dict:
+    """Si el mensaje RESPONDE (reply) a otro: id del mensaje respondido y, si era
+    del bot, su texto. El texto deja leer el «#N» del borrador en mensajes que
+    el bot mandó antes de registrar cada message_id (y en los de instrucciones)."""
+    reply = m.get("reply_to_message") or {}
+    if not reply.get("message_id"):
+        return {}
+    datos = {"reply_to_message_id": str(reply["message_id"])}
+    if (reply.get("from") or {}).get("is_bot"):
+        datos["reply_to_bot"] = True
+        datos["reply_to_text"] = (reply.get("text") or reply.get("caption") or "")[:4096]
+    return datos
+
+
 def normalize(update: dict):
     """Update de Telegram → InboundMessage canal-agnóstico (o None si se ignora)."""
     m = update.get("message")
@@ -207,11 +221,9 @@ def normalize(update: dict):
     if m.get("text") is not None:
         base["kind"] = "text"
         base["text"] = m["text"]
-        # Etapa 09.G: texto RESPONDIENDO al resumen de un borrador = completar
-        # ese borrador (Concepto: … / Tercero: …), no crear uno nuevo.
-        reply = m.get("reply_to_message") or {}
-        if reply.get("message_id"):
-            base["reply_to_message_id"] = str(reply["message_id"])
+        # Etapa 09.G: texto RESPONDIENDO a un mensaje de un borrador = completar
+        # ese borrador (concepto, tercero, monto), jamás crear uno nuevo.
+        base.update(_datos_respuesta(m))
         return base
     voz = m.get("voice") or m.get("audio")
     if voz and voz.get("file_id"):
@@ -228,9 +240,7 @@ def normalize(update: dict):
         base["kind"] = "photo"
         base["media_path"] = _descargar_foto(m)   # None si falló (driver avisa)
         base["text"] = m.get("caption")
-        reply = m.get("reply_to_message") or {}
-        if reply.get("message_id"):
-            base["reply_to_message_id"] = str(reply["message_id"])
+        base.update(_datos_respuesta(m))
         return base
     # 📍 Ubicación (Etapa E.2): geolocalización explícita para el borrador
     loc = m.get("location")
@@ -238,13 +248,25 @@ def normalize(update: dict):
         base["kind"] = "location"
         base["latitude"] = loc["latitude"]
         base["longitude"] = loc["longitude"]
-        reply = m.get("reply_to_message") or {}
-        if reply.get("message_id"):
-            base["reply_to_message_id"] = str(reply["message_id"])
+        base.update(_datos_respuesta(m))
         return base
     # Stickers, documentos… → próxima etapa
     base["kind"] = "unsupported"
     return base
+
+
+def _quitar_botones(chat_id: str, message_id) -> None:
+    edit_message(chat_id, message_id, buttons=[])
+
+
+def _botonera_en(chat_id: str, draft_id, message_id) -> None:
+    """Solo el ÚLTIMO mensaje de un borrador lleva su botonera: al mandar (o
+    reactivar) uno, se le quita al anterior. Menos botones viejos en el chat y
+    ninguno que actúe sobre un resumen desactualizado."""
+    import bot_driver
+    previo = bot_driver.guardar_summary_message_id(draft_id, message_id)
+    if previo and str(previo) != str(message_id):
+        _quitar_botones(chat_id, previo)
 
 
 def _procesar_callback(bot_driver, cb: dict):
@@ -263,10 +285,17 @@ def _procesar_callback(bot_driver, cb: dict):
         if out.get("edit_text") is not None or out.get("edit_buttons") is not None:
             edit_message(chat_id, m.get("message_id"),
                          text=out.get("edit_text"), buttons=out.get("edit_buttons"))
+            if out.get("edit_buttons") and out.get("draft_id") and m.get("message_id"):
+                # El mensaje tocado vuelve a ser EL del borrador (lleva su botonera)
+                _botonera_en(chat_id, out["draft_id"], m["message_id"])
         if out.get("text"):
             # text_buttons: botonera del mensaje NUEVO (p. ej. 💾 Guardar el medio
             # de pago junto a la confirmación — etapa 09.G)
-            send_message(chat_id, out["text"], buttons=out.get("text_buttons"))
+            mid = send_message(chat_id, out["text"], buttons=out.get("text_buttons"))
+            if mid and out.get("draft_id"):
+                # Responder a este mensaje también completa ESE borrador
+                bot_driver.vincular_mensaje("telegram", chat_id, out["draft_id"], mid,
+                                            kind=out.get("text_kind") or "ref")
     except Exception as e:
         print(f"⚠️ [TG] callback falló: {e}")
         answer_callback(cb_id, "Error procesando el botón.")
@@ -323,7 +352,8 @@ def main():
             # ── Mini App de Telegram (etapa 09.I): borradores editados desde
             # la ficha → el poller reenvía el resumen con sus botones ────────
             try:
-                n_av = bot_driver.avisar_chat_pendientes(send_message)
+                n_av = bot_driver.avisar_chat_pendientes(send_message,
+                                                         quitar_botones=_quitar_botones)
                 if n_av:
                     print(f"✏️ [TG] {n_av} borrador(es) reenviado(s) tras editarlos en la Mini App.")
             except Exception as e:
@@ -367,7 +397,7 @@ def main():
                     mid = send_message(msg["chat_id"], reply["text"],
                                        buttons=reply.get("buttons"))
                     if mid and reply.get("draft_id"):
-                        bot_driver.guardar_summary_message_id(reply["draft_id"], mid)
+                        _botonera_en(msg["chat_id"], reply["draft_id"], mid)
                     # 📊 Hito 3: la gráfica del análisis viaja como foto aparte
                     if reply.get("photo_png_base64"):
                         import base64
@@ -377,7 +407,7 @@ def main():
                         except Exception as e:
                             print(f"⚠️ [TG] la foto del análisis falló (el texto ya salió): {e}")
                     bot_driver.log_outbound("telegram", msg["chat_id"], reply["text"],
-                                            draft_id=reply.get("draft_id"))
+                                            draft_id=reply.get("draft_id"), message_id=mid)
                 else:
                     send_message(msg["chat_id"], reply)
                     bot_driver.log_outbound("telegram", msg["chat_id"], reply)
