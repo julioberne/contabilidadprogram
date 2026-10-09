@@ -58,7 +58,10 @@ HOOKS = {
     "PostToolUse": {"matcher": "Edit|Write|MultiEdit",
                     "hooks": [{"type": "command", "command": comando("lint_al_editar.py"), "timeout": 90}]},
 }
-PERMISO_CHEQUEO = f"Bash({comando('chequeo_diario.py')}*)"
+# Lo que la tarea programada necesita sin que nadie apruebe (corre desatendida): su script y dos
+# herramientas de solo lectura de la app para el semáforo de sesiones.
+PERMISOS = [f"Bash({comando('chequeo_diario.py')}*)",
+            "mcp__ccd_session_mgmt__list_sessions", "mcp__ccd_session_mgmt__get_usage"]
 
 
 def mismo_contenido(a, b):
@@ -91,9 +94,9 @@ def settings_con_hooks(cfg, instalar):
     if not hooks:
         del nuevo["hooks"]
     permisos = nuevo.setdefault("permissions", {})
-    allow = [r for r in permisos.get("allow", []) if r != PERMISO_CHEQUEO]
+    allow = [r for r in permisos.get("allow", []) if r not in PERMISOS]
     if instalar:
-        allow.append(PERMISO_CHEQUEO)
+        allow.extend(PERMISOS)
     permisos["allow"] = allow
     return nuevo
 
