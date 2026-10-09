@@ -1,11 +1,14 @@
 /* ============================================================
-   TelegramTerceroApp.jsx — Mini App de Telegram (etapa 09.I, v1).
+   TelegramTerceroApp.jsx — Mini App de Telegram (etapa 09.I).
 
-   La abre el botón «📝 Completar tercero» de un borrador del bot
-   (tg.html?draft=N). Una sola pantalla: el borrador que llegó y el
+   La abre el botón «📝 Completar» de un borrador del bot
+   (tg.html?draft=N). Una sola pantalla: el borrador que llegó, con
+   su mensaje original, concepto y monto editables (9-oct-2026), y el
    tercero: buscar y asignar uno existente, crear uno nuevo con el
    mismo formulario de la web, o abrir su ficha para completarla
-   (datos, cuentas, celulares, llaves) o eliminarla.
+   (datos, cuentas, celulares, llaves) o eliminarla. Si el borrador
+   viene de un SMS, el dato con que el banco nombra a la contraparte
+   se puede recordar en la ficha (casilla al asignar o 💾).
 
    Sesión: la MISMA de la web (usuario y clave; useGlobalSession).
    Al asignar, el borrador se edita por el mismo endpoint de la
@@ -20,15 +23,9 @@ import { useGlobalSession } from '../shell/hooks/useGlobalSession.js';
 import TerceroForm from '../contabilidad-v2/components/TerceroForm.jsx';
 import TerceroFicha from '../contabilidad-v2/components/TerceroFicha.jsx';
 import { tgClose, tgParam } from './telegram.js';
+import BorradorEditable, { RecordarMedio, guardarMedio, describirMedio } from './BorradorEditable.jsx';
 
 const GENERICO = '999999999';
-const cop = (n) => {
-  try {
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Number(n) || 0);
-  } catch {
-    return `$${n}`;
-  }
-};
 const norm = (s) => (s || '').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 const digitos = (s) => (s || '').toString().replace(/\D/g, '');
 const esNumerico = (s) => s.trim() !== '' && /^[\d\s.\-+()]+$/.test(s.trim());
@@ -52,27 +49,6 @@ function Login({ login, loading, error }) {
   );
 }
 
-function Borrador({ draft }) {
-  const p = draft.payload || {};
-  const sms = p.sms || {};
-  return (
-    <div className="border-2 border-black p-2 bg-white font-mono text-xs space-y-0.5">
-      <div className="flex justify-between">
-        <span className="font-bold">Borrador #{draft.id}</span>
-        <span className="text-gray-500">{p.type || ''} · {draft.status}</span>
-      </div>
-      <div className="text-lg font-bold">{cop(p.amount)}</div>
-      <div>{p.concept || <span className="text-gray-400">sin concepto</span>}</div>
-      <div className="text-gray-500">{p.transaction_date || ''} · {p.payment_method || 'cuenta sin resolver'} · {p.portfolio_name || draft.portfolio_name || ''}</div>
-      {(sms.destino || sms.contraparte) && (
-        <div className="text-gray-700 border-t border-dashed border-gray-300 pt-0.5">
-          📲 SMS: {sms.familia ? `${sms.familia} · ` : ''}{sms.destino ? `destino ${sms.destino}` : ''}{sms.contraparte ? ` · ${sms.contraparte}` : ''}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function TelegramTerceroApp() {
   const { user, login, logout, loading, error } = useGlobalSession();
   const draftId = tgParam('draft');
@@ -85,6 +61,8 @@ export default function TelegramTerceroApp() {
   const [aviso, setAviso] = useState('');
   const [ocupado, setOcupado] = useState(false);
   const [eliminadoId, setEliminadoId] = useState(null);
+  const [recordar, setRecordar] = useState(true);        // casilla «recordar el dato del SMS»
+  const [refrescarMedio, setRefrescarMedio] = useState(0);
 
   const cargarTerceros = useCallback(async () => {
     const r = await fetch(`${API}/third-parties`);
@@ -125,6 +103,7 @@ export default function TelegramTerceroApp() {
   };
 
   const actual = draft?.payload?.third_party || null;
+  const medio = draft?.payload?.sms?.medio || null;      // {tipo, valor} del SMS (09.G §10)
   const tieneTercero = !!(actual && actual.identification_number && actual.identification_number !== GENERICO);
   const asignadoEliminado = tieneTercero && actual.id && eliminadoId && String(eliminadoId) === String(actual.id);
   const enLista = tieneTercero
@@ -153,7 +132,15 @@ export default function TelegramTerceroApp() {
       if (!r.ok) { setAviso(`No se pudo asignar: ${cuerpo.detail || r.status}`); return; }
       setDraft({ ...draft, ...cuerpo, status: cuerpo.status || draft.status });
       setEliminadoId(null);
-      setAviso(`Asignado: ${ficha.name}. El bot te manda el resumen actualizado al chat en su siguiente vuelta (menos de un minuto).`);
+      let extra = '';
+      if (recordar && medio) {
+        // Casilla visible y marcada a la vista del humano: acto explícito (Regla 6b)
+        const m = await guardarMedio(ficha.id, medio).catch(() => ({ ok: false, detail: 'sin conexión' }));
+        extra = m.ok ? ` ${describirMedio(medio)} quedó en su ficha: los próximos SMS llegan con este tercero.`
+          : ` No se guardó ${describirMedio(medio)} en la ficha: ${m.detail || m.status}.`;
+        setRefrescarMedio(n => n + 1);
+      }
+      setAviso(`Asignado: ${ficha.name}. El bot te manda el resumen actualizado al chat en su siguiente vuelta (menos de un minuto).${extra}`);
       setFichaDe(ficha); setVista('ficha'); setQ('');
     } catch {
       setAviso('Sin conexión con el servidor.');
@@ -172,9 +159,14 @@ export default function TelegramTerceroApp() {
   // dígitos, al celular (10 dígitos) o al documento. El celular del SMS manda.
   const celSms = digitos(draft?.payload?.sms?.destino).length === 10 ? digitos(draft.payload.sms.destino) : '';
   const qDig = digitos(q);
+  // Sin búsqueda, el nombre arranca con lo que dice el SMS (literal, editable):
+  // el comercio/remitente o «Cel 319…» para asociar el número y poner el nombre después.
+  const ETIQUETA_MEDIO = { celular: 'Cel', cuenta: 'Cuenta', llave: 'Llave' };
+  const nombreDelSms = draft?.payload?.sms?.contraparte
+    || (medio ? (ETIQUETA_MEDIO[medio.tipo] ? `${ETIQUETA_MEDIO[medio.tipo]} ${medio.valor}` : medio.valor) : '');
   const inicialCrear = esNumerico(q)
     ? { name: '', phone: celSms || (qDig.length === 10 ? qDig : ''), idNumber: qDig.length === 10 && !celSms ? '' : (qDig.length === 10 ? '' : qDig) }
-    : { name: q.trim(), phone: celSms };
+    : { name: q.trim() || nombreDelSms, phone: celSms };
 
   if (!user) {
     return <div className="p-3 max-w-md mx-auto"><Login login={login} loading={loading} error={error} /></div>;
@@ -186,7 +178,7 @@ export default function TelegramTerceroApp() {
   return (
     <div className="p-2 max-w-md mx-auto space-y-2 font-mono">
       <div className="flex items-center justify-between">
-        <div className="text-xs font-bold uppercase">FIN-SYS · Tercero del borrador</div>
+        <div className="text-xs font-bold uppercase">FIN-SYS · Completar borrador</div>
         <div className="flex gap-1">
           <button type="button" onClick={logout} className="text-[10px] underline text-gray-500">salir</button>
           <button type="button" onClick={tgClose} className={`${btn} bg-white text-xs py-1`} aria-label="Cerrar">Cerrar</button>
@@ -194,7 +186,13 @@ export default function TelegramTerceroApp() {
       </div>
 
       {cargaError && <div role="alert" className="border-2 border-black bg-brutalAmber p-2 text-xs">{cargaError}</div>}
-      {draft && <Borrador draft={draft} />}
+      {draft && (
+        <BorradorEditable draft={draft} logout={logout}
+          onGuardado={(c) => setDraft({ ...draft, ...c, status: c.status || draft.status })} />
+      )}
+      {draft && medio && enLista && !asignadoEliminado && (
+        <RecordarMedio key={enLista.id} medio={medio} tercero={enLista} refrescar={refrescarMedio} logout={logout} />
+      )}
       {draft && !draft.editable && (
         <div role="status" className="border-2 border-black bg-brutalAmber p-2 text-xs">
           Este borrador ya está en estado {draft.status}: se puede ver, pero no cambiar.
@@ -234,6 +232,13 @@ export default function TelegramTerceroApp() {
               </div>
             ))}
             <button type="button" onClick={() => setVista('crear')} className={`${btn} w-full bg-white`}>➕ Crear tercero nuevo</button>
+            {medio && draft.editable && (
+              <label className="flex items-start gap-1.5 text-[11px] pt-1">
+                <input type="checkbox" checked={recordar} onChange={(e) => setRecordar(e.target.checked)}
+                  aria-label="Recordar el dato del SMS al asignar" className="mt-0.5" />
+                <span>Al asignar, recordar {describirMedio(medio)} en esa ficha (así los próximos SMS llegan con el tercero).</span>
+              </label>
+            )}
           </div>
         </>
       )}

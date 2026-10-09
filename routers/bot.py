@@ -121,7 +121,7 @@ def list_drafts(status: str = "BORRADOR", user: dict = Depends(require_auth)):
 @router.get("/api/bot/drafts/{draft_id}")
 def get_draft_endpoint(draft_id: int, user: dict = Depends(require_auth)):
     """Un borrador del usuario actual, con el chat al que pertenece (etapa 09.I:
-    lo abre la Mini App de Telegram desde el botón «📝 Completar tercero»)."""
+    lo abre la Mini App de Telegram desde el botón «📝 Completar»)."""
     try:
         from db_pool import get_conn, put_conn
         conn = get_conn()
