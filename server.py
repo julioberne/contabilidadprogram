@@ -95,6 +95,7 @@ from routers.contadores import router as contadores_router
 from routers.analytics import router as analytics_router
 from routers.webhooks_sms import router as webhooks_sms_router
 from routers.third_party_accounts import router as third_party_accounts_router
+from routers.bot_anomalias import router as bot_anomalias_router
 from routers.accounting_files import router as accounting_files_router
 from routers.compendios import router as compendios_router
 
@@ -118,6 +119,7 @@ app.include_router(contadores_router)   # módulo 12: Contadores (B2)
 app.include_router(analytics_router)    # Análisis Inteligente (B0+B2+B3)
 app.include_router(webhooks_sms_router) # Bot IA 09.F: webhook SMS + tokens
 app.include_router(third_party_accounts_router)  # Bot IA 09.G: medios de pago del tercero
+app.include_router(bot_anomalias_router)  # Bot IA: 📓 bitácora de anomalías
 app.include_router(accounting_files_router)  # Análisis 13.5: organizador contable 📦
 app.include_router(compendios_router)  # Exportación 13.6: 🤝 compendio para el cliente (/c/<código>)
 
@@ -189,6 +191,14 @@ def _startup():
         print("✅ Terceros: third_party_accounts lista (medios de pago)")
     except Exception as e:
         print(f"⚠️ Terceros medios de pago init: {e}")
+
+    # ── Bot IA: 📓 bitácora de anomalías (tabla propia, informativa) ──
+    try:
+        from fin_sys_core.bot_anomalias import init_table as init_bot_anomalias
+        init_bot_anomalias()
+        print("✅ Bot IA: bitácora de anomalías lista (retención 180 días)")
+    except Exception as e:
+        print(f"⚠️ Bitácora de anomalías init: {e}")
 
     # ── Zero-COA: Registrar listener de partida doble ──
     try:

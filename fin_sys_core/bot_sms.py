@@ -505,7 +505,32 @@ def _procesar_uno(conn, cur, fila, send_fn, kind="sms"):
     if mid:
         guardar_summary_message_id(draft_id, mid)
     log_outbound("telegram", str(chat_id), resumen, link_id, draft_id, message_id=mid)
+    _anotar_anomalias(res, draft_id, link_id, texto, "sms")
     return True
+
+
+def _anotar_anomalias(res, draft_id, link_id, texto, canal):
+    """Bitácora (informativa, nunca frena): lo que este SMS dejó sin resolver."""
+    from bot_anomalias import registrar
+    sms = res.get("sms") or {}
+    p = res.get("payload") or {}
+    base = {"draft_id": draft_id, "chat_link_id": link_id, "canal": canal, "texto": texto}
+    familia = {"familia": sms.get("familia")}
+    if res.get("plantilla_nueva"):
+        registrar("sms_plantilla_nueva", "Monto y fecha leídos tal cual del texto", **base)
+    if res.get("reconocido") and not res.get("account_id"):
+        que = "Tarjeta" if sms.get("origen_campo") == "last4_tarjeta" else "Cuenta"
+        registrar("sms_cuenta_no_registrada",
+                  f"{que} *{sms.get('origen_last4') or '????'} sin cuenta en 💳 Cuentas", datos=familia, **base)
+    if p.get("type") == "TRANSFERENCIA" and not p.get("dest_account_id"):
+        registrar("sms_traslado_sin_destino",
+                  f"{sms.get('familia') or 'SMS'}: falta la cuenta destino"
+                  + (f" (bolsillo «{sms['bolsillo']}»)" if sms.get("bolsillo") else ""), datos=familia, **base)
+    tp = p.get("third_party") or {}
+    if (res.get("medio") and not p.get("dest_account_id")
+            and str(tp.get("identification_number")) == "999999999"):
+        registrar("sms_contraparte_sin_ficha", f"{describir_medio(*res['medio'])} no está en ninguna ficha",
+                  datos={**familia, "contraparte": sms.get("contraparte_nombre")}, **base)
 
 
 def borrador_desde_chat(cur, link, texto, msg, msg_row_id):
@@ -550,6 +575,7 @@ def borrador_desde_chat(cur, link, texto, msg, msg_row_id):
     draft_id = cur.fetchone()[0]
     cur.execute("UPDATE bot_messages SET draft_id = %s, chat_link_id = %s WHERE id = %s",
                 (draft_id, link["id"], msg_row_id))
+    _anotar_anomalias(res, draft_id, link["id"], texto, msg.get("channel") or "telegram")
     return {"text": encabezado_sms(res) + render_summary(draft_id, payload,
                                                          res["inferred_fields"], res["missing_fields"]),
             "draft_id": draft_id, "buttons": _botones_borrador(draft_id)}
@@ -558,6 +584,13 @@ def borrador_desde_chat(cur, link, texto, msg, msg_row_id):
 def _marcar_error(conn, cur, fila, error, send_fn, kind="sms"):
     """La fila no vuelve a tomarse (kind='sms_error'); el texto sigue ahí y se avisa."""
     msg_id, _content, chat_link_id, raw_chat_id, _ext = fila
+    try:
+        from bot_anomalias import registrar
+        datos_sms = json.loads(_content) if isinstance(_content, str) else (_content or {})
+        registrar("sms_error", str(error)[:300], chat_link_id=chat_link_id, canal="sms",
+                  texto=(datos_sms or {}).get("text"), datos={"bot_message_id": msg_id})
+    except Exception:
+        pass
     try:
         cur.execute("UPDATE bot_messages SET kind = %s WHERE id = %s", (kind + "_error", msg_id))
         cur.execute("""

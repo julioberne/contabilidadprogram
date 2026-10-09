@@ -576,6 +576,11 @@ Objeto `medio`: `{ id, third_party_id, tipo, valor, banco, etiqueta, origen, cre
 
 ### `DELETE /api/third-parties/{tp_id}/accounts/{medio_id}` (admin) → `{"status":"ELIMINADO","id"}` · `404` si ese medio no está en esta ficha.
 
+### 📓 Bitácora de anomalías del bot (`/api/bot/anomalias`, 9-oct-2026)
+> Router: `routers/bot_anomalias.py` · Lógica: `fin_sys_core/bot_anomalias.py` · Tabla: `bot_anomalias` · Web: Bot IA → 📓 Bitácora.
+- `GET /api/bot/anomalias?dias=30&tipo=&estado=abiertas|todas` (sesión) → `{disponible, dias, tipos:{clave: texto}, resumen:{tipo:{total, abiertas}}, items:[{id, created_at, tipo, canal, chat_link_id, draft_id, detalle, texto, datos, revisada, revisada_at, nota}]}`. `dias` 1–180. Sin la tabla (antes del primer arranque con este código): `disponible:false` y listas vacías. `422` tipo o estado inválidos.
+- `PUT /api/bot/anomalias/{id}` (admin) · body `{revisada: bool, nota?: str}` → el registro · `404` si no existe. Marcar revisada no cambia nada contable.
+
 ---
 
 ## 7. Terceros (Contabilidad) — borrar una ficha (`DELETE /api/third-parties/{tp_id}`)

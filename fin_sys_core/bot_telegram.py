@@ -369,6 +369,9 @@ def main():
                     res = purgar(send_message)
                     if any(res.values()):
                         print(f"🧹 [TG] retención: {res}")
+                    from bot_anomalias import purgar as purgar_bitacora
+                    if purgar_bitacora():
+                        print("🧹 [TG] bitácora: anomalías de más de 180 días borradas")
                 except Exception as e:
                     print(f"⚠️ [TG] purga de retención falló (se reintenta): {e}")
 

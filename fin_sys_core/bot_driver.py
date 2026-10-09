@@ -70,6 +70,7 @@ AYUDA = (
     "  /analisis <pregunta> — cifras del catálogo con gráfica, sobre la\n"
     "    empresa por defecto del chat (ej: /analisis cuánto gasté este mes)\n"
     "  /resumen — el resumen automático consolidado, ya mismo\n"
+    "  /anomalias — bitácora de lo que el bot no pudo resolver (7 días)\n"
     "  /ayuda — este mensaje\n\n"
     "Para completar un borrador (también los que llegan por SMS 📲),\n"
     "RESPONDE (reply) a CUALQUIER mensaje suyo. Una respuesta nunca crea\n"
@@ -118,6 +119,7 @@ _RE_EMPRESA = re.compile(r"^\s*/empresa\s*(.*)$", re.IGNORECASE)
 _RE_ANALISIS = re.compile(r"^\s*/(?:analisis|análisis|pregunta)\b\s*(.*)$",
                           re.IGNORECASE | re.DOTALL)
 _RE_RESUMEN  = re.compile(r"^\s*/resumen\s*$", re.IGNORECASE)
+_RE_ANOMALIAS = re.compile(r"^\s*/(?:anomal[ií]as|bit[aá]cora)\s*$", re.IGNORECASE)
 
 
 def parse_command(text: str):
@@ -144,6 +146,8 @@ def parse_command(text: str):
         return "analisis", m.group(1).strip() or None
     if _RE_RESUMEN.match(t):
         return "resumen", None
+    if _RE_ANOMALIAS.match(t):
+        return "anomalias", None
     return None, None
 
 
@@ -206,6 +210,7 @@ def handle_message(msg: dict):
         adaptador la envía como foto después del texto."""
     from db_pool import get_conn, put_conn
     conn = get_conn()
+    link = None
     try:
         cur = conn.cursor()
 
@@ -268,6 +273,14 @@ def handle_message(msg: dict):
             # El MISMO texto del envío periódico (consolidado), a demanda.
             from insight_engine import resumen_texto
             return resumen_texto(None)
+        if cmd == "anomalias":
+            conn.commit()               # el dedupe queda firme antes de leer la bitácora
+            from bot_anomalias import texto_resumen
+            try:
+                return texto_resumen(cur, 7, link["hub_user_id"])
+            except Exception:
+                conn.rollback()
+                return "📓 La bitácora aún no está disponible (se crea con el próximo despliegue)."
 
         # ── ↩️ Texto, foto o ubicación RESPONDIENDO a un mensaje de un
         #    borrador (09.G, ampliado 9-oct): completa ESE borrador; si ya no
@@ -278,6 +291,11 @@ def handle_message(msg: dict):
                 reply = _flujo_respuesta(cur, link, destino, msg)
                 conn.commit()
                 return reply
+            if msg.get("reply_to_bot"):
+                from bot_anomalias import registrar
+                registrar("reply_sin_borrador", "Se trató como texto suelto", chat_link_id=link["id"],
+                          canal=msg.get("channel"), texto=msg.get("text"),
+                          datos={"respondido": (msg.get("reply_to_text") or "")[:300]})
 
         # ── 📸 Foto (Etapa E): evidencia de un borrador o borrador nuevo ──
         if msg.get("kind") == "photo":
@@ -321,6 +339,9 @@ def handle_message(msg: dict):
         return reply
     except Exception as e:
         conn.rollback()
+        from bot_anomalias import registrar
+        registrar("error_bot", str(e)[:300], chat_link_id=(link or {}).get("id"),
+                  canal=msg.get("channel"), texto=msg.get("text"), datos={"tipo_mensaje": msg.get("kind")})
         return f"⚠ Error procesando el mensaje: {e}"
     finally:
         put_conn(conn)
@@ -1305,6 +1326,10 @@ def _flujo_respuesta(cur, link, destino, msg):
     if status not in ("BORRADOR", "ERROR"):
         estado = {"CONFIRMADO": "confirmado", "DESCARTADO": "descartado",
                   "PROCESANDO": "confirmándose"}.get(status, str(status).lower())
+        from bot_anomalias import registrar
+        registrar("reply_borrador_cerrado", f"El borrador #{draft_id} estaba {estado}", draft_id=draft_id,
+                  chat_link_id=link["id"], canal=msg.get("channel"),
+                  texto=msg.get("text") or msg.get("media_path"))
         return (f"El borrador #{draft_id} ya está {estado}: no lo cambio desde el chat.\n"
                 "Para corregirlo, hazlo en la web. Si es un movimiento nuevo, escríbelo "
                 "sin responder a ningún mensaje.")
@@ -2166,13 +2191,19 @@ def descartar_draft(draft_id: int, chat_link_id=None, hub_user_id=None) -> str:
              WHERE id = %s AND status IN ('BORRADOR', 'ERROR')
                AND (%s::int IS NULL OR chat_link_id = %s)
                AND (%s::uuid IS NULL OR user_id = %s)
-            RETURNING id
+            RETURNING id, channel, payload->'sms'->>'familia', payload->>'concept', raw_text
         """, (draft_id, chat_link_id, chat_link_id,
               str(hub_user_id) if hub_user_id else None,
               str(hub_user_id) if hub_user_id else None))
         row = cur.fetchone()
         conn.commit()
         if row:
+            # Bitácora: cuántos borradores se descartan y de dónde venían (SMS,
+            # texto, voz) es la medida de los «borradores erróneos».
+            from bot_anomalias import registrar
+            registrar("borrador_descartado", f"Origen: {row[1]}" + (f" · {row[2]}" if row[2] else ""),
+                      draft_id=draft_id, canal=row[1], texto=row[4],
+                      datos={"familia": row[2], "concepto": row[3]})
             return f"🗑 Borrador #{draft_id} descartado. Puedes enviarme la operación de nuevo."
         return _explicar_no_tomable(cur, draft_id, chat_link_id, hub_user_id, accion="descartar")
     finally:
@@ -2184,6 +2215,9 @@ def descartar_draft(draft_id: int, chat_link_id=None, hub_user_id=None) -> str:
 _CAMPOS_EDITABLES = {"type", "amount", "concept", "category", "payment_method",
                      "transaction_date", "portfolio_name", "apply_iva", "apply_gmf",
                      "tags"}
+
+
+_CAMPOS_CORRECCION = ("type", "amount", "transaction_date", "payment_method")
 
 
 def _faltantes(payload: dict):
@@ -2244,6 +2278,7 @@ def editar_draft(draft_id: int, cambios: dict, hub_user_id=None) -> dict:
             return {"error": f"El borrador #{draft_id} no existe, no es tuyo o ya no es editable."}
 
         payload = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+        antes = {k: payload.get(k) for k in _CAMPOS_CORRECCION}     # bitácora: correcciones a un SMS
         editados = set(campos.keys())
         payload.update(campos)
         if "payment_method" in campos:
@@ -2313,6 +2348,15 @@ def editar_draft(draft_id: int, cambios: dict, hub_user_id=None) -> dict:
         """, (json.dumps(payload), payload.get("portfolio_name"), draft_id))
         r = cur.fetchone()
         conn.commit()
+        cambiados = [k for k in _CAMPOS_CORRECCION if antes.get(k) != payload.get(k)]
+        if r[2] == "sms" and cambiados:
+            # Corregir a mano lo que leyó una plantilla es la mejor señal de que
+            # se equivocó (o de que el SMS no trae ese dato): queda en la bitácora.
+            from bot_anomalias import registrar
+            registrar("correccion_sms", "Campos: " + ", ".join(cambiados), draft_id=draft_id, canal="sms",
+                      datos={"familia": (payload.get("sms") or {}).get("familia"),
+                             "antes": {k: antes.get(k) for k in cambiados},
+                             "despues": {k: payload.get(k) for k in cambiados}})
         return {
             "id": r[0], "status": r[1], "channel": r[2], "portfolio_name": r[3],
             "payload": r[4] if isinstance(r[4], dict) else json.loads(r[4]),
@@ -2466,6 +2510,8 @@ def _revertir(conn, cur, draft_id, motivo: str) -> str:
         WHERE id = %s
     """, (motivo[:500], draft_id))
     conn.commit()
+    from bot_anomalias import registrar
+    registrar("confirmacion_fallida", motivo[:300], draft_id=draft_id)
     return f"⚠ No se pudo confirmar el borrador #{draft_id}: {motivo}"
 
 

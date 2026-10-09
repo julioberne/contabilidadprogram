@@ -459,6 +459,27 @@ CREATE INDEX IF NOT EXISTS idx_third_party_accounts_tercero ON third_party_accou
 - Un número con forma de celular (`3` + 9 dígitos) es **un solo medio** aunque esté guardado como `celular`, `llave` o `cuenta` (`_equivalentes`): el `UNIQUE` no lo ve, así que `agregar` responde `de_otro` si otra ficha lo tiene en cualquiera de esas formas y `mover` se lleva todas sus filas.
 - El tercero genérico (`999999999`) no puede tener medios. No altera `third_parties`.
 
+### U2. `bot_anomalias` — 📓 Bitácora de anomalías del bot (9-oct-2026)
+```sql
+CREATE TABLE IF NOT EXISTS bot_anomalias (
+    id SERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    tipo TEXT NOT NULL,          -- clave de bot_anomalias.TIPOS (sms_plantilla_nueva, correccion_sms, …)
+    canal TEXT,                  -- sms · telegram
+    chat_link_id INTEGER,        -- sin FK: es bitácora (se completa desde el borrador)
+    draft_id INTEGER,            -- sin FK: el borrador puede purgarse antes
+    detalle TEXT,                -- el hecho, en una línea
+    texto TEXT,                  -- el mensaje tal cual llegó (≤ 2000)
+    datos JSONB,                 -- contexto literal (familia, antes/después de una corrección…)
+    revisada BOOLEAN NOT NULL DEFAULT FALSE,
+    revisada_at TIMESTAMPTZ,
+    nota TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bot_anomalias_fecha ON bot_anomalias(created_at DESC);
+```
+- Informativa, no restrictiva: la escribe `fin_sys_core/bot_anomalias.registrar` (best-effort, conexión propia) desde el bot y el tick de SMS; jamás frena un flujo. Los chats `test-…` se excluyen en la misma sentencia.
+- La crea `server._startup()` (`init_table`); retención 180 días (purga horaria del poller). Se ve en Bot IA → 📓 Bitácora y con `/anomalias`. No altera ninguna tabla existente.
+
 ## MÓDULO ANÁLISIS — Etapa 13.5 Organizador contable 📦 (Tablas nuevas — Zero-Impact)
 
 > Spec: `docs/specs/13-analisis/13.5-submodulo-exportacion.md` §4.4 · DDL (fuente única): `fin_sys_core/accounting_files_driver.py` (`DDL`) · Migración: `scripts/migrate_exports.py` (idempotente; correr ANTES del deploy). El server no las crea al arrancar: sin migración los endpoints responden `503`.
