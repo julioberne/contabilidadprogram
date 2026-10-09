@@ -21,7 +21,7 @@ Brief de 4 partes:
 Si hay fallos: se arreglan antes de cerrar (vuelves al trabajo; el hito no está cerrado).
 
 ## 3. Commit
-Si hay cambios sin commitear del hito: commit con archivos explícitos (nunca `git add .`), mensaje en el estilo del repo. No hagas push: lo hace Andrés.
+Si hay cambios sin commitear del hito: commit con archivos explícitos (nunca `git add .`), mensaje en el estilo del repo. No hagas push: lo hace Andrés. Si el hito queda listo para producción, en el mensaje final sugiérele `/desplegar`.
 
 ## 4. Actualizar el frente (sobrescribir, ≤60 líneas)
 Con la plantilla de `docs/frentes/README.md`: estado, hecho, en producción, pendiente de push/deploy, **próximo paso concreto**, decisiones con su porqué, archivos clave (`ruta:línea`), cómo verificar, bloqueos.

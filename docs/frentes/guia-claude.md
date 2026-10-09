@@ -1,5 +1,5 @@
 # Frente: guia-claude
-Estado: ACTIVO · Actualizado: 2026-10-06 18:10 · Rama/commit: claude/multi-model-mcp-orchestration-3d985e @ 292c884 (sin publicar: 342bc87, 292c884)
+Estado: ACTIVO · Actualizado: 2026-10-09 · Rama: claude/multi-model-mcp-orchestration-3d985e (lo sin publicar: `git log origin/master..HEAD`)
 
 ## Objetivo
 Método de trabajo con Claude que baja el consumo de contexto y mejora el proceso de construcción: corte por hito, kit de sesión, agente de mantenimiento y herramientas especializadas. Guía completa: `docs/guia-trabajo-claude.md` (§8 plan, §9 catálogo).
@@ -16,11 +16,14 @@ Método de trabajo con Claude que baja el consumo de contexto y mejora el proces
 - Verificado en uso real: el lint-al-editar atrapó un nombre no definido en esta sesión; la guardia bloqueó un commit cuyo mensaje decía "git push" (falso positivo, corregido y con test).
 - Modelo: Opus 5.5 desde el 3-oct (Andrés). Contexto medio por turno: 417k (02-oct) → 407k (06-oct, 7 días).
 
+- Catálogo §9 completo: también `auditor-spec` (subagente Sonnet, solo lectura, una vez por etapa) y `/desplegar` (skill que solo invoca Andrés: prepara y verifica alrededor de `publicar.cmd`). Instalados; aparecen en las sesiones nuevas. Tests del kit: 23.
+- Prueba del auditor con la spec 13.4: "SOLO FALTA LO MANUAL", pero son 2 CA manuales (CA-134-01 y CA-134-11), no 1; 6 casos borde sin test (ANULADO, DT-30, USD en impuestos…); la spec dice 10 hojas y el código genera 12. Le toca al frente `analisis-exportacion`.
+
 ## Próximo paso
 1. Andrés: publicar con `scripts\publicar.cmd --sin-deploy` (solo scripts, CI y docs; no toca la app) y mirar que el CI quede verde con los pasos nuevos de lint.
-2. Mañana: confirmar que la corrida de las 10 pm terminó sola (tablero con la sección Sesiones llena y una fila nueva en `scratch/medicion-historial.csv`). Si se detiene, ver qué permiso pidió en Scheduled.
+2. Confirmar que la corrida de las 10 pm termina sola (tablero con la sección Sesiones llena y una fila nueva en `scratch/medicion-historial.csv`). Si se detiene, ver qué permiso pidió en Scheduled.
 3. Revisar `scratch/guardia.log` en los próximos días: cualquier bloqueo injusto se corrige en `guardia.py` + test.
-4. Decidir catálogo §9 #3 (`auditor-spec`) y #4 (`/desplegar`).
+4. Primer uso real de `/desplegar` y de `auditor-spec` al cerrar la próxima etapa; ajustar sus instrucciones con lo que se vea.
 
 ## Pendiente de decisión de Andrés
 - Propuestas del tablero: acortar 8 entradas largas del índice de memoria; `docs/PRD.md` sin cambios en 45 días.

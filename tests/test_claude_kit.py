@@ -136,6 +136,44 @@ class TestLintCritico(unittest.TestCase):
         self.assertIn("parseo", errores[1])
 
 
+def _frontmatter(ruta):
+    texto = open(ruta, encoding="utf-8").read()
+    cabecera = texto.split("---")[1] if texto.startswith("---") else ""
+    campos = {}
+    for linea in cabecera.splitlines():
+        if ":" in linea:
+            clave, valor = linea.split(":", 1)
+            campos[clave.strip()] = valor.strip()
+    return campos
+
+
+class TestAgentesYSkills(unittest.TestCase):
+    """Un subagente sin `tools` ni `disallowedTools` hereda TODAS las herramientas; sin `model`
+    hereda el modelo caro de la sesión. Una skill con efectos debe ser solo del usuario."""
+
+    def test_subagentes_acotados(self):
+        carpeta = os.path.join(RAIZ, ".claude", "agents")
+        for nombre in sorted(os.listdir(carpeta)):
+            campos = _frontmatter(os.path.join(carpeta, nombre))
+            self.assertEqual(campos.get("name"), nombre[:-3], nombre)
+            self.assertTrue(campos.get("description", "").startswith("Úsalo"), f"{nombre}: la descripción debe decir cuándo actuar")
+            self.assertIn(campos.get("model"), ("haiku", "sonnet", "opus"), nombre)
+            self.assertTrue(campos.get("tools") or campos.get("disallowedTools"), f"{nombre}: herramientas sin acotar")
+
+    def test_verificador_visual_sin_terminal(self):
+        campos = _frontmatter(os.path.join(RAIZ, ".claude", "agents", "verificador-visual.md"))
+        for herramienta in ("Bash", "PowerShell", "Edit", "Write"):
+            self.assertIn(herramienta, campos.get("disallowedTools", ""))
+
+    def test_auditor_spec_solo_lectura(self):
+        campos = _frontmatter(os.path.join(RAIZ, ".claude", "agents", "auditor-spec.md"))
+        self.assertEqual(campos.get("tools"), "Read, Grep, Glob")
+
+    def test_desplegar_solo_la_invoca_andres(self):
+        campos = _frontmatter(os.path.join(RAIZ, ".claude", "skills", "desplegar", "SKILL.md"))
+        self.assertEqual(campos.get("disable-model-invocation"), "true")
+
+
 class TestChequeoDiario(unittest.TestCase):
     """El tablero lo leen todas las sesiones: sin colores de terminal y jamás con credenciales."""
 

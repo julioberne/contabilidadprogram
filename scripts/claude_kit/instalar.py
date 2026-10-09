@@ -34,10 +34,11 @@ SETTINGS = os.path.join(HOME, "settings.json")
 MARCA = "hooks/finsys/"  # identifica nuestras entradas en settings.json
 
 SCRIPTS = ["arranque.py", "medidor.py", "guardia.py", "lint_al_editar.py", "chequeo_diario.py"]
-COPIAS = [(os.path.join(REPO, "scripts", "claude_kit", s), os.path.join(DIR_HOOKS, s)) for s in SCRIPTS] + [
-    (os.path.join(REPO, ".claude", "skills", "cerrar-hito", "SKILL.md"),
-     os.path.join(HOME, "skills", "cerrar-hito", "SKILL.md")),
-]
+COPIAS = [(os.path.join(REPO, "scripts", "claude_kit", s), os.path.join(DIR_HOOKS, s)) for s in SCRIPTS]
+SKILLS = sorted(d for d in os.listdir(os.path.join(REPO, ".claude", "skills"))
+                if os.path.isfile(os.path.join(REPO, ".claude", "skills", d, "SKILL.md")))
+for skill in SKILLS:
+    COPIAS.append((os.path.join(REPO, ".claude", "skills", skill, "SKILL.md"), os.path.join(HOME, "skills", skill, "SKILL.md")))
 for nombre in sorted(os.listdir(os.path.join(REPO, ".claude", "agents"))):
     if nombre.endswith(".md"):
         COPIAS.append((os.path.join(REPO, ".claude", "agents", nombre), os.path.join(HOME, "agents", nombre)))
@@ -125,7 +126,8 @@ def main():
 
     if args.desinstalar:
         for _, dst in COPIAS:
-            if os.path.exists(dst) and (MARCA in dst.replace("\\", "/") or "cerrar-hito" in dst):
+            if os.path.exists(dst) and (MARCA in dst.replace("\\", "/")
+                                        or any(f"/skills/{s}/" in dst.replace("\\", "/") for s in SKILLS)):
                 os.remove(dst)
                 print(f"  borrado {dst}")
         guardar_settings(settings_con_hooks(cfg, False))

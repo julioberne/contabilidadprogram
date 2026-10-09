@@ -40,6 +40,8 @@ La sesión principal orquesta y es la **única que edita**: decide, diagnostica,
 | Probar un flujo en el navegador | subagente `verificador-visual` (Sonnet): veredicto con evidencia |
 | Exploración amplia o diseño de un plan | subagentes nativos Explore / Plan (corren en el modelo principal: no son baratos; para ubicar algo concreto, `lector`) |
 | Cerrar un hito y soltar contexto | skill `/cerrar-hito` |
+| Antes de marcar una etapa de `docs/specs` como HECHA (una vez por etapa) | subagente `auditor-spec` (Sonnet, solo lectura): cada `CA-` → CUMPLE / FALTA / SIN EVIDENCIA / MANUAL |
+| Publicar | Andrés escribe `/desplegar`: tú preparas (verificación, riesgos, comando exacto) y, cuando dice "listo", sondeas y dejas frente y spec al día |
 | Contexto y cuota de esta sesión | herramienta de uso de sesión de la app (`self`) o `/context` |
 | Dudas sobre Claude Code (hooks, skills, ajustes) | subagente `claude-code-guide` |
 | Planes de prueba automáticos | MCP TestSprite, solo si Andrés lo pide |
@@ -75,7 +77,7 @@ El subagente no ve esta conversación: pon en el brief todo lo que necesita.
 - **Token de Telegram compartido:** nunca lanzar `fin_sys_core/bot_telegram.py` en local.
 - **Bot (Regla 6b): el bot no adivina.** Dato estructurado en la web o se pide a mano; nada contable sin confirmación humana (borrador → ✅).
 - **Python:** siempre `.venv\Scripts\python.exe` (en un worktree sin `.venv`, el del checkout principal).
-- **Git:** commits pequeños con archivos explícitos (nunca `git add .`). **Publicar lo hace Andrés** con `scripts\publicar.cmd` en la terminal de la sesión (push a master + CI + deploy con sonda + `:8000` al día; `--sin-deploy`, `--simular`). Al terminar un hito, dile "listo para publicar" con la lista de commits. A mano: `git push origin <rama>:master`, `scratch\deploy_prod.py` + sonda (ruta nueva 404→401, `/api/health`).
+- **Git:** commits pequeños con archivos explícitos (nunca `git add .`). **Publicar lo hace Andrés** con `scripts\publicar.cmd` en la terminal de la sesión (push a master + CI + deploy con sonda + `:8000` al día; `--sin-deploy`, `--simular`). Al terminar un hito, dile "listo para publicar" con la lista de commits (el detalle del antes y el después está en la skill `/desplegar`). A mano: `git push origin <rama>:master`, `scratch\deploy_prod.py` + sonda (ruta nueva 404→401, `/api/health`).
 - **Permiso explícito antes de tocar:** `fin_sys_core/database_driver.py`, `control_tower_driver.py`, esquema de tablas existentes. `.env`: nunca.
 - **Guardia (hook `PreToolUse`):** niega push y `publicar.*`, `session_maintenance.py` sin `--check`, `bot_telegram.py`, `migrate_*.py`, SQL de escritura contra la BD, `.env` y la API de Dokploy fuera de `deploy_prod.py`; pide confirmación para los drivers 🔴. Si te bloquea, **no la esquives** (p. ej. escribiendo un `.py` que haga lo mismo): explícale a Andrés qué hace falta. Registro: `scratch/guardia.log`.
 - **Zero-impact:** funcionalidad nueva en archivos o routers nuevos (`routers/*.py` + `include_router`); módulos nuevos se registran en `frontend/src/registry/moduleRegistry.js`.
