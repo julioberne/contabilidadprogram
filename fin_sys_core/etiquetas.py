@@ -69,6 +69,33 @@ def uso_de_etiqueta(cur, nombre) -> dict:
     return {"transacciones": int(txs), "borradores": [int(b) for b in (borradores or [])]}
 
 
+def crear_o_usar(cur, nombre, color="#000000") -> dict:
+    """Etiqueta por nombre para el bot (➕ Nueva etiqueta, 9-oct-2026). Si ya
+    existe una igual sin mirar mayúsculas ni espacios de más, se usa ESA (no se
+    duplica); si no, se crea en el catálogo.
+    → {"ok": True, "tag": {id, name, color}, "creada": bool} | {"ok": False, "error"}"""
+    error = validar(name=nombre)
+    if error:
+        return {"ok": False, "error": error}
+    n = re.sub(r"\s+", " ", str(nombre)).strip()
+    cur.execute("SELECT id, name, color FROM tag_definitions WHERE lower(btrim(name)) = lower(%s) "
+                "ORDER BY id LIMIT 1", (n,))
+    fila = cur.fetchone()
+    if fila:
+        return {"ok": True, "tag": _fila_a_tag(fila), "creada": False}
+    cur.execute("""
+        INSERT INTO tag_definitions (name, color) VALUES (%s, %s)
+        ON CONFLICT (name) DO NOTHING
+        RETURNING id, name, color
+    """, (n, color))
+    fila = cur.fetchone()
+    if fila:
+        return {"ok": True, "tag": _fila_a_tag(fila), "creada": True}
+    # Carrera: otra petición la creó entre el SELECT y el INSERT
+    cur.execute("SELECT id, name, color FROM tag_definitions WHERE name = %s", (n,))
+    return {"ok": True, "tag": _fila_a_tag(cur.fetchone()), "creada": False}
+
+
 def actualizar(cur, tag_id, name=None, color=None) -> dict:
     """Nombre y/o color de la definición (las transacciones no se tocan).
     → {"ok": True, "tag": {id, name, color}}

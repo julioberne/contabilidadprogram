@@ -81,7 +81,7 @@ class TestParseReplyMonto(unittest.TestCase):
 
     def test_linea_de_solo_monto(self):
         self.assertEqual(bot_driver._parse_reply("50000"),
-                         {"concepto": None, "tercero": None, "monto": 50000})
+                         {"concepto": None, "tercero": None, "monto": 50000, "etiquetas": []})
 
     def test_marca_monto_y_valor(self):
         self.assertEqual(bot_driver._parse_reply("Monto: 45.000")["monto"], 45000)
@@ -322,6 +322,62 @@ class TestAvisoInformativo(unittest.TestCase):
         self.assertIn("⚠ Falta: monto", texto)
         self.assertIn("responde a este mensaje (ej. 50000)", texto)
         self.assertNotIn("descarta y reenv", texto.lower())
+
+
+class _CursorTags:
+    def __init__(self, filas):
+        self.filas, self.params = filas, None
+
+    def execute(self, sql, params=None):
+        self.params = params
+
+    def fetchall(self):
+        return self.filas
+
+
+class TestEtiquetasEnRespuesta(unittest.TestCase):
+    """Hito D (9-oct-2026): crear y poner etiquetas desde el chat."""
+
+    def test_marca_etiqueta(self):
+        r = bot_driver._parse_reply("Etiqueta: obra armenia, viaje")
+        self.assertEqual((r["etiquetas"], r["concepto"]), (["obra armenia", "viaje"], None))
+
+    def test_etiqueta_junto_al_concepto(self):
+        r = bot_driver._parse_reply("parqueadero\nEtiquetas: obra")
+        self.assertEqual((r["concepto"], r["etiquetas"]), ("parqueadero", ["obra"]))
+        r = bot_driver._parse_reply("almuerzo equipo etiqueta: obra")
+        self.assertEqual((r["concepto"], r["etiquetas"]), ("almuerzo equipo", ["obra"]))
+
+    def test_sin_dos_puntos_es_concepto(self):
+        r = bot_driver._parse_reply("Etiqueta de precio")
+        self.assertEqual((r["concepto"], r["etiquetas"]), ("Etiqueta de precio", []))
+
+    def test_nombres_de_etiqueta(self):
+        self.assertEqual(bot_driver._nombres_etiquetas("#obra; caja\n caja ,  "), ["obra", "caja"])
+
+    def test_botonera_de_etiquetas_ofrece_nueva(self):
+        cur = _CursorTags([(5, "obra"), (3, "caja")])
+        filas = bot_driver._botones_tags(cur, 9, {"tags": ["obra"]})
+        self.assertEqual(filas[0], [("✓ obra", "tagset:9:5")])
+        self.assertEqual(filas[1], [("caja", "tagset:9:3")])
+        self.assertEqual(filas[-1], [("➕ Nueva etiqueta", "tagnew:9"), ("✔ Listo", "tagdone:9")])
+        self.assertEqual(cur.params, (["obra"],))        # las puestas van primero
+
+    def test_respuesta_al_mensaje_que_pide_la_etiqueta(self):
+        with mock.patch.object(bot_driver, "_poner_etiquetas",
+                               return_value={"nota": "🏷️ Etiquetas → obra", "payload": {"type": "GASTO"}}) as pe, \
+                mock.patch.object(bot_driver, "_flujo_reply") as fr:
+            r = bot_driver._flujo_respuesta(_CursorReply(), LINK,
+                                            {"id": 9, "status": "BORRADOR", "kind": "pedir_etiqueta"},
+                                            _msg(text="obra armenia, viaje"))
+        pe.assert_called_once()
+        self.assertEqual(pe.call_args[0][3], ["obra armenia", "viaje"])
+        fr.assert_not_called()                         # no es concepto
+        self.assertTrue(r["text"].startswith("🏷️ Etiquetas → obra"))
+
+    def test_markup_acepta_force_reply(self):
+        mk = {"force_reply": True, "input_field_placeholder": "x"}
+        self.assertIs(bot_telegram._markup(mk), mk)
 
 
 if __name__ == "__main__":

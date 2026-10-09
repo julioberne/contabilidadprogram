@@ -71,12 +71,12 @@ class TestParseReply(unittest.TestCase):
 
     def test_concepto_con_prefijo(self):
         self.assertEqual(bot_driver._parse_reply("Concepto: arriendo septiembre"),
-                         {"concepto": "arriendo septiembre", "tercero": None, "monto": None})
+                         {"concepto": "arriendo septiembre", "tercero": None, "monto": None, "etiquetas": []})
         self.assertEqual(bot_driver._parse_reply("c: mercado")["concepto"], "mercado")
 
     def test_sin_prefijo_es_concepto_literal(self):
         self.assertEqual(bot_driver._parse_reply("fue el arriendo"),
-                         {"concepto": "fue el arriendo", "tercero": None, "monto": None})
+                         {"concepto": "fue el arriendo", "tercero": None, "monto": None, "etiquetas": []})
 
     def test_tercero_solo_nombre(self):
         r = bot_driver._parse_reply("Tercero: Juan Pérez")
@@ -101,7 +101,7 @@ class TestParseReply(unittest.TestCase):
         self.assertEqual((t["nombre"], t["num"], t["nuevo"]), ("Ana Gómez", None, True))
 
     def test_vacio(self):
-        self.assertEqual(bot_driver._parse_reply("   "), {"concepto": None, "tercero": None, "monto": None})
+        self.assertEqual(bot_driver._parse_reply("   "), {"concepto": None, "tercero": None, "monto": None, "etiquetas": []})
 
     # ── Los dos mensajes reales de Andrés que la primera versión se tragó ──
 

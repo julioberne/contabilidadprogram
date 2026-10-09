@@ -83,6 +83,7 @@ AYUDA = (
     "    celular); con el documento (\"cc 123\" o al final del nombre) lo\n"
     "    crea si no existe — el documento manda, así que nunca se duplica\n"
     "  · \"Tercero nuevo: Nombre\" lo crea sin documento (provisional)\n"
+    "  · \"Etiqueta: obra, viaje\" pone etiquetas (las crea si no existen)\n"
     "  · foto o ubicación respondiendo → van a ESE borrador\n"
     "  · 📝 Completar abre la ficha del borrador dentro de Telegram\n"
     "  · 💾 Guardar (borradores de SMS): registra la cuenta, celular o llave\n"
@@ -699,7 +700,8 @@ _TERCERO_GENERICO = "999999999"
 # son obligatorios ("… tercero: Jorge cc 123"). Lo que no lleva marcador ES
 # el concepto (literal). Nada de esto pasa por el LLM.
 _RE_MARCA_INICIO = re.compile(r"^\s*(tercero\s+nuevo|tercero|concepto)\b\s*:?\s*", re.IGNORECASE)
-_RE_MARCA_MEDIO = re.compile(r"\b(tercero\s+nuevo|tercero|concepto)\s*:\s*", re.IGNORECASE)
+# «Etiqueta: obra armenia, viaje» (con dos puntos, como marca de inicio o en medio)
+_RE_MARCA_MEDIO = re.compile(r"\b(tercero\s+nuevo|tercero|concepto|etiquetas?)\s*:\s*", re.IGNORECASE)
 _RE_MARCA_CORTA = re.compile(r"^\s*([ct])\s*:\s*", re.IGNORECASE)
 # Datos del tercero dentro de su línea: documento, celular y correo
 _RE_DOC = re.compile(
@@ -784,7 +786,7 @@ def _parse_reply(texto):
     es el monto; una que es solo un número largo (celular o documento) busca
     el tercero; lo que no lleva marcador ES el concepto (traducción literal,
     no adivinanza); una línea de tercero jamás se mezcla con el concepto."""
-    concepto, tercero, monto = [], None, None
+    concepto, tercero, monto, etiquetas = [], None, None, []
     for linea in (texto or "").splitlines():
         linea = linea.strip()
         if not linea:
@@ -818,10 +820,23 @@ def _parse_reply(texto):
             if clave in ("tercero", "tercero_nuevo"):
                 if tercero is None:
                     tercero = _parse_tercero(valor, nuevo=(clave == "tercero_nuevo"))
+            elif clave in ("etiqueta", "etiquetas"):
+                etiquetas += [e for e in _nombres_etiquetas(valor) if e not in etiquetas]
             else:
                 concepto.append(valor)
     texto_concepto = re.sub(r"\s+", " ", " ".join(concepto)).strip()
-    return {"concepto": texto_concepto or None, "tercero": tercero, "monto": monto}
+    return {"concepto": texto_concepto or None, "tercero": tercero, "monto": monto,
+            "etiquetas": etiquetas}
+
+
+def _nombres_etiquetas(texto):
+    """«obra armenia, #viaje; caja» → ["obra armenia", "viaje", "caja"]"""
+    nombres = []
+    for parte in re.split(r"[,;\n]+", texto or ""):
+        n = re.sub(r"\s+", " ", parte).strip(" .#")
+        if n and n not in nombres:
+            nombres.append(n)
+    return nombres
 
 
 def _tercero_dict(row):
@@ -1312,6 +1327,16 @@ def _flujo_respuesta(cur, link, destino, msg):
             completado["text"] = adjunto["text"] + "\n" + completado["text"]
             return completado
         return adjunto["text"] + "\n" + str(completado)
+    if destino.get("kind") == "pedir_etiqueta":
+        # Respuesta al «🏷️ Etiqueta nueva…»: TODO el texto son nombres de etiqueta
+        nombres = _nombres_etiquetas(msg.get("text") or "")
+        if not nombres:
+            return "Escribe el nombre de la etiqueta respondiendo a ese mensaje."
+        res = _poner_etiquetas(cur, link, draft_id, nombres)
+        if isinstance(res, str):
+            return res
+        return {"text": res["nota"] + "\n\n" + render_summary(draft_id, res["payload"]),
+                "draft_id": draft_id, "buttons": _botones_borrador(draft_id)}
     return _flujo_reply(cur, link, draft_id, msg.get("text") or "")
 
 
@@ -1320,10 +1345,18 @@ def _flujo_reply(cur, link, draft_id, texto):
     concepto y tercero a la vez, en una o varias líneas."""
     datos = _parse_reply(texto)
     concepto, t, monto = datos["concepto"], datos["tercero"], datos.get("monto")
-    if not concepto and not t and monto is None:
+    etiquetas = datos.get("etiquetas") or []
+    if not concepto and not t and monto is None and not etiquetas:
         return (f"No encontré nada que poner en el borrador #{draft_id}. Responde con el "
                 "concepto, el monto (ej. 50000) o «Tercero: nombre cc 123».")
     notas, payload, botones = [], None, None
+
+    if etiquetas:
+        res = _poner_etiquetas(cur, link, draft_id, etiquetas)
+        if isinstance(res, str):
+            return res
+        notas.append(res["nota"])
+        payload = res["payload"]
 
     cambios = {}
     if concepto:
@@ -1382,22 +1415,59 @@ def _flujo_reply(cur, link, draft_id, texto):
             "draft_id": draft_id, "buttons": botones}
 
 
-def _tags_reales(cur):
+def _tags_reales(cur, puestas=()):
     """Etiquetas del módulo de Etiquetas (tag_definitions = fuente de la
-    verdad). → [(id, name)]."""
-    cur.execute("SELECT id, name FROM tag_definitions ORDER BY id LIMIT 12")
+    verdad): primero las que ya tiene el borrador, luego las más recientes
+    (antes eran las 12 más viejas: las nuevas nunca aparecían). → [(id, name)]."""
+    cur.execute("""
+        SELECT id, name FROM tag_definitions
+         ORDER BY (name::text = ANY(%s::text[])) DESC, id DESC
+         LIMIT 10
+    """, (list(puestas),))
     return [(r[0], str(r[1]).strip()) for r in cur.fetchall()]
 
 
 def _botones_tags(cur, draft_id, payload):
-    """Toggle de etiquetas: ✓ en las puestas; tocar añade/quita."""
-    puestas = set(payload.get("tags") or [])
+    """Toggle de etiquetas: ✓ en las puestas; tocar añade/quita. ➕ Nueva crea
+    una y la pone SOLO en este borrador."""
+    puestas = list(payload.get("tags") or [])
     filas = []
-    for tid, nombre in _tags_reales(cur):
+    for tid, nombre in _tags_reales(cur, puestas):
         marca = "✓ " if nombre in puestas else ""
-        filas.append([(f"{marca}{nombre}", f"tagset:{draft_id}:{tid}")])
-    filas.append([("✔ Listo", f"tagdone:{draft_id}")])
+        filas.append([(f"{marca}{nombre}"[:60], f"tagset:{draft_id}:{tid}")])
+    filas.append([("➕ Nueva etiqueta", f"tagnew:{draft_id}"), ("✔ Listo", f"tagdone:{draft_id}")])
     return filas
+
+
+def _poner_etiquetas(cur, link, draft_id, nombres):
+    """Crea (si no existen, sin duplicar) y pone las etiquetas en ESTE borrador.
+    → {"nota", "payload"} o str con el error."""
+    from etiquetas import crear_o_usar
+    reales, nuevas = [], []
+    for n in nombres[:10]:
+        r = crear_o_usar(cur, n)
+        if not r["ok"]:                # validación previa a cualquier escritura
+            return f"🏷️ «{n}»: {r['error']}"
+        if r["tag"]["name"] not in reales:
+            reales.append(r["tag"]["name"])
+        if r["creada"]:
+            nuevas.append(r["tag"]["name"])
+    cur.execute("SELECT payload FROM transaction_drafts WHERE id = %s AND chat_link_id = %s",
+                (draft_id, link["id"]))
+    fila = cur.fetchone()
+    cur.connection.commit()            # las definiciones quedan firmes antes de editar_draft
+    if not fila:
+        return f"El borrador #{draft_id} no existe."
+    payload = fila[0] if isinstance(fila[0], dict) else json.loads(fila[0])
+    puestas = list(payload.get("tags") or [])
+    editado = editar_draft(draft_id, {"tags": puestas + [n for n in reales if n not in puestas]},
+                           hub_user_id=link["hub_user_id"])
+    if editado.get("error"):
+        return editado["error"]
+    nota = f"🏷️ Etiquetas → {', '.join(reales)}"
+    if nuevas:
+        nota += f" (creada{'s' if len(nuevas) > 1 else ''}: {', '.join(nuevas)})"
+    return {"nota": nota, "payload": editado["payload"]}
 
 
 def _cuentas_reales(cur):
@@ -1570,11 +1640,22 @@ def handle_callback(channel: str, chat_id: str, data: str):
             payload = row[0] if isinstance(row[0], dict) else json.loads(row[0])
             filas = _botones_tags(cur, draft_id, payload)
             conn.commit()
-            if len(filas) == 1:      # solo el botón Listo: no hay etiquetas creadas
-                out["alert"] = "No tienes etiquetas. Créalas en el módulo 🏷️ de la web."
-                return out
-            out["alert"] = "Toca para poner/quitar etiquetas"
+            out["alert"] = ("Toca para poner/quitar, o ➕ Nueva" if len(filas) > 1
+                            else "Aún no hay etiquetas: crea una con ➕ Nueva")
             out["edit_buttons"] = filas
+            return out
+
+        if accion == "tagnew":
+            # Pide el nombre en un mensaje propio (force_reply): la respuesta a
+            # ESE mensaje crea la etiqueta y la pone solo en este borrador.
+            conn.commit()
+            out["alert"] = "Escribe el nombre respondiendo al mensaje"
+            out["text"] = (f"🏷️ Etiqueta nueva para el borrador #{draft_id}: RESPONDE a este mensaje "
+                           "con el nombre (ej. «obra armenia»; varias, separadas por coma). Queda "
+                           "creada en 🏷️ Tags y puesta solo en este borrador.")
+            out["text_kind"] = "pedir_etiqueta"
+            out["text_buttons"] = {"force_reply": True, "input_field_placeholder": "Nombre de la etiqueta"}
+            out["edit_buttons"] = _botones_borrador(draft_id)
             return out
 
         if accion == "tagset":

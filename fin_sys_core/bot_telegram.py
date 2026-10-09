@@ -53,6 +53,8 @@ def _markup(buttons):
     abre la Mini App dentro de Telegram; el resto es callback_data (≤ 64 B)."""
     if buttons is None:
         return None
+    if isinstance(buttons, dict):        # reply_markup ya armado (p. ej. force_reply)
+        return buttons
     filas = []
     for fila in buttons:
         botones = []
