@@ -24,14 +24,22 @@ Runbook de escalamiento: `docs/escalamiento.md`. Laboratorio: `scripts/laborator
   `/third-parties` (registro, TercerosTab paginada, CarteraTab, EvidenceModal, ThirdPartyModal, Mini App,
   refresco de 60 s). Hooks en `frontend/src/shared/busqueda/useBusqueda.js`.
 
+## Hecho, sin publicar (cierre de H3, 16-oct)
+- `e95ff3f` el "uso" de cada tercero sale de las últimas `VENTANA_USO`=2000 TX (por la llave primaria);
+  antes cada tecla de la web/Mini App agrupaba TODAS las TX. `ids`/`ident`/`nombre`/listado no tocan TX.
+- Bot: "👤 Tercero" usa `armar_recientes` (la misma consulta acotada). Reply con **«Cuenta: nombre»**
+  (cuenta de pago) y **«Empresa: nombre»**: igual o única → se aplica; varias → botones solo de esas;
+  ninguna → no toca nada; «contiene» desde 3 letras (B6). Botones de cuentas/empresas/etiquetas y
+  `/empresa` avisan si la lista quedó recortada. `armar_contiene` = una sola búsqueda de catálogos chicos
+  (web y bot): deuda «contiene» 25 → 23. Tests: `tests/test_bot_listas.py` (en el CI).
+
 ## Próximo paso
 1. **Andrés, a mano:** Mini App en el celular (buscar y asignar tercero), TercerosTab (tabla de a 50,
    "cargar más") y Libro Diario con filtros en la web. Sondas ya pasadas (16-oct): `/api/health/vida` 200;
    `/api/buscar/terceros`, `/api/diario/opciones` y `/api/portfolios` sin token 401; pool `minconn` 10,
    admisión `registrar`. Para cifras reales: laboratorio con `--url` de producción y `LAB_TOKEN`, de noche.
-2. **Siguiente sesión (cierre de H3):** el bot con `buscar_terceros` — "terceros recientes" hace
-   GROUP BY sobre todas las TX (`fin_sys_core/bot_driver.py:943-952`) y los botones de cuentas/empresas/
-   etiquetas cortan en LIMIT 14/12/10. Hito propio, con `tests/test_bot_*.py`.
+2. **Andrés:** publicar el cierre de H3 con `scripts\publicar.cmd` (rama `claude/servidores-libro-mayor-9e4614`).
+   Probar en el chat: responder a un borrador «Cuenta: <parte del nombre>» y «Empresa: <parte>».
 3. **Decisión pendiente de Andrés:** los widgets de colegio
    (`frontend/src/contabilidad-v2/modules/registro/widgets/{Pensiones,Recaudos,Uniformes}Widget.jsx`)
    tratan a TODO tercero como estudiante → ¿etiqueta o tipo para marcar estudiantes? Son los 3
