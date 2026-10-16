@@ -58,18 +58,38 @@ HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?")
 def _sin_heredocs(comando):
     """Quita el cuerpo de los heredocs (`<<'EOF' ... EOF`) y here-strings de PowerShell (@' ... '@):
     ahí van mensajes de commit y documentos, que mencionan cosas sin ejecutarlas."""
-    salida, fin = [], None
+    return _filtrar_heredocs(comando, conservar_ejecutados=False)
+
+
+INTERPRETES = {"python", "python.exe", "python3", "py", "py.exe", "psql", "psql.exe", "bash", "sh", "node", "pwsh",
+               "powershell", "powershell.exe"}
+
+
+def _con_heredocs_ejecutados(comando):
+    """Como _sin_heredocs, pero conserva el cuerpo de los heredocs que se EJECUTAN (`python - <<'PY'`,
+    `psql <<SQL`). Los que solo se escriben a un archivo (`cat >> x.py <<'EOF'`) se quitan."""
+    return _filtrar_heredocs(comando, conservar_ejecutados=True)
+
+
+def _filtrar_heredocs(comando, conservar_ejecutados):
+    salida, fin, conservar = [], None, False
     for linea in comando.splitlines():
         if fin is not None:
             if linea.strip() == fin:
                 fin = None
+            elif conservar:
+                salida.append(linea)
             continue
         salida.append(linea)
         m = HEREDOC.search(linea)
         if m:
             fin = m.group(1)
+            previo = SEPARADORES.split(linea[: m.start()])[-1]
+            toks = _tokens(previo)
+            conservar = conservar_ejecutados and bool(toks) and _base(toks[0]).lower() in INTERPRETES
         elif re.search(r"@['\"]\s*$", linea):
             fin = "'@" if linea.rstrip().endswith("@'") else '"@'
+            conservar = False
     return "\n".join(salida)
 
 
@@ -111,7 +131,7 @@ def decidir_comando(comando):
         return None
     if HTTP.search(comando) and DOKPLOY.search(comando) and "deploy_prod.py" not in comando:
         return "deny", MOTIVOS["dokploy"]
-    for linea in comando.splitlines():  # el SQL sí se busca también dentro de los heredocs (python - <<'PY')
+    for linea in _con_heredocs_ejecutados(comando).splitlines():  # SQL: también dentro de `python - <<'PY'`
         if SQL_ESCRITURA.search(linea) and EJECUTOR_SQL.search(linea):
             return "deny", MOTIVOS["sql"]
     for segmento in SEPARADORES.split(_sin_heredocs(comando)):

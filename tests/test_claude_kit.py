@@ -96,6 +96,13 @@ class TestGuardiaDejaPasar(unittest.TestCase):
     def test_heredoc_python_con_sql_sigue_bloqueado(self):
         self.assertEqual(bash("python - <<'PY'\nimport x\ncur.execute(\"UPDATE accounts SET a = 1\")\nPY"), "deny")
 
+    def test_escribir_codigo_con_sql_a_un_archivo(self):
+        # Falso positivo real del 9-oct: un test con un cursor simulado agregado con cat >> archivo.
+        comando = ("cd C:/repo && cat >> tests/test_bot_reply.py <<'EOF'\nclass _CursorTags:\n"
+                   "    def execute(self, sql, params=None):\n        self.sql = 'UPDATE tags SET x = 1'\n"
+                   "cur.execute(\"DELETE FROM tags WHERE id = 1\")\nEOF")
+        self.assertIsNone(bash(comando))
+
     def test_mencionar_no_es_ejecutar(self):
         for comando in ("grep -n publicar.cmd WORKFLOW.md", 'grep -rn "DELETE FROM" fin_sys_core',
                         "grep -n bot_telegram AGENTS.md", 'git grep -n "migrate_" -- scripts',
