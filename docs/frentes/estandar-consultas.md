@@ -1,66 +1,57 @@
 # Frente: estándar de consultas escalables (todo FIN-SYS)
 
-**Estado:** ACTIVO — H1, **laboratorio**, **H2** y **H3 fases 1-3** HECHOS y commiteados (16-oct-2026), **sin push ni deploy**.
-**Rama:** `claude/servidores-libro-mayor-9e4614` (worktree `affectionate-mestorf-f204bc`), junto con
-el Diario (frente `libro-diario-filtros` = H0).
+**Estado:** ACTIVO — H0-H3 HECHOS y verificados (16-oct-2026). **Nada publicado.**
+**Rama:** `claude/servidores-libro-mayor-9e4614` (worktree `affectionate-mestorf-f204bc`), **19 commits sin push**
+desde `d87c1fe` (incluye el Diario, frente `libro-diario-filtros` = H0).
 
 ## Objetivo
 Que ninguna pantalla cueste según el tamaño del holding sino según lo que pide el usuario, y que
-nada espere sin tope. Plan y 41 reglas (B, F, P): `docs/estandar-consultas-escalables.md`.
+nada espere sin tope. Plan H0–H9 y 41 reglas (B/F/P): `docs/estandar-consultas-escalables.md`.
+Runbook de escalamiento: `docs/escalamiento.md`. Laboratorio: `scripts/laboratorio/README.md`.
 
-## Hecho
-- **H1:** `SET LOCAL statement_timeout` SÍ funciona por :6543 (no hacen falta roles para timeouts).
-  BD real: Postgres 17.6, `max_connections` 60 (= **Micro**, CPU compartida), la app entra como
-  `postgres`. Admisión `FINSYS_ADMISION=registrar`; `/api/health/vida` (Docker) y `/profundo`;
-  `FINSYS_DDL_ARRANQUE=0` opcional; timeouts del Diario; sesión obligatoria en GET abiertos
-  (RRHH salario/pagos, Hub, inventario, tags, tasas, portafolios).
-- **Laboratorio** `scripts/laboratorio/` (README ahí) + agente `.claude/agents/laboratorio-rendimiento.md`:
-  6 criterios + proyección, informe en `docs/laboratorio/`, trinquete de la auditoría en el CI
-  (`linea_base.json`). Carga: solo GET, ≤20 usuarios, ≤60 s, freno p95/errores/pool, 21–07 h.
-  Volumen grande: proyecto Supabase aparte con `--lab-env` (la guarda rechaza el usuario de prod).
-
-- **H2 (21d9757):** el pool espera su turno (1 s, fila 2×pool) y si no, 503 + Retry-After; sin
-  conexiones directas en el pico; **pool caliente** (`DB_POOL_MIN = DB_POOL_MAX`, también en
-  docker-compose): psycopg2 cerraba lo que pasaba de min=2 y reconectaba en fila (10 simultáneas
-  4,5 s → 0,34 s; 40 simultáneas 14,8 s → 0,84 s). Con saturación, 503 aunque el endpoint diga 200
-  (`/api/portfolios` inventaba "Negocio A/B" ante un error). Runbook: `docs/escalamiento.md`.
-
-- **H3 fase 1:** `GET /api/buscar/terceros|cuentas|etiquetas` (top-N + `mas`, escalera 0/1/2+,
-  `ids`/`ident`), `frontend/src/shared/busqueda/` (`useBusqueda`, `<BuscadorRemoto>`) y la **Mini App**
-  ya no descarga el catálogo (busca y resuelve el asignado por id). Deuda de catálogos: 10 → 7.
-- **H3 fase 2:** el refresco de 60 s ya no baja `/third-parties` (solo la carga inicial);
-  EvidenceModal y ThirdPartyModal con búsqueda remota top-30. Deuda de catálogos: 7 → 5.
-- **H3 fase 3:** la web ya no descarga `/third-parties`: registro (búsqueda + semáforo exacto por
-  documento/nombre), TercerosTab (tabla paginada por cursor de a 50), CarteraTab; el proveedor ya
-  no lo pide. Deuda de catálogos: 5 → 3 (solo los widgets de colegio).
-
-## Primer informe (`docs/laboratorio/informe-2026-10-16-1351.md`, backend LOCAL)
-- 🟡 `bot_messages`: ~95.700 recorridos completos vs 1.445 por índice → a una consulta del bot le
-  falta índice y la tabla crece sin tope (revisar retención y el índice).
-- 🟡 Auditoría: 19 patrones de gravedad alta (7 descargas de todas las TX, 10 catálogos de terceros
-  completos, 2 dataset de Análisis) y 145 medios → deuda conocida; el trinquete impide que crezca.
-- 🔴 Proyección a 500.000 TX/empresa: ~11 usuarios; cuello = Diario con grupos (recorre
-  `transactions` 5 veces) → plan A del Diario.
-- 🟡 Carga útil: dataset de Análisis pasa 200 KB desde ~50.000 TX; terceros desde ~5.000.
-- Una **pausa global de ~10 s** (todas las peticiones a la vez, sonda de BD con timeout) en una
-  corrida; no se repitió aislando el endpoint. Si reaparece: red, Supavisor o el vigía de `db_pool.py`.
-- Latencias locales infladas (1 worker con recarga, ~180 ms de red): no representan producción.
+## Hecho (sin push)
+- **H0** Diario con filtros en servidor (`/api/diario/*`) + fix del Libro Mayor (sin `desde` duplicaba saldo).
+- **H1** `SET LOCAL statement_timeout` SÍ funciona por :6543; admisión por usuario en `registrar`
+  (`shared/admision.py`); `/api/health/vida` (Docker) y `/profundo`; sesión obligatoria en GET
+  abiertos (RRHH salario/pagos, Hub, tags, portafolios…); `FINSYS_DDL_ARRANQUE=0` opcional.
+- **Laboratorio** `scripts/laboratorio/` + agente `.claude/agents/laboratorio-rendimiento.md`: 6 criterios,
+  informe en `docs/laboratorio/`, trinquete en el CI (`scripts/laboratorio/linea_base.json`).
+- **H2** pool que espera su turno (1 s, fila 2×pool → 503 + Retry-After) y **caliente**
+  (`DB_POOL_MIN = DB_POOL_MAX`): psycopg2 cerraba lo que pasaba de min=2 y reconectaba en fila
+  (10 simultáneas 4,5 s → 0,34 s). Con saturación responde 503 aunque el endpoint diga 200.
+- **H3** `GET /api/buscar/terceros|cuentas|etiquetas` (top-N + `mas`; `ids`/`ident`/`nombre` exacto;
+  listado por cursor `orden=nombre&despues_nombre&despues_id`). Web y Mini App ya **no descargan**
+  `/third-parties` (registro, TercerosTab paginada, CarteraTab, EvidenceModal, ThirdPartyModal, Mini App,
+  refresco de 60 s). Hooks en `frontend/src/shared/busqueda/useBusqueda.js`.
 
 ## Próximo paso
-1. Andrés: `scripts\publicar.cmd` (Diario + H1 + laboratorio). Sondas: `/api/health/vida` 200,
-   `/api/portfolios` sin token 401.
-2. Andrés, de noche: laboratorio contra producción con `LAB_TOKEN` (comando en el README) → cifras reales.
-3. Andrés: revisar el diff de `fin_sys_core/db_pool.py` (infraestructura común) antes de publicar;
-   tras publicar, mirar `/api/health/profundo` → `pool.minconn` 10 y `pool.espera`.
-4. **H3 cierre:** el bot con `buscar_terceros` ("terceros recientes" hoy hace GROUP BY sobre todas
-   las TX y los botones cortan en LIMIT 14) — hito propio con los tests del bot; lista de terceros
-   del Diario remota. **Decisión de Andrés:** los widgets de colegio (Pensiones/Recaudos/Uniformes)
-   tratan a TODO tercero como estudiante → ¿qué marca a un estudiante (etiqueta o tipo)?
-   Plan B: índice trigram para `fin_sys_core/consultas/busqueda.py` (migración de Andrés).
-5. Deuda con permiso: drivers que tragan errores y devuelven `[]` (9 casos, `database_driver.py`
-   y `control_tower_driver.py`); índice/retención de `bot_messages`.
+1. **Andrés:** revisar el diff de `fin_sys_core/db_pool.py` y publicar con `scripts\publicar.cmd`.
+   Sondas: `/api/health/vida` 200; `/api/portfolios` sin token 401; `/api/health/profundo` →
+   `pool.minconn` 10 y `pool.espera`; probar la Mini App en el celular y TercerosTab en la web.
+2. **Siguiente sesión (cierre de H3):** el bot con `buscar_terceros` — "terceros recientes" hace
+   GROUP BY sobre todas las TX (`fin_sys_core/bot_driver.py:943-952`) y los botones de cuentas/empresas/
+   etiquetas cortan en LIMIT 14/12/10. Hito propio, con `tests/test_bot_*.py`.
+3. **Decisión pendiente de Andrés:** los widgets de colegio
+   (`frontend/src/contabilidad-v2/modules/registro/widgets/{Pensiones,Recaudos,Uniformes}Widget.jsx`)
+   tratan a TODO tercero como estudiante → ¿etiqueta o tipo para marcar estudiantes? Son los 3
+   catálogos completos que quedan en la auditoría.
+4. Después: Diario plan A (duplicados solo para la página, montos Decimal), H5 cola+worker, H6 fin de
+   las descargas de todas las TX (7 casos), plan B (índice trigram, migración de Andrés).
+
+## Decisiones (y porqué)
+- Pruebas contra la BD compartida SOLO LECTURA y acotadas (Andrés lo autorizó); volumen grande en un
+  proyecto Supabase aparte (`scripts/carga --lab-env`): la BD es la de producción.
+- `FINSYS_HILOS` no se baja hasta H5 (IA, voz y PDF necesitan hilos sin BD).
+- Deuda registrada que necesita permiso: drivers que tragan errores y devuelven `[]` (9 casos en
+  `database_driver.py`/`control_tower_driver.py`); índice/retención de `bot_messages`
+  (~95.700 recorridos completos con 1.081 filas).
+
+## Datos medidos (16-oct)
+Supabase **Micro**: Postgres 17.6, `max_connections` 60, CPU compartida; la app entra como `postgres`.
+Desde el PC local cada viaje a la BD cuesta ~180 ms y abrir el pool caliente ~16 s: no es producción.
 
 ## Cómo verificar
-`python -m unittest tests.test_laboratorio tests.test_estandar_h1` (sin BD) ·
-`python scripts/laboratorio/auditoria_codigo.py` (trinquete) · error preexistente sin BD:
-`tests/test_coa_fix.py`.
+`python -m unittest tests.test_busqueda tests.test_pool_espera tests.test_estandar_h1 tests.test_laboratorio
+tests.test_diario_filtros` · `python scripts/laboratorio/auditoria_codigo.py` · en `frontend/`:
+`npx vitest run --pool=threads` (sin esa opción el worker se cuelga en el worktree) ·
+`python scripts/laboratorio/laboratorio.py` (informe). Error preexistente sin BD: `tests/test_coa_fix.py`.
