@@ -100,7 +100,7 @@ def get_module_flags(company_id: Optional[int] = None, role: Optional[str] = Non
 # Devuelve TODOS los flags sin filtrar (para panel admin)
 
 @router.get("/api/module-flags/admin")
-def get_all_module_flags():
+def get_all_module_flags(_u: dict = Depends(require_admin)):
     conn = _get_conn()
     if not conn:
         return {"flags": []}

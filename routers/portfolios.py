@@ -15,7 +15,7 @@ router = APIRouter(tags=["Portafolios"])
 # ==============================================================================
 
 @router.get("/api/portfolios")
-def get_portfolios():
+def get_portfolios(_u: dict = Depends(require_auth)):
     try:
         from database_driver import obtener_portafolios
         ports = obtener_portafolios()

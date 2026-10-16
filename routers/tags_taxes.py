@@ -9,7 +9,7 @@ las transacciones; borrar en uso exige ?forzar=1 — segunda confirmación en la
 web). Las plantillas de impuesto no tienen historia: usan el driver directo."""
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from routers.auth_guard import require_admin
+from routers.auth_guard import require_admin, require_auth
 
 router = APIRouter(tags=["Tags & Impuestos"])
 
@@ -53,7 +53,7 @@ def _con_transaccion(fn):
 # ==============================================================================
 
 @router.get("/api/tags")
-def list_tags():
+def list_tags(_u: dict = Depends(require_auth)):
     try:
         from fin_sys_core.database_driver import listar_tags
         return listar_tags()
@@ -97,7 +97,7 @@ def delete_tag(tag_id: int, forzar: bool = Query(False), _admin: dict = Depends(
 
 
 @router.get("/api/custom-taxes")
-def list_custom_taxes():
+def list_custom_taxes(_u: dict = Depends(require_auth)):
     try:
         from fin_sys_core.database_driver import listar_custom_taxes
         return listar_custom_taxes()

@@ -115,8 +115,7 @@ def inventory_register_movement(body: InventoryMovementInput, _admin: dict = Dep
 def inventory_list_movements(
     item_id: Optional[int] = None,
     portfolio: Optional[str] = None,
-    limit: int = 50
-):
+    limit: int = 50, _u: dict = Depends(require_auth)):
     """Retorna los movimientos de inventario filtrados."""
     try:
         from fin_sys_core.inventory_driver import get_movements

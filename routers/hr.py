@@ -43,7 +43,7 @@ def hr_employees_summary(_u: dict = Depends(require_auth)):
         put_conn(conn)
 
 @router.get("/api/hr/profile/{user_id}")
-def hr_get_profile(user_id: str, workspace_id: str = "default"):
+def hr_get_profile(user_id: str, workspace_id: str = "default", _u: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hr_driver import get_hr_profile
         return get_hr_profile(user_id, workspace_id)
@@ -60,7 +60,7 @@ def hr_update_profile(user_id: str, body: dict, _admin: dict = Depends(require_a
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/hr/salary/{user_id}")
-def hr_get_salary(user_id: str, workspace_id: str = "default"):
+def hr_get_salary(user_id: str, workspace_id: str = "default", _u: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hr_driver import get_hr_salary
         return get_hr_salary(user_id, workspace_id)
@@ -77,7 +77,7 @@ def hr_update_salary(user_id: str, body: dict, _admin: dict = Depends(require_ad
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/hr/companies/{user_id}")
-def hr_get_companies(user_id: str):
+def hr_get_companies(user_id: str, _u: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hr_driver import get_employee_companies
         return get_employee_companies(user_id)
@@ -97,7 +97,7 @@ def hr_add_company(user_id: str, body: dict, _admin: dict = Depends(require_admi
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/hr/folders/{workspace_id}")
-def hr_get_folders(workspace_id: str):
+def hr_get_folders(workspace_id: str, _u: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hr_documents_driver import get_folders
         return get_folders(workspace_id)
@@ -113,7 +113,7 @@ def hr_create_folder(workspace_id: str, body: dict, _admin: dict = Depends(requi
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/hr/documents/{user_id}")
-def hr_get_documents(user_id: str, workspace_id: str = "default", folder_id: Optional[str] = None):
+def hr_get_documents(user_id: str, workspace_id: str = "default", folder_id: Optional[str] = None, _u: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hr_documents_driver import get_documents
         return get_documents(user_id, workspace_id, folder_id)
@@ -144,7 +144,7 @@ def hr_sign_upload(body: dict):
     return {"status": "NOT_IMPLEMENTED", "message": "Bucket bloquea MIME, usando base64"}
 
 @router.get("/api/hr/categories/{workspace_id}")
-def hr_get_categories(workspace_id: str):
+def hr_get_categories(workspace_id: str, _u: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hr_driver import get_doc_categories
         return get_doc_categories(workspace_id)
@@ -160,7 +160,7 @@ def hr_add_category(workspace_id: str, body: dict, _admin: dict = Depends(requir
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/hr/payments/{user_id}")
-def hr_get_payments(user_id: str, workspace_id: str = "default"):
+def hr_get_payments(user_id: str, workspace_id: str = "default", _u: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hr_driver import get_payment_records
         return get_payment_records(user_id, workspace_id)

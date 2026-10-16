@@ -175,7 +175,7 @@ def hub_delete_workspace(workspace_id: str, _admin: dict = Depends(require_admin
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/hub/workspaces")
-def hub_get_workspaces(user_id: str = None, all: bool = False):
+def hub_get_workspaces(user_id: str = None, all: bool = False, _u: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hub_driver import get_workspaces_for_user, get_all_workspaces
         if all:
@@ -219,7 +219,7 @@ def hub_login(data: HubUserLogin):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/hub/users")
-def hub_get_members(workspace_id: str):
+def hub_get_members(workspace_id: str, _u: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hub_driver import get_workspace_members
         return get_workspace_members(workspace_id)
@@ -332,7 +332,7 @@ def hub_remove_member(user_id: str, workspace_id: str, _admin: dict = Depends(re
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/hub/users/{user_id}/tasks")
-def hub_get_user_tasks(user_id: str, workspace_id: str):
+def hub_get_user_tasks(user_id: str, workspace_id: str, _u: dict = Depends(require_auth)):
     """Tareas asignadas a una persona, con proyecto y empresa (para RENDIMIENTO)."""
     try:
         from fin_sys_core.hub_driver import get_user_tasks
@@ -344,7 +344,7 @@ def hub_get_user_tasks(user_id: str, workspace_id: str):
 # ── ENTITIES ──────────────────────────────────────────────────────────────────
 
 @router.get("/api/hub/entities")
-def hub_get_entities(workspace_id: str):
+def hub_get_entities(workspace_id: str, _u: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hub_driver import get_entity_tree
         return get_entity_tree(workspace_id)
@@ -377,7 +377,7 @@ def hub_delete_entity(entity_id: str, _admin: dict = Depends(require_admin)):
 # ── PROJECTS ──────────────────────────────────────────────────────────────────
 
 @router.get("/api/hub/projects")
-def hub_get_projects(workspace_id: str, entity_id: str = None):
+def hub_get_projects(workspace_id: str, entity_id: str = None, _u: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hub_driver import get_projects
         return get_projects(workspace_id, entity_id)
@@ -401,7 +401,7 @@ def hub_create_project(data: HubProjectCreate, _user: dict = Depends(require_aut
 # ── TASKS ─────────────────────────────────────────────────────────────────────
 
 @router.get("/api/hub/tasks/overview")
-def hub_get_tasks_overview(workspace_id: str):
+def hub_get_tasks_overview(workspace_id: str, _u: dict = Depends(require_auth)):
     """COMPENDIO: todas las tareas del workspace con asignados, empresa y estado."""
     try:
         from fin_sys_core.hub_driver import get_workspace_tasks_overview
@@ -410,7 +410,7 @@ def hub_get_tasks_overview(workspace_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/hub/tasks")
-def hub_get_tasks(project_id: str, status: str = None):
+def hub_get_tasks(project_id: str, status: str = None, _u: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hub_driver import get_tasks
         return get_tasks(project_id, status)
@@ -456,7 +456,7 @@ def hub_delete_task(task_id: str, _user: dict = Depends(require_auth)):
 # ── NOTES ─────────────────────────────────────────────────────────────────────
 
 @router.get("/api/hub/notes")
-def hub_get_notes(workspace_id: str, user_id: str):
+def hub_get_notes(workspace_id: str, user_id: str, _u: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hub_driver import get_notes
         return get_notes(workspace_id, user_id)
@@ -491,7 +491,7 @@ def hub_update_note(note_id: str, data: HubNoteUpdate, _user: dict = Depends(req
 # ── EVENTS / CALENDAR ─────────────────────────────────────────────────────────
 
 @router.get("/api/hub/events")
-def hub_get_events(workspace_id: str):
+def hub_get_events(workspace_id: str, _u: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hub_driver import get_events
         return get_events(workspace_id)
@@ -529,7 +529,7 @@ def hub_update_event(event_id: str, data: HubEventUpdate, _user: dict = Depends(
 # ── METRICS ───────────────────────────────────────────────────────────────────
 
 @router.get("/api/hub/metrics")
-def hub_get_metrics(workspace_id: str):
+def hub_get_metrics(workspace_id: str, _u: dict = Depends(require_auth)):
     try:
         from fin_sys_core.hub_driver import get_user_metrics
         return get_user_metrics(workspace_id)
