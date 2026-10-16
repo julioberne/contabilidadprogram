@@ -145,6 +145,15 @@ class TestVeredicto(unittest.TestCase):
         d = {"auditoria": {"nuevas": [{"regla": "x", "archivo": "y"}], "total_alta": 0, "total_media": 0}}
         self.assertEqual(self._estado(lab.evaluar(d), "6."), lab.CRITICO)
 
+    def test_pool_frio_y_rechazos(self):
+        d = {"pool": {"maxconn": 10, "minconn": 2, "used": 0,
+                      "espera": {"p95_ms": 500, "rechazos": 3, "prestamos": 50}}}
+        self.assertEqual(self._estado(lab.evaluar(d), "3."), lab.ALERTA)
+        d = {"pool": {"maxconn": 10, "minconn": 10, "used": 0,
+                      "espera": {"p95_ms": 0, "rechazos": 0, "prestamos": 50}},
+             "observatorio": {"limites": {"max_connections": 60, "conexiones_abiertas": 15}}}
+        self.assertEqual(self._estado(lab.evaluar(d), "3."), lab.OK)
+
     def test_tabla_sin_indice(self):
         d = {"observatorio": {"tablas": [{"tabla": "bot_messages", "filas": 1081, "recorridos_completos": 95000,
                                           "por_indice": 1400}], "estandar": {"planes": []}, "cache_hit_pct": 100}}

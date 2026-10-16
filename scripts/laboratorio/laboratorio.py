@@ -118,7 +118,16 @@ def evaluar(d: dict) -> List[dict]:
         if pool.get("fallback_en_uso"):
             est3 = _peor(est3, ALERTA)
             det3.append(f"{pool['fallback_en_uso']} conexiones de respaldo en uso")
-        det3.append(f"pool del worker {pool.get('used', 0)}/{pool['maxconn']}")
+        det3.append(f"pool del worker {pool.get('used', 0)}/{pool['maxconn']} (min {pool.get('minconn')})")
+        esp = pool.get("espera") or {}
+        if esp:
+            if esp.get("p95_ms", 0) > 100 or esp.get("rechazos", 0) > 0:
+                est3 = _peor(est3, ALERTA)
+            det3.append(f"espera de turno p95 {esp.get('p95_ms', 0)} ms, {esp.get('rechazos', 0)} rechazos "
+                        f"de {esp.get('prestamos', 0) + esp.get('rechazos', 0)}")
+        if pool.get("minconn") is not None and pool.get("minconn") < pool["maxconn"]:
+            est3 = _peor(est3, ALERTA)
+            det3.append("pool NO caliente (min < max): psycopg2 reconecta en cada pico")
     filas.append({"criterio": "3. Pool y conexiones", "estado": est3, "detalle": "; ".join(det3) or "sin datos",
                   "accion": "Presupuesto en docs/escalamiento.md; H2 para que el pool espere en vez de fallar."})
 
