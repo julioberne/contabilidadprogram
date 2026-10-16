@@ -28,17 +28,21 @@ import urllib.request
 AQUI = os.path.dirname(os.path.abspath(__file__))
 RAIZ = os.path.dirname(os.path.dirname(AQUI))
 sys.path.insert(0, AQUI)
-from _seguro import exigir_local  # noqa: E402
+from _seguro import exigir_no_produccion, leer_lab_env  # noqa: E402
 
 PUERTO_API = 8099
 SECRETO = "laboratorio-de-carga-no-es-produccion"
 
 
 def entorno_lab(args) -> dict:
-    exigir_local(args.db_host, args.db_puerto)
+    destino = {"host": args.db_host, "puerto": args.db_puerto, "usuario": "postgres",
+               "clave": "carga", "db": "finsys_carga"}
+    if args.lab_env:
+        destino = leer_lab_env(args.lab_env)      # proyecto Supabase de laboratorio
+    exigir_no_produccion(destino["host"], destino["puerto"], destino["usuario"])
     env = {k: v for k, v in os.environ.items() if not k.startswith(("DB_", "SUPABASE", "TELEGRAM"))}
-    env.update(DB_HOST=args.db_host, DB_PORT=str(args.db_puerto), DB_NAME="finsys_carga",
-               DB_USER="postgres", DB_PASSWORD="carga", SESSION_SECRET=SECRETO,
+    env.update(DB_HOST=destino["host"], DB_PORT=str(destino["puerto"]), DB_NAME=destino["db"],
+               DB_USER=destino["usuario"], DB_PASSWORD=destino["clave"], SESSION_SECRET=SECRETO,
                FINSYS_ADMISION=args.admision, DASHBOARD_FAST="1", PYTHONIOENCODING="utf-8")
     return env
 
@@ -164,6 +168,7 @@ def main():
     ap.add_argument("--admision", default="registrar", choices=["registrar", "activo", "apagado"])
     ap.add_argument("--solo-esquema", action="store_true", help="arranca el backend (DDL) y sale")
     ap.add_argument("--ver-logs", action="store_true")
+    ap.add_argument("--lab-env", help="archivo con LAB_DB_* de un proyecto Supabase de laboratorio (no Docker)")
     ap.add_argument("--salida", default=os.path.join(AQUI, "resultado_carga.json"))
     args = ap.parse_args()
 

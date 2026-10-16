@@ -1,0 +1,92 @@
+{
+ "conteos": {
+  "busqueda-contiene": {
+   "fin_sys_core/accounting_files_driver.py": 1,
+   "fin_sys_core/ai_engine.py": 2,
+   "fin_sys_core/bot_driver.py": 2,
+   "fin_sys_core/bot_sms.py": 1,
+   "fin_sys_core/diario_query.py": 2,
+   "kernel/kernel_journal_workflow.py": 4
+  },
+  "catalogo-terceros-completo": {
+   "frontend/src/contabilidad-v2/components/EvidenceModal.jsx": 2,
+   "frontend/src/contabilidad-v2/components/TerceroForm.jsx": 1,
+   "frontend/src/contabilidad-v2/components/ThirdPartyModal.jsx": 1,
+   "frontend/src/contabilidad-v2/hooks/useDashboardData.js": 2,
+   "frontend/src/contabilidad-v2/modules/registro/widgets/PensionesWidget.jsx": 1,
+   "frontend/src/contabilidad-v2/modules/registro/widgets/RecaudosWidget.jsx": 1,
+   "frontend/src/contabilidad-v2/modules/registro/widgets/UniformesWidget.jsx": 1,
+   "frontend/src/tg/TelegramTerceroApp.jsx": 1
+  },
+  "dataset-analisis-completo": {
+   "frontend/src/analisis/AnalisisApp.jsx": 2
+  },
+  "ddl-en-app": {
+   "fin_sys_core/accounting_files_driver.py": 9,
+   "fin_sys_core/analytics_log.py": 1,
+   "fin_sys_core/bot_anomalias.py": 2,
+   "fin_sys_core/bot_sms.py": 3,
+   "fin_sys_core/coa_templates.py": 1,
+   "fin_sys_core/compendio_driver.py": 5,
+   "fin_sys_core/control_tower_driver.py": 5,
+   "fin_sys_core/database_driver.py": 27,
+   "fin_sys_core/terceros_cuentas.py": 2,
+   "kernel/kernel_accounting.py": 22,
+   "kernel/kernel_periods.py": 1,
+   "server.py": 1
+  },
+  "descarga-todas-tx": {
+   "fin_sys_core/ai_engine.py": 1,
+   "fin_sys_core/compendio_driver.py": 1,
+   "fin_sys_core/export_xlsx.py": 1,
+   "routers/analytics.py": 2,
+   "routers/dashboard_data.py": 1,
+   "routers/profile_accounts.py": 1
+  },
+  "filtro-en-navegador": {
+   "frontend/src/contabilidad-v2/components/EvidenceModal.jsx": 1,
+   "frontend/src/contabilidad-v2/components/ThirdPartyModal.jsx": 1,
+   "frontend/src/contabilidad-v2/components/tabs/CarteraTab.jsx": 3,
+   "frontend/src/contabilidad-v2/components/tabs/EtiquetasTab.jsx": 1,
+   "frontend/src/contabilidad-v2/components/tabs/TercerosTab.jsx": 1,
+   "frontend/src/contabilidad-v2/modules/registro/AdvancedSections.jsx": 2,
+   "frontend/src/contabilidad-v2/modules/registro/CoaSelector.jsx": 2,
+   "frontend/src/control-tower/components/CTTopBar.jsx": 1,
+   "frontend/src/project-hub/features/members/CompanyMapTab.jsx": 2,
+   "frontend/src/project-hub/features/members/tabs/DocumentsTab.jsx": 1
+  },
+  "get-sin-sesion": {},
+  "monto-float": {
+   "fin_sys_core/bot_driver.py": 2,
+   "fin_sys_core/cartera_plan.py": 4,
+   "fin_sys_core/database_driver.py": 3,
+   "fin_sys_core/diario_query.py": 1,
+   "fin_sys_core/draft_builder.py": 1,
+   "fin_sys_core/incremental_balance.py": 3,
+   "fin_sys_core/ledger_math.py": 1,
+   "fin_sys_core/transaction_service.py": 1,
+   "kernel/kernel_accounting.py": 1,
+   "kernel/kernel_reports.py": 3,
+   "kernel/reporte_d02.py": 3,
+   "routers/cartera.py": 2,
+   "routers/dashboard_data.py": 2
+  },
+  "paginacion-offset": {
+   "fin_sys_core/accounting_files_driver.py": 1,
+   "fin_sys_core/dashboard_query.py": 1,
+   "fin_sys_core/database_driver.py": 1,
+   "fin_sys_core/diario_query.py": 1,
+   "kernel/kernel_accounting.py": 1,
+   "kernel/kernel_journal_workflow.py": 1
+  },
+  "sondeo-periodico": {
+   "frontend/src/contabilidad-v2/hooks/useDashboardData.js": 1,
+   "frontend/src/contabilidad-v2/modules/voz/useVoiceRecorder.js": 1,
+   "frontend/src/exportacion/seguimiento.js": 1,
+   "frontend/src/shell/GlobalHeader.jsx": 1,
+   "frontend/src/shell/HealthBeacon.jsx": 1,
+   "frontend/src/shell/HomeDashboard.jsx": 1
+  }
+ },
+ "nota": "Generado por auditoria_codigo.py --actualizar-linea-base. Bajar conteos está bien; subirlos lo bloquea el CI."
+}

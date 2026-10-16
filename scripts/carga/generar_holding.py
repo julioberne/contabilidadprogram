@@ -22,7 +22,7 @@ import time
 from datetime import date, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _seguro import exigir_local  # noqa: E402
+from _seguro import exigir_no_produccion, leer_lab_env  # noqa: E402
 
 ESCALAS = {
     #          empresas, tx_ballena, tx_otras(min,max), terceros
@@ -41,7 +41,11 @@ ETIQUETAS = ["Bonaire obra", "Oficina", "Mercado", "Transporte", "Recurrente", "
 
 def conectar(args):
     import psycopg2
-    exigir_local(args.host, args.puerto)
+    if args.lab_env:
+        d = leer_lab_env(args.lab_env)            # proyecto Supabase de laboratorio
+        args.host, args.puerto, args.usuario, args.clave, args.db = (
+            d["host"], d["puerto"], d["usuario"], d["clave"], d["db"])
+    exigir_no_produccion(args.host, args.puerto, args.usuario)
     return psycopg2.connect(host=args.host, port=args.puerto, dbname=args.db,
                             user=args.usuario, password=args.clave)
 
@@ -61,6 +65,7 @@ def main():
     ap.add_argument("--usuario", default="postgres")
     ap.add_argument("--clave", default="carga")
     ap.add_argument("--semilla", type=int, default=16102026)
+    ap.add_argument("--lab-env", help="archivo con LAB_DB_* de un proyecto Supabase de laboratorio (no Docker)")
     args = ap.parse_args()
 
     from psycopg2.extras import execute_values
