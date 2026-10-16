@@ -1,6 +1,6 @@
 # Frente: estándar de consultas escalables (todo FIN-SYS)
 
-**Estado:** ACTIVO — H1 y el **laboratorio** HECHOS y commiteados (16-oct-2026), **sin push ni deploy**.
+**Estado:** ACTIVO — H1, **laboratorio** y **H2** HECHOS y commiteados (16-oct-2026), **sin push ni deploy**.
 **Rama:** `claude/servidores-libro-mayor-9e4614` (worktree `affectionate-mestorf-f204bc`), junto con
 el Diario (frente `libro-diario-filtros` = H0).
 
@@ -19,6 +19,12 @@ nada espere sin tope. Plan y 41 reglas (B, F, P): `docs/estandar-consultas-escal
   (`linea_base.json`). Carga: solo GET, ≤20 usuarios, ≤60 s, freno p95/errores/pool, 21–07 h.
   Volumen grande: proyecto Supabase aparte con `--lab-env` (la guarda rechaza el usuario de prod).
 
+- **H2 (21d9757):** el pool espera su turno (1 s, fila 2×pool) y si no, 503 + Retry-After; sin
+  conexiones directas en el pico; **pool caliente** (`DB_POOL_MIN = DB_POOL_MAX`, también en
+  docker-compose): psycopg2 cerraba lo que pasaba de min=2 y reconectaba en fila (10 simultáneas
+  4,5 s → 0,34 s; 40 simultáneas 14,8 s → 0,84 s). Con saturación, 503 aunque el endpoint diga 200
+  (`/api/portfolios` inventaba "Negocio A/B" ante un error). Runbook: `docs/escalamiento.md`.
+
 ## Primer informe (`docs/laboratorio/informe-2026-10-16-1351.md`, backend LOCAL)
 - 🟡 `bot_messages`: ~95.700 recorridos completos vs 1.445 por índice → a una consulta del bot le
   falta índice y la tabla crece sin tope (revisar retención y el índice).
@@ -35,10 +41,11 @@ nada espere sin tope. Plan y 41 reglas (B, F, P): `docs/estandar-consultas-escal
 1. Andrés: `scripts\publicar.cmd` (Diario + H1 + laboratorio). Sondas: `/api/health/vida` 200,
    `/api/portfolios` sin token 401.
 2. Andrés, de noche: laboratorio contra producción con `LAB_TOKEN` (comando en el README) → cifras reales.
-3. **H2** (pool que espera: semáforo con timeout en `db_pool.py`, sin respaldo directo,
-   threadpool 16) + `docs/escalamiento.md` (presupuesto de conexiones y escalones de Supabase).
-   `db_pool.py` es infraestructura común → revisión de Andrés.
-4. Índice/retención de `bot_messages` (hallazgo del laboratorio).
+3. Andrés: revisar el diff de `fin_sys_core/db_pool.py` (infraestructura común) antes de publicar;
+   tras publicar, mirar `/api/health/profundo` → `pool.minconn` 10 y `pool.espera`.
+4. **H3**: búsqueda remota única (terceros, cuentas, etiquetas; Mini App primero).
+5. Deuda con permiso: drivers que tragan errores y devuelven `[]` (9 casos, `database_driver.py`
+   y `control_tower_driver.py`); índice/retención de `bot_messages`.
 
 ## Cómo verificar
 `python -m unittest tests.test_laboratorio tests.test_estandar_h1` (sin BD) ·
