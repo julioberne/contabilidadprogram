@@ -5,18 +5,17 @@
    "fin_sys_core/ai_engine.py": 2,
    "fin_sys_core/bot_driver.py": 2,
    "fin_sys_core/bot_sms.py": 1,
+   "fin_sys_core/consultas/busqueda.py": 11,
    "fin_sys_core/diario_query.py": 2,
    "kernel/kernel_journal_workflow.py": 4
   },
   "catalogo-terceros-completo": {
-   "frontend/src/contabilidad-v2/components/EvidenceModal.jsx": 2,
-   "frontend/src/contabilidad-v2/components/TerceroForm.jsx": 1,
+   "frontend/src/contabilidad-v2/components/EvidenceModal.jsx": 1,
    "frontend/src/contabilidad-v2/components/ThirdPartyModal.jsx": 1,
    "frontend/src/contabilidad-v2/hooks/useDashboardData.js": 2,
    "frontend/src/contabilidad-v2/modules/registro/widgets/PensionesWidget.jsx": 1,
    "frontend/src/contabilidad-v2/modules/registro/widgets/RecaudosWidget.jsx": 1,
-   "frontend/src/contabilidad-v2/modules/registro/widgets/UniformesWidget.jsx": 1,
-   "frontend/src/tg/TelegramTerceroApp.jsx": 1
+   "frontend/src/contabilidad-v2/modules/registro/widgets/UniformesWidget.jsx": 1
   },
   "dataset-analisis-completo": {
    "frontend/src/analisis/AnalisisApp.jsx": 2

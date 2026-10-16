@@ -28,7 +28,22 @@ function stubFetch(llamadas, { borrador = BORRADOR, terceros = TERCEROS } = {}) 
     const metodo = opts.method || 'GET';
     llamadas.push([metodo, url, opts.body ? JSON.parse(opts.body) : null]);
     if (url === `/api/bot/drafts/${borrador.id}` && metodo === 'GET') return respuesta(200, borrador);
-    if (url === '/api/third-parties' && metodo === 'GET') return respuesta(200, terceros);
+    // H3: la Mini App ya NO descarga el catálogo; busca en el servidor (top-N).
+    if (url === '/api/third-parties' && metodo === 'GET') throw new Error('la Mini App no debe descargar el catálogo');
+    if (url.startsWith('/api/buscar/terceros') && metodo === 'GET') {
+      const p = new URL(url, 'http://x').searchParams;
+      const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      const dig = (s) => (s || '').replace(/\D/g, '');
+      let items = terceros;
+      if (p.get('ids')) items = terceros.filter((t) => p.get('ids').split(',').includes(String(t.id)));
+      else if (p.get('ident')) items = terceros.filter((t) => t.identification_number === p.get('ident'));
+      else if (p.get('q')) {
+        const q = p.get('q');
+        items = terceros.filter((t) => norm(t.name).includes(norm(q))
+          || (dig(q).length >= 3 && (dig(t.identification_number).includes(dig(q)) || dig(t.phone).includes(dig(q)))));
+      }
+      return respuesta(200, { items: items.slice(0, Number(p.get('limite') || 8)), mas: false });
+    }
     if (url.endsWith('/accounts') && metodo === 'GET') return respuesta(200, []);
     if (url.startsWith('/api/third-parties/') && metodo === 'PUT') return respuesta(200, { status: 'OK', updated: true });
     if (url === `/api/bot/drafts/${borrador.id}` && metodo === 'PUT') {

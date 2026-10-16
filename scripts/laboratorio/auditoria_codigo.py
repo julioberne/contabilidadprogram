@@ -47,7 +47,8 @@ REGLAS: Tuple[Regla, ...] = (
           r"obtener_transacciones\(\s*(None)?\s*\)", "B1/B2 · H6",
           "Usar una consulta acotada por empresa, rango y página (fin_sys_core/consultas/)."),
     Regla("catalogo-terceros-completo", "Catálogo de terceros completo al navegador", "ALTA", "js",
-          r"""\$\{API\}/third-parties[`'"]\s*[,)]""", "F1/F2 · H3",
+          # Solo el GET (fetch sin opciones): un POST/PUT lleva `, {method…}` y no descarga nada.
+          r"""\$\{API\}/third-parties[`'"]\s*\)""", "F1/F2 · H3",
           "Usar <BuscadorRemoto> contra /api/buscar/terceros (top-N + 'escribe más')."),
     Regla("dataset-analisis-completo", "Dataset de Análisis sin acotar", "ALTA", "js",
           r"analytics/dataset", "B1 · H6",

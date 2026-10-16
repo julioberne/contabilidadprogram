@@ -1,0 +1,168 @@
+# -*- coding: utf-8 -*-
+"""Búsqueda remota única (estándar de consultas, hito H3 — reglas F1/F2, B1).
+
+Un solo contrato para todos los selectores (web, Mini App de Telegram y bot):
+el servidor devuelve como mucho `limite` resultados (top-N) y `mas=True` si
+hay más ("escribe más para afinar"). Nunca el catálogo completo.
+
+Escalera por largo de la búsqueda (texto normalizado, sin tildes):
+    0 caracteres → los más usados (recientes/frecuentes)
+    1 carácter   → nombre que EMPIEZA por esa letra, o documento exacto
+    2+           → nombre que CONTIENE el texto; si trae dígitos (≥3), también
+                   documento o celular que los contienen
+Orden: documento exacto, nombre que empieza, nombre que contiene; dentro de
+cada grupo, los más usados primero y luego por nombre.
+
+`ids` / `ident` resuelven fichas concretas (el tercero asignado, chips ya
+elegidos) sin buscar. Solo lectura, con SET LOCAL statement_timeout.
+"""
+import re
+from typing import Any, Dict, List, Optional
+
+from psycopg2.extras import RealDictCursor
+
+from fin_sys_core.db_pool import get_conn, put_conn
+
+LIMITE_DEFECTO = 8
+LIMITE_MAX = 50
+TIMEOUT_MS = 2000
+MAX_IDS = 100
+
+_CON_TILDE = "áéíóúüàèìòùäëïöâêîôûñ"
+_SIN_TILDE = "aeiouuaeiouaeioaeioun"
+COLUMNAS_TERCERO = "tp.id, tp.identification_type, tp.identification_number, tp.name, tp.email, tp.phone, tp.website, tp.address"
+
+
+def normalizar(texto: str) -> str:
+    return (texto or "").strip().lower().translate(str.maketrans(_CON_TILDE, _SIN_TILDE))
+
+
+def digitos(texto: str) -> str:
+    return re.sub(r"\D", "", texto or "")
+
+
+def _sql_norm(col: str) -> str:
+    return f"translate(lower(COALESCE({col}, '')), '{_CON_TILDE}', '{_SIN_TILDE}')"
+
+
+def _like_seguro(texto: str) -> str:
+    return texto.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _limite(limite) -> int:
+    try:
+        n = int(limite)
+    except (TypeError, ValueError):
+        n = LIMITE_DEFECTO
+    return max(1, min(n, LIMITE_MAX))
+
+
+def _ids(valor) -> List[int]:
+    if not valor:
+        return []
+    partes = valor.split(",") if isinstance(valor, str) else list(valor)
+    out = []
+    for p in partes:
+        p = str(p).strip()
+        if not p:
+            continue
+        if not re.fullmatch(r"\d+", p):
+            raise ValueError(f"Identificador inválido: '{p}'")
+        out.append(int(p))
+    if len(out) > MAX_IDS:
+        raise ValueError(f"Máximo {MAX_IDS} identificadores por consulta")
+    return out
+
+
+def armar_busqueda_terceros(q: str, limite: int, ids=None, ident: Optional[str] = None):
+    """(sql, params) puros, para poder probarlos sin BD."""
+    lim = _limite(limite)
+    lista_ids = _ids(ids)
+    uso = ("LEFT JOIN (SELECT third_party_id, COUNT(*) AS n, MAX(transaction_date) AS ultima "
+           "FROM transactions WHERE third_party_id IS NOT NULL GROUP BY 1) u ON u.third_party_id = tp.id")
+    if lista_ids or ident:
+        cond, p = [], {}
+        if lista_ids:
+            cond.append("tp.id = ANY(%(ids)s)")
+            p["ids"] = lista_ids
+        if ident:
+            cond.append("tp.identification_number = %(ident)s")
+            p["ident"] = ident.strip()
+        p["lim"] = max(lim, len(lista_ids)) + 1
+        return (f"SELECT {COLUMNAS_TERCERO}, COALESCE(u.n, 0) AS usos FROM third_parties tp {uso} "
+                f"WHERE {' OR '.join(cond)} ORDER BY tp.name LIMIT %(lim)s"), p
+
+    texto = normalizar(q)
+    dig = digitos(q)
+    p: Dict[str, Any] = {"lim": lim + 1}
+    if not texto:
+        # Los más usados: con 50.000 terceros, nadie quiere el catálogo entero.
+        return (f"SELECT {COLUMNAS_TERCERO}, COALESCE(u.n, 0) AS usos FROM third_parties tp {uso} "
+                "ORDER BY u.ultima DESC NULLS LAST, u.n DESC NULLS LAST, tp.name LIMIT %(lim)s"), p
+
+    nombre = _sql_norm("tp.name")
+    p["exacto"] = q.strip()
+    if len(texto) == 1:
+        p["prefijo"] = _like_seguro(texto) + "%"
+        cond = f"({nombre} LIKE %(prefijo)s OR tp.identification_number = %(exacto)s)"
+    else:
+        p["prefijo"] = _like_seguro(texto) + "%"
+        p["contiene"] = "%" + _like_seguro(texto) + "%"
+        partes = [f"{nombre} LIKE %(contiene)s", "tp.identification_number = %(exacto)s"]
+        if len(dig) >= 3:
+            p["dig"] = "%" + dig + "%"
+            partes.append("regexp_replace(COALESCE(tp.identification_number, ''), '\\D', '', 'g') LIKE %(dig)s")
+            partes.append("regexp_replace(COALESCE(tp.phone, ''), '\\D', '', 'g') LIKE %(dig)s")
+        cond = "(" + " OR ".join(partes) + ")"
+    orden = (f"CASE WHEN tp.identification_number = %(exacto)s THEN 0 "
+             f"WHEN {nombre} LIKE %(prefijo)s THEN 1 ELSE 2 END, "
+             "COALESCE(u.n, 0) DESC, tp.name")
+    return (f"SELECT {COLUMNAS_TERCERO}, COALESCE(u.n, 0) AS usos FROM third_parties tp {uso} "
+            f"WHERE {cond} ORDER BY {orden} LIMIT %(lim)s"), p
+
+
+def _ejecutar(sql: str, params: dict) -> List[dict]:
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SET LOCAL statement_timeout = %s", (f"{TIMEOUT_MS}ms",))
+            cur.execute(sql, params)
+            return [dict(r) for r in cur.fetchall()]
+    finally:
+        put_conn(conn)
+
+
+def _respuesta(filas: List[dict], limite: int, q: str) -> dict:
+    lim = _limite(limite)
+    return {"items": filas[:lim], "mas": len(filas) > lim, "q": q or "", "limite": lim}
+
+
+def buscar_terceros(q: str = "", limite=LIMITE_DEFECTO, ids=None, ident: Optional[str] = None) -> dict:
+    sql, p = armar_busqueda_terceros(q, limite, ids, ident)
+    filas = _ejecutar(sql, p)
+    if ids or ident:
+        return {"items": filas, "mas": False, "q": "", "limite": len(filas)}
+    return _respuesta(filas, limite, q)
+
+
+def buscar_cuentas(q: str = "", limite=LIMITE_DEFECTO, ids=None) -> dict:
+    lim = _limite(limite)
+    lista_ids = _ids(ids)
+    if lista_ids:
+        filas = _ejecutar("SELECT id, name, type, currency FROM user_accounts WHERE id = ANY(%(ids)s) ORDER BY name",
+                          {"ids": lista_ids})
+        return {"items": filas, "mas": False, "q": "", "limite": len(filas)}
+    texto = normalizar(q)
+    p = {"lim": lim + 1, "contiene": "%" + _like_seguro(texto) + "%"}
+    filas = _ejecutar(f"SELECT id, name, type, currency FROM user_accounts WHERE {_sql_norm('name')} LIKE %(contiene)s "
+                      "ORDER BY name LIMIT %(lim)s", p)
+    return _respuesta(filas, lim, q)
+
+
+def buscar_etiquetas(q: str = "", limite=LIMITE_DEFECTO) -> dict:
+    lim = _limite(limite)
+    texto = normalizar(q)
+    p = {"lim": lim + 1, "contiene": "%" + _like_seguro(texto) + "%"}
+    filas = _ejecutar(f"SELECT * FROM tag_definitions WHERE {_sql_norm('name')} LIKE %(contiene)s "
+                      "ORDER BY name LIMIT %(lim)s", p)
+    return _respuesta(filas, lim, q)

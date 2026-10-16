@@ -31,7 +31,16 @@ function stubFetch(llamadas, { borrador = BORRADOR, medios = [], postMedio = 201
     const body = opts.body ? JSON.parse(opts.body) : null;
     llamadas.push([metodo, url, body]);
     if (url === `/api/bot/drafts/${borrador.id}` && metodo === 'GET') return respuesta(200, borrador);
-    if (url === '/api/third-parties' && metodo === 'GET') return respuesta(200, TERCEROS);
+    // H3: búsqueda remota (top-N) en lugar del catálogo completo.
+    if (url.startsWith('/api/buscar/terceros') && metodo === 'GET') {
+      const p = new URL(url, 'http://x').searchParams;
+      const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      let items = TERCEROS;
+      if (p.get('ids')) items = TERCEROS.filter((t) => p.get('ids').split(',').includes(String(t.id)));
+      else if (p.get('ident')) items = TERCEROS.filter((t) => t.identification_number === p.get('ident'));
+      else if (p.get('q')) items = TERCEROS.filter((t) => norm(t.name).includes(norm(p.get('q'))));
+      return respuesta(200, { items, mas: false });
+    }
     if (url.endsWith('/accounts') && metodo === 'GET') return respuesta(200, medios);
     if (url.endsWith('/accounts/mover') && metodo === 'POST') return respuesta(200, { status: 'MOVIDO', medios: [] });
     if (url.endsWith('/accounts') && metodo === 'POST') {
