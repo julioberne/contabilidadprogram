@@ -142,17 +142,22 @@ def consultas_estandar(conn):
     if not isinstance(filas, list) or not filas:
         return {"empresa": None, "planes": []}
     empresa = filas[0]["name"]
+    # (nombre, filtros, orden, agrupar, totales, cursor). H4: «cargar más» pide
+    # solo la página y sigue por cursor (diario_mas).
     casos = [
-        ("diario_pagina", {"empresas": [empresa]}, "fecha_desc", None),
-        ("diario_busqueda", {"empresas": [empresa], "q": "pago"}, "fecha_desc", None),
-        ("diario_filtros", {"empresas": [empresa], "tipos": "GASTO", "monto_min": "1000"}, "monto_desc", None),
-        ("diario_grupos_tercero", {"empresas": [empresa]}, "fecha_desc", "tercero"),
+        ("diario_pagina", {"empresas": [empresa]}, "fecha_desc", None, True, False),
+        ("diario_busqueda", {"empresas": [empresa], "q": "pago"}, "fecha_desc", None, True, False),
+        ("diario_filtros", {"empresas": [empresa], "tipos": "GASTO", "monto_min": "1000"}, "monto_desc", None,
+         True, False),
+        ("diario_grupos_tercero", {"empresas": [empresa]}, "fecha_desc", "tercero", True, False),
+        ("diario_mas", {"empresas": [empresa]}, "fecha_desc", None, False, True),
     ]
     planes = []
-    for nombre, filtros, orden, agrupar in casos:
+    for nombre, filtros, orden, agrupar, totales, cursor in casos:
         where, params = construir_filtros(filtros)
-        params.update(limit=50, offset=0)
-        planes.append(explicar(conn, nombre, armar_sql(where, orden, agrupar), params))
+        params.update(limit=50, offset=0, k_fecha="2999-12-31", k_id=2**62)
+        planes.append(explicar(conn, nombre, armar_sql(where, orden, agrupar, totales=totales, cursor=cursor),
+                               params))
     try:
         from fin_sys_core.dashboard_query import _SNAPSHOT_SQL
         planes.append(explicar(conn, "panel_snapshot", _SNAPSHOT_SQL,

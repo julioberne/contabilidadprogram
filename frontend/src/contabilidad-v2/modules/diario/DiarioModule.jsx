@@ -97,7 +97,7 @@ export default function DiarioModule({ onEvidenceClick }) {
           <DiarioFiltrosBar filtros={filtros} setFiltros={setFiltros} orden={orden} setOrden={setOrden}
             agrupar={agrupar} setAgrupar={setAgrupar} activePortfolio={empresa.activePortfolio}
             total={fil.total} cargando={fil.cargando} onExportarCsv={exportarCsv}
-            onMarcarTodo={onMarcarTodo} exportando={exportando} />
+            onMarcarTodo={onMarcarTodo} exportando={exportando} aviso={fil.aviso} />
           <DiarioGrupos agrupar={agrupar} grupos={fil.grupos} filtros={filtros} setFiltros={setFiltros}
             onCerrar={() => setAgrupar('')} />
         </>

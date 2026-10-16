@@ -73,7 +73,8 @@ class TestConstruirFiltros(unittest.TestCase):
         where, p = construir_filtros({"banderas": "sin_tercero,duplicados",
                                       "cartera": "cxc", "cartera_estado": "pendiente"})
         self.assertIn(BANDERAS["sin_tercero"], where)
-        self.assertIn("b.n_iguales > 1", where)
+        self.assertIn(BANDERAS["duplicados"], where)
+        self.assertIn("t2.id <> t.id", BANDERAS["duplicados"])
         self.assertEqual(p["cartera"], "CXC")
         self.assertEqual(p["cartera_estado"], "PENDIENTE")
 
@@ -85,6 +86,85 @@ class TestConstruirFiltros(unittest.TestCase):
         for o in ORDENES:
             for g in [None, *GRUPOS]:
                 self.assertIn("WITH", armar_sql("TRUE", o, g))
+
+
+class TestEstandarH4(unittest.TestCase):
+    """El costo sigue a lo pedido (estándar de consultas, H4)."""
+
+    def test_nunca_una_ventana_sobre_todas_las_transacciones(self):
+        for o in ORDENES:
+            for g in [None, *GRUPOS]:
+                for tot in (True, False):
+                    sql = armar_sql("TRUE", o, g, totales=tot)
+                    self.assertNotIn("PARTITION BY", sql, (o, g, tot))
+                    self.assertNotIn("base AS", sql)
+
+    def test_solo_pagina_va_directo_y_con_cursor(self):
+        sql = armar_sql("TRUE", "fecha_desc", None, totales=False)
+        self.assertNotIn("filtradas", sql)
+        self.assertIn("ORDER BY t.transaction_date DESC, t.id DESC\n    LIMIT %(limit)s", sql)
+        sql = armar_sql("TRUE", "fecha_desc", None, totales=False, cursor=True)
+        self.assertIn("(t.transaction_date, t.id) < (%(k_fecha)s::date, %(k_id)s)", sql)
+        sql = armar_sql("TRUE", "fecha_asc", None, totales=True, cursor=True)
+        self.assertIn("(f.transaction_date, f.id) > (%(k_fecha)s::date, %(k_id)s)", sql)
+        with self.assertRaises(ValueError):
+            armar_sql("TRUE", "monto_desc", None, totales=False, cursor=True)
+
+    def test_una_sola_lectura_para_pagina_totales_y_grupos(self):
+        sql = armar_sql("TRUE", "fecha_desc", "tercero")
+        self.assertIn("filtradas AS MATERIALIZED", sql)
+        # filtradas + las columnas de las filas de la página; nada de releer por `ids`
+        self.assertEqual(sql.count("FROM transactions t\n"), 2)
+        self.assertNotIn("SELECT id FROM ids", sql)
+        self.assertEqual(sql.count("FROM filtradas f"), 3, "página, totales y grupos")
+
+    def test_offset_con_tope(self):
+        from fin_sys_core.diario_query import OFFSET_MAX, buscar_movimientos
+        with self.assertRaises(ValueError):
+            buscar_movimientos({}, orden="monto_desc", offset=OFFSET_MAX + 1)
+
+    def test_escalera_de_la_busqueda(self):
+        from fin_sys_core.diario_query import aviso_busqueda
+        where, p = construir_filtros({"q": "c"})
+        self.assertEqual((where, p), ("TRUE", {}), "1 letra no busca")
+        self.assertTrue(aviso_busqueda("c"))
+        _, p = construir_filtros({"q": "Ca"})
+        self.assertEqual(p["q_palabra"], r"\mca")
+        self.assertNotIn("q", p)
+        _, p = construir_filtros({"q": "caf"})
+        self.assertEqual(p["q"], "%caf%")
+        for q in ("caf", "#5", "7", ""):
+            self.assertIsNone(aviso_busqueda(q), q)
+        _, p = construir_filtros({"q": "7"})
+        self.assertEqual(p["q_num"], 7.0)
+
+    def test_opciones_top_y_busqueda_en_el_servidor(self):
+        from fin_sys_core.diario_query import armar_opciones
+        sql = armar_opciones()
+        self.assertEqual(sql.count("_rk <= %(tope)s OR _elegido"), 4)
+        self.assertNotIn("LIKE %(q)s", sql)
+        self.assertIn("AS mas", sql)
+        sql = armar_opciones("terceros", "pe")
+        self.assertIn("c_terceros", sql)
+        self.assertNotIn("c_cuentas", sql)
+        self.assertIn("LIKE %(q)s", sql)
+        with self.assertRaises(ValueError):
+            armar_opciones("nada")
+
+    def test_cupo_por_worker(self):
+        from unittest import mock
+
+        import fin_sys_core.diario_query as dq
+        cupo = dq.threading.BoundedSemaphore(1)
+        with mock.patch.object(dq, "_cupo", cupo), mock.patch.object(dq, "DIARIO_ESPERA_S", 0.05):
+            cupo.acquire()                     # otra consulta ocupa el único cupo
+            with self.assertRaises(dq.DiarioOcupado):
+                with dq._con_cupo():
+                    pass
+            cupo.release()
+            with dq._con_cupo():               # liberado: entra
+                pass
+        self.assertTrue(cupo.acquire(blocking=False), "el cupo se devuelve al salir")
 
 
 @unittest.skipUnless(os.environ.get("DB_HOST"), "requiere BD")
@@ -166,11 +246,41 @@ class TestContraBD(unittest.TestCase):
                                        r["totales"]["gastos_cop"], places=2)
 
     def test_opciones(self):
-        from fin_sys_core.diario_query import opciones_filtros
+        from fin_sys_core.diario_query import TOPE_OPCIONES, opciones_filtros
         o = opciones_filtros([self.empresa])
-        for k in ("terceros", "cuentas", "categorias", "etiquetas", "empresas", "fechas"):
+        for k in ("terceros", "cuentas", "categorias", "etiquetas", "empresas", "fechas", "mas"):
             self.assertIn(k, o)
         self.assertTrue(any(e["valor"] == self.empresa for e in o["empresas"]))
+        self.assertLessEqual(len(o["terceros"]), TOPE_OPCIONES)
+        if o["terceros"]:
+            t = o["terceros"][0]
+            solo = opciones_filtros([self.empresa], campo="terceros", q=t["name"][:3])
+            self.assertEqual(set(solo), {"terceros", "mas"})
+            self.assertIn(t["id"], [x["id"] for x in solo["terceros"]])
+
+    def test_cursor_igual_que_offset(self):
+        from fin_sys_core.diario_query import buscar_movimientos
+        a = buscar_movimientos({"empresas": [self.empresa]}, limit=10)
+        if not a["siguiente"]:
+            self.skipTest("menos de 10 movimientos")
+        sig = a["siguiente"]
+        por_cursor = buscar_movimientos({"empresas": [self.empresa]}, limit=10, totales=False,
+                                        despues=(sig["fecha"], sig["id"]))
+        por_offset = buscar_movimientos({"empresas": [self.empresa]}, limit=10, offset=10)
+        self.assertEqual([t["id"] for t in por_cursor["transactions"]],
+                         [t["id"] for t in por_offset["transactions"]])
+        self.assertIsNone(por_cursor["totales"], "solo la página: sin totales")
+
+    def test_duplicado_por_pagina_igual_que_antes(self):
+        """n_iguales de cada fila = cuántas TX de su empresa comparten fecha,
+        tipo, valor neto y cuenta (lo que calculaba la ventana global)."""
+        from collections import Counter
+        r = self._buscar(limit=5000)
+        clave = lambda t: (t["portfolio_name"], t["transaction_date"], (t["type"] or "").upper(),
+                           float(t["net_value"] or 0), t["account_id"] or 0)
+        cuenta = Counter(clave(t) for t in self.todas)
+        for t in r["transactions"]:
+            self.assertEqual(t["n_iguales"], cuenta[clave(t)], t["id"])
 
 
 @unittest.skipUnless(os.environ.get("DB_HOST"), "requiere BD")

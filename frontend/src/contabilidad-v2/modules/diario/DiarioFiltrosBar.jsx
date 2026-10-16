@@ -22,38 +22,61 @@ function guardarVistas(v) {
   try { localStorage.setItem(CLAVE_VISTAS, JSON.stringify(v)); } catch { /* sin almacenamiento */ }
 }
 
-/** Lista de casillas con buscador (terceros, cuentas, categorías, etiquetas). */
-function MultiLista({ etiqueta, opciones, valor, onCambio, aId = (o) => o.id, aTexto = (o) => o.name, aSub }) {
+/** Lista de casillas con buscador (terceros, cuentas, categorías, etiquetas).
+ *  Estándar H4: el servidor manda las 50 más usadas; si `remoto` (hay más),
+ *  lo que se escribe se busca en el servidor (`buscarRemoto`) y lo elegido de
+ *  ahí se suma a las opciones (`onAgregar`) para que el chip tenga nombre. */
+function MultiLista({ etiqueta, opciones, valor, onCambio, aId = (o) => o.id, aTexto = (o) => o.name, aSub,
+  remoto = false, buscarRemoto, onAgregar }) {
   const [busca, setBusca] = React.useState('');
+  const [remotas, setRemotas] = React.useState(null);     // null = sin búsqueda en el servidor
   const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-  const visibles = (opciones || []).filter((o) => !busca || norm(`${aTexto(o)} ${aSub?.(o) || ''}`).includes(norm(busca)));
+  React.useEffect(() => {
+    const texto = busca.trim();
+    if (!remoto || !buscarRemoto || !texto) { setRemotas(null); return undefined; }
+    let vivo = true;
+    const t = setTimeout(() => {
+      buscarRemoto(texto).then((lista) => { if (vivo) setRemotas(lista || []); }).catch(() => {});
+    }, 250);
+    return () => { vivo = false; clearTimeout(t); };
+  }, [busca, remoto]); // eslint-disable-line react-hooks/exhaustive-deps
+  const visibles = remotas ?? (opciones || []).filter((o) => !busca || norm(`${aTexto(o)} ${aSub?.(o) || ''}`).includes(norm(busca)));
   const marcado = new Set(valor);
-  const alternar = (id) => onCambio(marcado.has(id) ? valor.filter((x) => x !== id) : [...valor, id]);
+  const alternar = (o) => {
+    const id = aId(o);
+    if (marcado.has(id)) { onCambio(valor.filter((x) => x !== id)); return; }
+    if (remotas && onAgregar) onAgregar(o);
+    onCambio([...valor, id]);
+  };
   return (
     <div>
       <span className={titulo}>{etiqueta}{valor.length ? ` (${valor.length})` : ''}</span>
-      {(opciones || []).length > 6 && (
-        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar…"
+      {(remoto || (opciones || []).length > 6) && (
+        <input value={busca} onChange={(e) => setBusca(e.target.value)}
+          placeholder={remoto ? 'Buscar entre todos…' : 'Buscar…'}
           className={`${campo} w-full mb-0.5`} aria-label={`Buscar en ${etiqueta}`} />
       )}
       <div className="border-2 border-black bg-white max-h-32 overflow-y-auto">
         {visibles.length === 0 && <div className="p-1 text-[9px] text-gray-400 uppercase">Sin opciones</div>}
         {visibles.map((o) => (
           <label key={aId(o)} className="flex items-center gap-1 px-1 py-0.5 text-[10px] font-mono hover:bg-brutalBg cursor-pointer">
-            <input type="checkbox" checked={marcado.has(aId(o))} onChange={() => alternar(aId(o))} />
+            <input type="checkbox" checked={marcado.has(aId(o))} onChange={() => alternar(o)} />
             <span className="truncate flex-1" title={aTexto(o)}>{aTexto(o)}</span>
             {aSub && <span className="text-gray-400 text-[9px]">{aSub(o)}</span>}
             {o.n != null && <span className="text-gray-400 text-[9px]">{o.n}</span>}
           </label>
         ))}
       </div>
+      {remoto && !busca.trim() && (
+        <div className="text-[9px] text-gray-500 mt-0.5">Se ven las 50 más usadas: escribe para buscar las demás.</div>
+      )}
     </div>
   );
 }
 
 export default function DiarioFiltrosBar({
   filtros, setFiltros, orden, setOrden, agrupar, setAgrupar,
-  activePortfolio, total, cargando, onExportarCsv, onMarcarTodo, exportando,
+  activePortfolio, total, cargando, onExportarCsv, onMarcarTodo, exportando, aviso,
 }) {
   const [abierto, setAbierto] = React.useState(false);
   const [opciones, setOpciones] = React.useState({});
@@ -72,15 +95,39 @@ export default function DiarioFiltrosBar({
   }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Opciones de los selectores: solo valores que existen en las empresas elegidas.
-  React.useEffect(() => {
+  // El servidor manda las 50 más usadas por lista (+ las ya elegidas, para que
+  // los chips de una vista guardada tengan nombre) y `mas` si hay más.
+  const filtrosRef = React.useRef(filtros);
+  filtrosRef.current = filtros;
+  const paramsEmpresa = React.useCallback(() => {
     const p = new URLSearchParams();
     if (activePortfolio) p.set('portfolio', activePortfolio);
     if (filtros.empresas) p.set('empresas', filtros.empresas);
+    return p;
+  }, [activePortfolio, filtros.empresas]);
+  React.useEffect(() => {
+    const p = paramsEmpresa();
+    for (const k of ['terceros', 'cuentas', 'categorias', 'etiquetas']) {
+      const elegidos = filtrosRef.current[k] || [];
+      if (elegidos.length) p.set(`sel_${k}`, elegidos.join(','));
+    }
     let vivo = true;
     fetch(`${API}/diario/opciones?${p}`).then((r) => (r.ok ? r.json() : {}))
       .then((d) => { if (vivo) setOpciones(d || {}); }).catch(() => {});
     return () => { vivo = false; };
-  }, [activePortfolio, filtros.empresas]);
+  }, [paramsEmpresa]);
+  const buscarRemoto = (lista) => async (texto) => {
+    const p = paramsEmpresa(); p.set('campo', lista); p.set('q', texto);
+    const r = await fetch(`${API}/diario/opciones?${p}`);
+    return r.ok ? ((await r.json())[lista] || []) : [];
+  };
+  const agregarOpcion = (lista, clave) => (o) => setOpciones((prev) => {
+    const actuales = prev[lista] || [];
+    return actuales.some((x) => x[clave] === o[clave]) ? prev : { ...prev, [lista]: [...actuales, o] };
+  });
+  const listaRemota = (lista, clave = 'id') => ({
+    remoto: Boolean(opciones.mas?.[lista]), buscarRemoto: buscarRemoto(lista), onAgregar: agregarOpcion(lista, clave),
+  });
 
   const set = (k, v) => setFiltros((f) => ({ ...f, [k]: v }));
   const alternarLista = (k, v) => setFiltros((f) => ({ ...f, [k]: f[k].includes(v) ? f[k].filter((x) => x !== v) : [...f[k], v] }));
@@ -117,6 +164,7 @@ export default function DiarioFiltrosBar({
             className={`${campo} w-full pr-6 py-1`} />
           {q && <button type="button" onClick={() => setQ('')} aria-label="Borrar búsqueda"
             className="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] font-bold">✕</button>}
+          {aviso && <div role="status" className="text-[9px] text-gray-600 mt-0.5">ℹ️ {aviso}</div>}
         </div>
         <select value={filtros.rango} onChange={(e) => (e.target.value ? ponerRango(e.target.value) : setFiltros((f) => ({ ...f, rango: '', desde: '', hasta: '' })))}
           className={campo} aria-label="Periodo">
@@ -213,18 +261,21 @@ export default function DiarioFiltrosBar({
           </div>
 
           <MultiLista etiqueta="Tercero" opciones={opciones.terceros} valor={filtros.terceros}
-            onCambio={(v) => set('terceros', v)} aSub={(o) => (o.ident && !String(o.ident).startsWith('SN-') ? o.ident : '')} />
+            onCambio={(v) => set('terceros', v)} aSub={(o) => (o.ident && !String(o.ident).startsWith('SN-') ? o.ident : '')}
+            {...listaRemota('terceros')} />
 
           <div className="space-y-2">
             <MultiLista etiqueta="Medio de pago / cuenta" opciones={opciones.cuentas} valor={filtros.cuentas}
-              onCambio={(v) => set('cuentas', v)} />
+              onCambio={(v) => set('cuentas', v)} {...listaRemota('cuentas')} />
             <MultiLista etiqueta="Cuenta COA" opciones={opciones.categorias} valor={filtros.categorias}
-              onCambio={(v) => set('categorias', v)} aId={(o) => o.valor} aTexto={(o) => o.valor} />
+              onCambio={(v) => set('categorias', v)} aId={(o) => o.valor} aTexto={(o) => o.valor}
+              {...listaRemota('categorias', 'valor')} />
           </div>
 
           <div className="space-y-2">
             <MultiLista etiqueta="Etiqueta / proyecto" opciones={opciones.etiquetas} valor={filtros.etiquetas}
-              onCambio={(v) => set('etiquetas', v)} aId={(o) => o.valor} aTexto={(o) => o.valor} />
+              onCambio={(v) => set('etiquetas', v)} aId={(o) => o.valor} aTexto={(o) => o.valor}
+              {...listaRemota('etiquetas', 'valor')} />
             <div className="flex gap-1">
               <div className="flex-1">
                 <span className={titulo}>Moneda</span>

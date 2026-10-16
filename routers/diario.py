@@ -24,6 +24,11 @@ def _demasiado_lenta():
     return HTTPException(status_code=503, detail=_LENTA, headers={"Retry-After": "5"})
 
 
+def _ocupado(e):
+    # Sin cupo del Diario en este worker (estándar H4, P4): reintentar en 2 s.
+    return HTTPException(status_code=503, detail=str(e), headers={"Retry-After": "2"})
+
+
 def _empresas(portfolio: Optional[str], empresas: Optional[str]):
     """`empresas=*` → todas; `empresas=A,B` → esas; nada → el portafolio activo."""
     if empresas == "*":
@@ -55,9 +60,12 @@ def diario_movimientos(
     agrupar: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
+    totales: bool = True,
+    despues_fecha: Optional[str] = None,
+    despues_id: Optional[str] = None,
     _u: dict = Depends(require_auth),
 ):
-    from fin_sys_core.diario_query import buscar_movimientos
+    from fin_sys_core.diario_query import DiarioOcupado, buscar_movimientos
 
     filtros = {
         "empresas": _empresas(portfolio, empresas), "q": q, "tipos": tipos,
@@ -66,11 +74,14 @@ def diario_movimientos(
         "monto_max": monto_max, "moneda": moneda, "cartera": cartera,
         "cartera_estado": cartera_estado, "banderas": banderas,
     }
+    despues = (despues_fecha, despues_id) if (despues_fecha or despues_id) else None
     try:
         return buscar_movimientos(filtros, orden=orden, agrupar=agrupar or None,
-                                  limit=limit, offset=offset)
+                                  limit=limit, offset=offset, totales=totales, despues=despues)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except DiarioOcupado as e:
+        raise _ocupado(e)
     except pg_errors.QueryCanceled:
         raise _demasiado_lenta()
     except Exception as e:
@@ -79,10 +90,21 @@ def diario_movimientos(
 
 @router.get("/api/diario/opciones")
 def diario_opciones(portfolio: Optional[str] = None, empresas: Optional[str] = None,
+                    campo: Optional[str] = None, q: Optional[str] = None,
+                    sel_terceros: Optional[str] = None, sel_cuentas: Optional[str] = None,
+                    sel_categorias: Optional[str] = None, sel_etiquetas: Optional[str] = None,
                     _u: dict = Depends(require_auth)):
-    from fin_sys_core.diario_query import opciones_filtros
+    """Top-50 por lista (+ lo ya elegido) y `mas`; con `campo` y `q`, solo esa
+    lista filtrada en el servidor (el buscador del selector)."""
+    from fin_sys_core.diario_query import DiarioOcupado, opciones_filtros
+    sel = {"terceros": sel_terceros, "cuentas": sel_cuentas,
+           "categorias": sel_categorias, "etiquetas": sel_etiquetas}
     try:
-        return opciones_filtros(_empresas(portfolio, empresas))
+        return opciones_filtros(_empresas(portfolio, empresas), campo=campo or None, q=q, sel=sel)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except DiarioOcupado as e:
+        raise _ocupado(e)
     except pg_errors.QueryCanceled:
         raise _demasiado_lenta()
     except Exception as e:
