@@ -1,6 +1,6 @@
 # Frente: estándar de consultas escalables (todo FIN-SYS)
 
-**Estado:** ACTIVO — H1, **laboratorio** y **H2** HECHOS y commiteados (16-oct-2026), **sin push ni deploy**.
+**Estado:** ACTIVO — H1, **laboratorio**, **H2** y **H3 fase 1** HECHOS y commiteados (16-oct-2026), **sin push ni deploy**.
 **Rama:** `claude/servidores-libro-mayor-9e4614` (worktree `affectionate-mestorf-f204bc`), junto con
 el Diario (frente `libro-diario-filtros` = H0).
 
@@ -25,6 +25,10 @@ nada espere sin tope. Plan y 41 reglas (B, F, P): `docs/estandar-consultas-escal
   4,5 s → 0,34 s; 40 simultáneas 14,8 s → 0,84 s). Con saturación, 503 aunque el endpoint diga 200
   (`/api/portfolios` inventaba "Negocio A/B" ante un error). Runbook: `docs/escalamiento.md`.
 
+- **H3 fase 1:** `GET /api/buscar/terceros|cuentas|etiquetas` (top-N + `mas`, escalera 0/1/2+,
+  `ids`/`ident`), `frontend/src/shared/busqueda/` (`useBusqueda`, `<BuscadorRemoto>`) y la **Mini App**
+  ya no descarga el catálogo (busca y resuelve el asignado por id). Deuda de catálogos: 10 → 7.
+
 ## Primer informe (`docs/laboratorio/informe-2026-10-16-1351.md`, backend LOCAL)
 - 🟡 `bot_messages`: ~95.700 recorridos completos vs 1.445 por índice → a una consulta del bot le
   falta índice y la tabla crece sin tope (revisar retención y el índice).
@@ -43,7 +47,10 @@ nada espere sin tope. Plan y 41 reglas (B, F, P): `docs/estandar-consultas-escal
 2. Andrés, de noche: laboratorio contra producción con `LAB_TOKEN` (comando en el README) → cifras reales.
 3. Andrés: revisar el diff de `fin_sys_core/db_pool.py` (infraestructura común) antes de publicar;
    tras publicar, mirar `/api/health/profundo` → `pool.minconn` 10 y `pool.espera`.
-4. **H3**: búsqueda remota única (terceros, cuentas, etiquetas; Mini App primero).
+4. **H3 fase 2**: migrar a `<BuscadorRemoto>` los 6 consumidores que quedan (EvidenceModal,
+   ThirdPartyModal, AdvancedSections, Cartera, TercerosTab, widgets; ver la auditoría), sacar a los
+   terceros del refresco de 60 s (`useDashboardData.js`), lista de terceros del Diario remota y el bot
+   con `buscar_terceros`. Plan B: índice trigram para `busqueda.py` (migración de Andrés).
 5. Deuda con permiso: drivers que tragan errores y devuelven `[]` (9 casos, `database_driver.py`
    y `control_tower_driver.py`); índice/retención de `bot_messages`.
 
