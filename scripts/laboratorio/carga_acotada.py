@@ -46,14 +46,20 @@ ESCENARIOS = [
     ("diario_opciones", 8, "/api/diario/opciones?portfolio={e}"),
     ("panel", 12, "/api/dashboard-data?portfolio={e}&limit=50&offset=0"),
     ("panel_saldos", 6, "/api/dashboard-data/balance?portfolio={e}"),
-    ("terceros_catalogo", 8, "/api/third-parties"),
+    # 16-oct (tras H3): la web y la Mini App ya buscan en el servidor; el catálogo
+    # completo solo lo piden los widgets de colegio, y queda para la proyección.
+    ("buscar_terceros", 8, "/api/buscar/terceros?q={q}&limite=8"),
+    ("buscar_terceros_vacio", 3, "/api/buscar/terceros?limite=8"),
+    ("terceros_catalogo", 2, "/api/third-parties"),
     ("etiquetas", 4, "/api/tags"),
     ("portafolios", 4, "/api/portfolios"),
+    ("rrhh_resumen", 3, "/api/hr/employees/summary"),
+    ("compendios", 2, "/api/compendios"),
     ("libro_mayor", 3, "/api/contadores/reportes/balance-prueba"),
     ("analisis_dataset", 2, "/api/analytics/dataset"),
 ]
 INTERACTIVOS = ("diario_busqueda", "diario_filtros", "diario_opciones", "panel", "panel_saldos",
-                "etiquetas", "portafolios")
+                "etiquetas", "portafolios", "buscar_terceros", "buscar_terceros_vacio", "rrhh_resumen")
 BUSQUEDAS = ["pago", "café", "nómina", "arriendo", "venta", "transporte", "$50.000", "ecci", "obra", "efectivo"]
 
 
