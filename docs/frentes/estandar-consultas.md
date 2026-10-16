@@ -1,6 +1,6 @@
 # Frente: estándar de consultas escalables (todo FIN-SYS)
 
-**Estado:** ACTIVO — H1, **laboratorio**, **H2** y **H3 fase 1** HECHOS y commiteados (16-oct-2026), **sin push ni deploy**.
+**Estado:** ACTIVO — H1, **laboratorio**, **H2** y **H3 fases 1-2** HECHOS y commiteados (16-oct-2026), **sin push ni deploy**.
 **Rama:** `claude/servidores-libro-mayor-9e4614` (worktree `affectionate-mestorf-f204bc`), junto con
 el Diario (frente `libro-diario-filtros` = H0).
 
@@ -28,6 +28,8 @@ nada espere sin tope. Plan y 41 reglas (B, F, P): `docs/estandar-consultas-escal
 - **H3 fase 1:** `GET /api/buscar/terceros|cuentas|etiquetas` (top-N + `mas`, escalera 0/1/2+,
   `ids`/`ident`), `frontend/src/shared/busqueda/` (`useBusqueda`, `<BuscadorRemoto>`) y la **Mini App**
   ya no descarga el catálogo (busca y resuelve el asignado por id). Deuda de catálogos: 10 → 7.
+- **H3 fase 2:** el refresco de 60 s ya no baja `/third-parties` (solo la carga inicial);
+  EvidenceModal y ThirdPartyModal con búsqueda remota top-30. Deuda de catálogos: 7 → 5.
 
 ## Primer informe (`docs/laboratorio/informe-2026-10-16-1351.md`, backend LOCAL)
 - 🟡 `bot_messages`: ~95.700 recorridos completos vs 1.445 por índice → a una consulta del bot le
@@ -47,10 +49,13 @@ nada espere sin tope. Plan y 41 reglas (B, F, P): `docs/estandar-consultas-escal
 2. Andrés, de noche: laboratorio contra producción con `LAB_TOKEN` (comando en el README) → cifras reales.
 3. Andrés: revisar el diff de `fin_sys_core/db_pool.py` (infraestructura común) antes de publicar;
    tras publicar, mirar `/api/health/profundo` → `pool.minconn` 10 y `pool.espera`.
-4. **H3 fase 2**: migrar a `<BuscadorRemoto>` los 6 consumidores que quedan (EvidenceModal,
-   ThirdPartyModal, AdvancedSections, Cartera, TercerosTab, widgets; ver la auditoría), sacar a los
-   terceros del refresco de 60 s (`useDashboardData.js`), lista de terceros del Diario remota y el bot
-   con `buscar_terceros`. Plan B: índice trigram para `busqueda.py` (migración de Andrés).
+4. **H3 fase 3** (no mecánica): `AdvancedSections` usa la lista para detectar duplicados por número
+   y por nombre exacto → agregar `ident`/`nombre_exacto` a `/api/buscar/terceros` y migrar;
+   `CarteraTab` y `TercerosTab` → tabla paginada en servidor; luego quitar `allThirdParties` del
+   proveedor; lista de terceros del Diario remota; el bot con `buscar_terceros`.
+   **Decisión de Andrés:** los widgets de colegio (Pensiones/Recaudos/Uniformes) tratan a TODO
+   tercero como estudiante → ¿qué marca a un estudiante (etiqueta o tipo)?
+   Plan B: índice trigram para `fin_sys_core/consultas/busqueda.py` (migración de Andrés).
 5. Deuda con permiso: drivers que tragan errores y devuelven `[]` (9 casos, `database_driver.py`
    y `control_tower_driver.py`); índice/retención de `bot_messages`.
 
