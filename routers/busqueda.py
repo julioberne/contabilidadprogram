@@ -34,11 +34,14 @@ def _envolver(fn, *args, **kwargs):
 
 @router.get("/api/buscar/terceros")
 def buscar_terceros(q: str = "", limite: int = 8, ids: Optional[str] = None, ident: Optional[str] = None,
-                    _u: dict = Depends(require_auth)):
+                    nombre: Optional[str] = None, despues_nombre: Optional[str] = None,
+                    despues_id: Optional[int] = None, orden: str = "relevancia",
+                    con_total: bool = False, _u: dict = Depends(require_auth)):
     from fin_sys_core.consultas.busqueda import buscar_terceros as _buscar
-    if len(q) > 120:
+    if len(q) > 120 or len(nombre or "") > 200:
         raise HTTPException(status_code=400, detail="La búsqueda es demasiado larga (máximo 120 caracteres).")
-    return _envolver(_buscar, q, limite, ids, ident)
+    despues = (despues_nombre, despues_id) if despues_id is not None and despues_nombre is not None else None
+    return _envolver(_buscar, q, limite, ids, ident, nombre, despues, orden, con_total)
 
 
 @router.get("/api/buscar/cuentas")

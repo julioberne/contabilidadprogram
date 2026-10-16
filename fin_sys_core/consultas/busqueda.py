@@ -74,12 +74,29 @@ def _ids(valor) -> List[int]:
     return out
 
 
-def armar_busqueda_terceros(q: str, limite: int, ids=None, ident: Optional[str] = None):
-    """(sql, params) puros, para poder probarlos sin BD."""
+def nombre_exacto(nombre: str) -> str:
+    """Como el índice lower(btrim(name)) de third_parties, con espacios colapsados."""
+    return re.sub(r"\s+", " ", (nombre or "").strip().lower())
+
+
+def armar_busqueda_terceros(q: str, limite: int, ids=None, ident: Optional[str] = None,
+                            nombre: Optional[str] = None, despues: Optional[tuple] = None,
+                            orden: str = "relevancia", con_total: bool = False):
+    """(sql, params) puros, para poder probarlos sin BD.
+
+    nombre: coincidencia EXACTA del nombre (detector de duplicados del registro).
+    orden='nombre' + despues=(nombre, id) + con_total: listado paginado por CURSOR
+    (regla B3: sin OFFSET; cada página cuesta lo mismo aunque sea la número 1.000)."""
     lim = _limite(limite)
     lista_ids = _ids(ids)
+    if orden not in ("relevancia", "nombre"):
+        raise ValueError(f"Orden inválido: '{orden}'")
     uso = ("LEFT JOIN (SELECT third_party_id, COUNT(*) AS n, MAX(transaction_date) AS ultima "
            "FROM transactions WHERE third_party_id IS NOT NULL GROUP BY 1) u ON u.third_party_id = tp.id")
+    if nombre and not (lista_ids or ident):
+        p = {"nombre": nombre_exacto(nombre), "lim": lim + 1}
+        return (f"SELECT {COLUMNAS_TERCERO}, COALESCE(u.n, 0) AS usos FROM third_parties tp {uso} "
+                "WHERE lower(btrim(tp.name)) = %(nombre)s ORDER BY tp.id LIMIT %(lim)s"), p
     if lista_ids or ident:
         cond, p = [], {}
         if lista_ids:
@@ -95,6 +112,24 @@ def armar_busqueda_terceros(q: str, limite: int, ids=None, ident: Optional[str] 
     texto = normalizar(q)
     dig = digitos(q)
     p: Dict[str, Any] = {"lim": lim + 1}
+    total = ", COUNT(*) OVER () AS _total" if con_total else ""
+    if orden == "nombre":
+        # Listado paginado y estable (nombre, id) para el panel de gestión.
+        conds = []
+        if texto:
+            p["contiene"] = "%" + _like_seguro(texto) + "%"
+            p["exacto"] = q.strip()
+            conds.append(f"({_sql_norm('tp.name')} LIKE %(contiene)s OR tp.identification_number = %(exacto)s)")
+        filtro = " AND ".join(conds) or "TRUE"
+        cursor = filtro
+        if despues:
+            p["c_nombre"], p["c_id"] = str(despues[0]), int(despues[1])
+            cursor = f"{filtro} AND (tp.name, tp.id) > (%(c_nombre)s, %(c_id)s)"
+        if con_total:
+            # El total cuenta TODO lo filtrado (no solo desde el cursor).
+            total = f", (SELECT COUNT(*) FROM third_parties tp WHERE {filtro}) AS _total"
+        return (f"SELECT {COLUMNAS_TERCERO}, COALESCE(u.n, 0) AS usos{total} FROM third_parties tp {uso} "
+                f"WHERE {cursor} ORDER BY tp.name, tp.id LIMIT %(lim)s"), p
     if not texto:
         # Los más usados: con 50.000 terceros, nadie quiere el catálogo entero.
         return (f"SELECT {COLUMNAS_TERCERO}, COALESCE(u.n, 0) AS usos FROM third_parties tp {uso} "
@@ -137,12 +172,22 @@ def _respuesta(filas: List[dict], limite: int, q: str) -> dict:
     return {"items": filas[:lim], "mas": len(filas) > lim, "q": q or "", "limite": lim}
 
 
-def buscar_terceros(q: str = "", limite=LIMITE_DEFECTO, ids=None, ident: Optional[str] = None) -> dict:
-    sql, p = armar_busqueda_terceros(q, limite, ids, ident)
+def buscar_terceros(q: str = "", limite=LIMITE_DEFECTO, ids=None, ident: Optional[str] = None,
+                    nombre: Optional[str] = None, despues: Optional[tuple] = None,
+                    orden: str = "relevancia", con_total: bool = False) -> dict:
+    sql, p = armar_busqueda_terceros(q, limite, ids, ident, nombre, despues, orden, con_total)
     filas = _ejecutar(sql, p)
-    if ids or ident:
+    if ids or ident or nombre:
         return {"items": filas, "mas": False, "q": "", "limite": len(filas)}
-    return _respuesta(filas, limite, q)
+    total = filas[0].get("_total") if (con_total and filas) else (0 if con_total else None)
+    for f in filas:
+        f.pop("_total", None)
+    r = _respuesta(filas, limite, q)
+    if con_total:
+        r["total"] = int(total or 0)
+        ultimo = r["items"][-1] if r["items"] else None
+        r["siguiente"] = {"nombre": ultimo["name"], "id": ultimo["id"]} if (ultimo and r["mas"]) else None
+    return r
 
 
 def buscar_cuentas(q: str = "", limite=LIMITE_DEFECTO, ids=None) -> dict:

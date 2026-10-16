@@ -13,12 +13,16 @@ import { API } from '../../config';
 export const DEBOUNCE_MS = 200;
 
 /** URL de búsqueda (pura: se prueba sin red). */
-export function urlBusqueda(recurso, q, { limite = 8, ids, ident } = {}) {
+export function urlBusqueda(recurso, q, { limite = 8, ids, ident, nombre, despues, orden, conTotal } = {}) {
   const p = new URLSearchParams();
   if (ids && ids.length) p.set('ids', ids.join(','));
   else if (ident) p.set('ident', ident);
+  else if (nombre) p.set('nombre', nombre);
   else if (q) p.set('q', q);
   p.set('limite', String(limite));
+  if (despues) { p.set('despues_nombre', despues.nombre); p.set('despues_id', String(despues.id)); }
+  if (orden) p.set('orden', orden);
+  if (conTotal) p.set('con_total', 'true');
   return `${API}/buscar/${recurso}?${p}`;
 }
 
@@ -69,6 +73,69 @@ export function useBusqueda(recurso, q, { minimo = 2, limite = 8, debounceMs = D
   }, [recurso, texto, activa, limite, debounceMs, version]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return estado;
+}
+
+/**
+ * Tercero que coincide EXACTAMENTE por documento (o, sin documento, por nombre):
+ * el semáforo "reutiliza / crea" del registro. undefined = consultando.
+ */
+export function useTerceroExacto({ ident, nombre, excluir = '999999999', debounceMs = 300 }) {
+  const [res, setRes] = useState({ clave: '', tercero: null });
+  const doc = (ident || '').trim();
+  const nom = doc ? '' : (nombre || '').trim();
+  const clave = doc ? `i:${doc}` : (nom ? `n:${nom.toLowerCase()}` : '');
+
+  useEffect(() => {
+    if (!clave) return undefined;
+    const ctl = new AbortController();
+    const t = setTimeout(async () => {
+      try {
+        const d = await buscarUna('terceros', doc ? { ident: doc, limite: 1 } : { nombre: nom, limite: 1 }, ctl.signal);
+        const f = (d.items || []).find((x) => String(x.identification_number) !== excluir) || null;
+        setRes({ clave, tercero: f });
+      } catch (e) {
+        if (e.name !== 'AbortError') setRes({ clave, tercero: null });
+      }
+    }, debounceMs);
+    return () => { clearTimeout(t); ctl.abort(); };
+  }, [clave]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!clave) return null;
+  return res.clave === clave ? res.tercero : undefined;
+}
+
+/** Listado paginado (panel de gestión): páginas de `tamano`, "cargar más" y total. */
+export function usePaginaTerceros(q, { tamano = 50, version = 0 } = {}) {
+  const [estado, setEstado] = useState({ items: [], total: 0, siguiente: null, cargando: false, error: '' });
+  const texto = (q || '').trim();
+  const pedir = async (despues, signal) => {
+    const r = await fetch(urlBusqueda('terceros', texto, { limite: tamano, despues, orden: 'nombre', conTotal: true }), { signal });
+    if (!r.ok) throw new Error(`Error ${r.status}`);
+    return r.json();
+  };
+  useEffect(() => {
+    const ctl = new AbortController();
+    setEstado((e) => ({ ...e, cargando: true, error: '' }));   // eslint-disable-line react-hooks/set-state-in-effect
+    const t = setTimeout(() => {
+      pedir(null, ctl.signal)
+        .then((d) => setEstado({ items: d.items || [], total: d.total || 0, siguiente: d.siguiente || null, cargando: false, error: '' }))
+        .catch((e) => { if (e.name !== 'AbortError') setEstado({ items: [], total: 0, siguiente: null, cargando: false, error: e.message }); });
+    }, texto ? DEBOUNCE_MS : 0);
+    return () => { clearTimeout(t); ctl.abort(); };
+  }, [texto, tamano, version]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const cargarMas = async () => {
+    setEstado((e) => ({ ...e, cargando: true }));
+    try {
+      if (!estado.siguiente) { setEstado((e) => ({ ...e, cargando: false })); return; }
+      const d = await pedir(estado.siguiente);
+      setEstado((e) => ({ ...e, items: [...e.items, ...(d.items || [])], total: d.total || e.total,
+                          siguiente: d.siguiente || null, cargando: false }));
+    } catch (err) {
+      setEstado((e) => ({ ...e, cargando: false, error: err.message }));
+    }
+  };
+  return { ...estado, cargarMas, hayMas: !!estado.siguiente };
 }
 
 export default useBusqueda;

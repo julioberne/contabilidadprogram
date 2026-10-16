@@ -1,11 +1,11 @@
 // TercerosTab.jsx — Extracted from ContextPanel.jsx
 import React, { useState } from 'react';
 import TerceroMediosPago from '../TerceroMediosPago';
+import { useBusqueda, usePaginaTerceros } from '../../../shared/busqueda/useBusqueda.js';
 
 export default function TercerosTab({
   search, setSearch,
   tercero,
-  allThirdParties,
   editingId, setEditingId,
   editData, setEditData,
   updateItem, deleteItem, createItem, refreshTP,
@@ -13,6 +13,14 @@ export default function TercerosTab({
 }) {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
+  // H3 (estándar de consultas): nada de catálogo completo. El selector busca en
+  // el servidor (top-5) y la tabla de gestión se pagina de a 50 con su propio
+  // filtro; tras crear/editar/borrar se recarga (version).
+  const [version, setVersion] = useState(0);
+  const [filtroTabla, setFiltroTabla] = useState('');
+  const refrescar = () => { refreshTP?.(); setVersion((v) => v + 1); };
+  const { items: sugeridos } = useBusqueda('terceros', search, { minimo: 2, limite: 5, version });
+  const pagina = usePaginaTerceros(filtroTabla, { tamano: 50, version });
 
   const handleCreate = async () => {
     if (!tercero.name?.trim()) { setCreateError('El nombre es obligatorio.'); return; }
@@ -27,7 +35,7 @@ export default function TercerosTab({
         phone: tercero.phone || '',
         // La dirección va a `address` (antes se enviaba por error en `website`)
         address: tercero.address || '',
-      }, refreshTP);
+      }, refrescar);
     } catch (e) {
       setCreateError(e.message || 'Error al crear el tercero.');
     } finally {
@@ -47,7 +55,7 @@ export default function TercerosTab({
           className="w-full border border-black px-2 py-1 text-[10px] font-mono outline-none focus:border-brutalGreen" />
         {search.length >= 2 && (
           <div className="border border-black bg-white max-h-24 overflow-y-auto">
-            {allThirdParties.filter(tp => (tp.name||'').toLowerCase().includes(search.toLowerCase()) || (tp.identification_number||'').includes(search)).slice(0,5).map(tp => (
+            {sugeridos.map(tp => (
               <div key={tp.id} onClick={() => {
                 if (tercero.setName) tercero.setName(tp.name || '');
                 if (tercero.setIdType) tercero.setIdType(tp.identification_type || 'NIT');
@@ -80,7 +88,10 @@ export default function TercerosTab({
         {createError && <div className="text-[9px] text-red-600 font-mono">{createError}</div>}
       </div>
       {/* --- BD: third_parties --- */}
-      <SectionLabel text={`third_parties · ${allThirdParties.length} registros`} />
+      <SectionLabel text={`third_parties · ${pagina.total} registros`} />
+      <input type="search" value={filtroTabla} onChange={(e) => setFiltroTabla(e.target.value)}
+        placeholder="Filtrar la tabla por nombre o documento…" aria-label="Filtrar la tabla de terceros"
+        className="w-full border border-black px-2 py-1 text-[10px] font-mono outline-none focus:border-brutalGreen mb-1" />
       <table className="w-full text-[10px] font-mono border border-black">
         <thead className="bg-black text-white uppercase"><tr>
           <th className="p-1 border-r border-black text-left">Nombre</th>
@@ -90,7 +101,7 @@ export default function TercerosTab({
           <th className="p-1">Acc.</th>
         </tr></thead>
         <tbody className="divide-y divide-gray-200">
-          {allThirdParties.map(tp => (
+          {pagina.items.map(tp => (
             <React.Fragment key={tp.id}>
               <tr className="hover:bg-brutalBg">
                 {editingId === tp.id ? (<>
@@ -99,7 +110,7 @@ export default function TercerosTab({
                   <td className="p-0.5 border-r border-black"><input type="text" value={editData.identification_number||''} onChange={setCampo('identification_number')} className="w-full border border-black px-1 py-0.5 text-[10px] font-mono outline-none" /></td>
                   <td className="p-0.5 border-r border-black"><input type="text" value={editData.email||''} onChange={setCampo('email')} className="w-full border border-black px-1 py-0.5 text-[10px] font-mono outline-none" /></td>
                   <td className="p-0.5 text-center">
-                    <button onClick={()=>updateItem('third-parties',tp.id,editData,refreshTP)} title="Guardar la ficha" className="bg-brutalGreen border border-black px-1 py-0.5 text-[8px] font-bold mr-0.5">✓</button>
+                    <button onClick={()=>updateItem('third-parties',tp.id,editData,refrescar)} title="Guardar la ficha" className="bg-brutalGreen border border-black px-1 py-0.5 text-[8px] font-bold mr-0.5">✓</button>
                     <button onClick={()=>setEditingId(null)} title="Cerrar" className="bg-gray-200 border border-black px-1 py-0.5 text-[8px] font-bold">✕</button>
                   </td>
                 </>) : (<>
@@ -109,7 +120,7 @@ export default function TercerosTab({
                   <td className="p-1 border-r border-black text-gray-400 truncate max-w-[80px]">{tp.email||'—'}</td>
                   <td className="p-1 text-center whitespace-nowrap">
                     <button onClick={()=>{setEditingId(tp.id);setEditData({...tp});}} title="Abrir la ficha: todos los campos y sus cuentas / celulares / llaves" className="text-[9px] text-gray-400 hover:text-black font-bold">✎</button>
-                    <button onClick={()=>deleteItem('third-parties',tp.id,refreshTP)} className="text-[9px] text-gray-300 hover:text-red-500 font-bold ml-1">🗑</button>
+                    <button onClick={()=>deleteItem('third-parties',tp.id,refrescar)} className="text-[9px] text-gray-300 hover:text-red-500 font-bold ml-1">🗑</button>
                   </td>
                 </>)}
               </tr>
@@ -134,7 +145,14 @@ export default function TercerosTab({
           ))}
         </tbody>
       </table>
-      {allThirdParties.length===0 && <p className="text-center text-[10px] text-gray-300 font-mono uppercase py-2">Sin terceros</p>}
+      {!pagina.cargando && pagina.items.length===0 && <p className="text-center text-[10px] text-gray-300 font-mono uppercase py-2">Sin terceros</p>}
+      {pagina.error && <p role="alert" className="text-[9px] text-red-600 font-mono">{pagina.error}</p>}
+      {pagina.hayMas && (
+        <button type="button" onClick={pagina.cargarMas} disabled={pagina.cargando}
+          className="w-full mt-1 border border-black bg-black text-white text-[9px] font-bold uppercase py-1 disabled:opacity-50">
+          {pagina.cargando ? 'Cargando…' : `↓ Cargar 50 más (${pagina.items.length} de ${pagina.total})`}
+        </button>
+      )}
     </>
   );
 }

@@ -10,6 +10,7 @@
    Consume el TransactionDraftProvider directamente.
    ============================================================ */
 import { useEffect, useState } from 'react';
+import { useBusqueda, useTerceroExacto } from '../../../shared/busqueda/useBusqueda.js';
 import { useTransactionDraft } from '../../engine/TransactionDraftProvider.jsx';
 import { API } from '../../../config';
 import NumInput from '../../../shared/NumInput';
@@ -51,17 +52,12 @@ export default function AdvancedSections() {
   const toggle = (k) => setOpen(o => ({ ...o, [k]: !o[k] }));
 
   // 🔍 Buscador de terceros registrados (2026-09-11, pedido de Andrés:
-  // "por si el tercero que estamos guardando ya lo tenemos"). Mismo patrón
-  // del comprobante: filtro EN MEMORIA sobre allThirdParties (ya se
-  // refresca con cada fetchAll) — cero peticiones por tecla. El genérico
-  // 999999999 se excluye: elegirlo no identifica a nadie.
+  // "por si el tercero que estamos guardando ya lo tenemos"). H3 (estándar de
+  // consultas): búsqueda en el servidor (top-30), ya no sobre el catálogo
+  // completo en memoria. El genérico 999999999 se excluye: no identifica a nadie.
   const [tpBusca, setTpBusca] = useState("");
-  const normTp = (x) => (x || '').trim().toLowerCase().replace(/\s+/g, ' ');
-  const tercerosReg = (d.allThirdParties || []).filter(t => String(t.identification_number) !== '999999999');
-  const qTp = tpBusca.trim().toLowerCase();
-  const tpFiltrados = qTp ? tercerosReg.filter(t =>
-    (t.name || '').toLowerCase().includes(qTp) || String(t.identification_number || '').includes(qTp)) : [];
-  const tpVisibles = tpFiltrados.slice(0, 30);
+  const { items: tpEncontrados, mas: tpMas } = useBusqueda('terceros', tpBusca, { minimo: 1, limite: 30 });
+  const tpVisibles = tpEncontrados.filter(t => String(t.identification_number) !== '999999999');
   const elegirTercero = (t) => {
     d.setThirdPartyName(t.name || '');
     d.setThirdPartyType(t.identification_type || 'NIT');
@@ -72,10 +68,11 @@ export default function AdvancedSections() {
     setTpBusca('');
   };
   // Semáforo de reutilización: que se VEA si este registro reusa o crea
+  // Coincidencia EXACTA en el servidor (documento; sin documento, nombre).
   const numeroTp = (d.thirdPartyNumber || '').trim();
-  const regPorNumero = numeroTp ? tercerosReg.find(t => String(t.identification_number) === numeroTp) : null;
-  const regPorNombre = (!numeroTp && d.thirdPartyName.trim())
-    ? tercerosReg.find(t => normTp(t.name) === normTp(d.thirdPartyName)) : null;
+  const exacto = useTerceroExacto({ ident: numeroTp, nombre: d.thirdPartyName });
+  const regPorNumero = numeroTp ? (exacto || null) : null;
+  const regPorNombre = !numeroTp ? (exacto || null) : null;
 
   // Creador inline de tasas custom (port del monolito)
   const [taxName, setTaxName] = useState("");
@@ -129,7 +126,7 @@ export default function AdvancedSections() {
           <label className={labelCls}>🔍 Buscar tercero registrado</label>
           <input type="text" value={tpBusca} onChange={e => setTpBusca(e.target.value)}
                  placeholder="Nombre o número… (elige y llena los campos)" className={inputCls} />
-          {qTp && (
+          {tpBusca.trim() && (
             <div className="border-2 border-black border-t-0 bg-white max-h-32 overflow-y-auto">
               {tpVisibles.length === 0 && (
                 <p className="px-2 py-1 text-[10px] text-gray-500 uppercase">Sin coincidencias — se creará como nuevo</p>
@@ -141,8 +138,8 @@ export default function AdvancedSections() {
                   <span className="text-gray-500"> · {t.identification_type} {t.identification_number}</span>
                 </button>
               ))}
-              {tpFiltrados.length > 30 && (
-                <p className="px-2 py-1 text-[9px] text-gray-500">Mostrando 30 de {tpFiltrados.length} — afina la búsqueda</p>
+              {tpMas && (
+                <p className="px-2 py-1 text-[9px] text-gray-500">Hay más de 30 — escribe más para afinar</p>
               )}
             </div>
           )}

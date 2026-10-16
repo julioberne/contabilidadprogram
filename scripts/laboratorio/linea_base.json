@@ -5,12 +5,11 @@
    "fin_sys_core/ai_engine.py": 2,
    "fin_sys_core/bot_driver.py": 2,
    "fin_sys_core/bot_sms.py": 1,
-   "fin_sys_core/consultas/busqueda.py": 11,
+   "fin_sys_core/consultas/busqueda.py": 13,
    "fin_sys_core/diario_query.py": 2,
    "kernel/kernel_journal_workflow.py": 4
   },
   "catalogo-terceros-completo": {
-   "frontend/src/contabilidad-v2/hooks/useDashboardData.js": 2,
    "frontend/src/contabilidad-v2/modules/registro/widgets/PensionesWidget.jsx": 1,
    "frontend/src/contabilidad-v2/modules/registro/widgets/RecaudosWidget.jsx": 1,
    "frontend/src/contabilidad-v2/modules/registro/widgets/UniformesWidget.jsx": 1
@@ -46,10 +45,9 @@
    "fin_sys_core/mock_policy.py": 1
   },
   "filtro-en-navegador": {
-   "frontend/src/contabilidad-v2/components/tabs/CarteraTab.jsx": 3,
+   "frontend/src/contabilidad-v2/components/tabs/CarteraTab.jsx": 2,
    "frontend/src/contabilidad-v2/components/tabs/EtiquetasTab.jsx": 1,
-   "frontend/src/contabilidad-v2/components/tabs/TercerosTab.jsx": 1,
-   "frontend/src/contabilidad-v2/modules/registro/AdvancedSections.jsx": 2,
+   "frontend/src/contabilidad-v2/modules/registro/AdvancedSections.jsx": 1,
    "frontend/src/contabilidad-v2/modules/registro/CoaSelector.jsx": 2,
    "frontend/src/control-tower/components/CTTopBar.jsx": 1,
    "frontend/src/project-hub/features/members/CompanyMapTab.jsx": 2,

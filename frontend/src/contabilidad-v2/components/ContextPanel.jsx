@@ -83,7 +83,9 @@ export default function ContextPanel({
   // desde 2026-09-06 — antes esta llamada recibía el index.html del catch-all.
   const fetchAssets = async () => { try { const r = await fetch(`${API_BASE}/assets?portfolio=${encodeURIComponent(activePortfolio)}${activeCompany?.id ? `&entity_id=${activeCompany.id}` : ''}`); if (r.ok) setPanelAssets(await r.json()); } catch(e) {} };
   const fetchCartera = async () => { try { const r = await fetch(`${API_BASE}/cartera`); if (r.ok) setPanelCartera(await r.json()); } catch(e) {} };
-  const refreshTP = async () => { const r = await fetch(`${API_BASE}/third-parties`); if (r.ok) setAllThirdParties(await r.json()); };
+  // H3 (estándar de consultas): ya no se recarga el catálogo completo de terceros;
+  // las pestañas (Terceros, Cartera) repiten su propia búsqueda paginada.
+  const refreshTP = async () => {};
 
   // Antes cualquier fallo se tragaba (`catch(e){}`): el 🗑 de Terceros llamó
   // durante semanas a un endpoint que no existía (405) y "no hacía nada".

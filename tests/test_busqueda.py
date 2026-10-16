@@ -54,6 +54,18 @@ class TestArmar(unittest.TestCase):
         with self.assertRaises(ValueError):
             armar_busqueda_terceros("", 8, ids=",".join(str(i) for i in range(101)))
 
+    def test_nombre_exacto_y_paginado(self):
+        sql, p = armar_busqueda_terceros("", 8, nombre="  Pedro   PÉREZ ")
+        self.assertEqual(p["nombre"], "pedro pérez")
+        self.assertIn("lower(btrim(tp.name)) = %(nombre)s", sql)
+        sql, p = armar_busqueda_terceros("ped", 50, despues=("Pedro", 7), orden="nombre", con_total=True)
+        self.assertIn("ORDER BY tp.name, tp.id", sql)
+        self.assertIn("(tp.name, tp.id) > (%(c_nombre)s, %(c_id)s)", sql)
+        self.assertNotIn("OFFSET", sql)
+        self.assertEqual((p["c_nombre"], p["c_id"]), ("Pedro", 7))
+        with self.assertRaises(ValueError):
+            armar_busqueda_terceros("", 8, orden="DROP")
+
     def test_normalizar(self):
         self.assertEqual(normalizar("  Peña Café "), "pena cafe")
         self.assertEqual(digitos("+57 318-866"), "57318866")
@@ -75,6 +87,15 @@ class TestContraBD(unittest.TestCase):
             self.assertEqual([x["id"] for x in uno["items"]], [t["id"]])
             pref = buscar_terceros(t["name"][:3], 50)
             self.assertIn(t["id"], [x["id"] for x in pref["items"]])
+            exacto = buscar_terceros(nombre=t["name"].upper())
+            self.assertIn(t["id"], [x["id"] for x in exacto["items"]])
+            p1 = buscar_terceros("", 2, orden="nombre", con_total=True)
+            sig = p1["siguiente"]
+            p2 = (buscar_terceros("", 2, despues=(sig["nombre"], sig["id"]), orden="nombre", con_total=True)
+                  if sig else {"items": [], "total": p1["total"]})
+            self.assertEqual(p1["total"], p2["total"], "el total no depende del cursor")
+            self.assertGreaterEqual(p1["total"], len(p1["items"]))
+            self.assertFalse({x["id"] for x in p1["items"]} & {x["id"] for x in p2["items"]})
 
 
 if __name__ == "__main__":

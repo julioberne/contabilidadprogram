@@ -28,9 +28,10 @@ function montar(props = {}) {
   );
 }
 
-function papelera(nombre) {
-  // El 🗑 es el segundo botón de la fila del tercero (el primero es ✎)
-  const fila = screen.getByText(nombre).closest('tr');
+async function papelera(nombre) {
+  // El 🗑 es el segundo botón de la fila del tercero (el primero es ✎).
+  // H3: la tabla se pide al servidor (paginada), por eso se espera la fila.
+  const fila = (await screen.findByText(nombre)).closest('tr');
   return fila.querySelectorAll('button')[1];
 }
 
@@ -40,8 +41,13 @@ describe('ContextPanel · avisos del panel', () => {
 
   beforeEach(() => {
     llamadas = [];
+    let borrados = [];
     responder = (metodo, url) => {
-      if (metodo === 'GET' && url.endsWith('/third-parties')) return respuesta(200, TERCEROS.filter(t => t.id !== 34));
+      if (metodo === 'DELETE' && url.startsWith('/api/third-parties/')) borrados.push(Number(url.split('/').pop()));
+      if (metodo === 'GET' && url.startsWith('/api/buscar/terceros')) {
+        const items = TERCEROS.filter(t => !borrados.includes(t.id));
+        return respuesta(200, { items, mas: false, total: items.length });
+      }
       if (metodo === 'GET' && url.endsWith('/tags')) return respuesta(200, TAGS);
       if (metodo === 'GET' && url.endsWith('/custom-taxes')) return respuesta(200, TASAS);
       return respuesta(200, { status: 'OK' });
@@ -66,7 +72,7 @@ describe('ContextPanel · avisos del panel', () => {
         ? respuesta(409, { detail: 'No se puede eliminar a «negre computadores sas»: tiene 18 transacciones.' })
         : base(m, u, b);
       montar();
-      fireEvent.click(papelera('negre computadores sas'));
+      fireEvent.click(await papelera('negre computadores sas'));
       expect(await screen.findByRole('alert')).toHaveTextContent('tiene 18 transacciones');
       expect(mutaciones()).toEqual([['DELETE', '/api/third-parties/2', null]]);   // sin refresco
       fireEvent.click(screen.getByLabelText('Cerrar aviso'));
@@ -77,7 +83,7 @@ describe('ContextPanel · avisos del panel', () => {
       const base = responder;
       responder = (m, u, b) => m === 'DELETE' ? respuesta(405, {}) : base(m, u, b);
       montar();
-      fireEvent.click(papelera('TERCERO PRUEBA MODAL'));
+      fireEvent.click(await papelera('TERCERO PRUEBA MODAL'));
       expect(await screen.findByRole('alert')).toHaveTextContent('Error 405 al eliminar');
     });
 
@@ -85,24 +91,26 @@ describe('ContextPanel · avisos del panel', () => {
       const base = responder;
       responder = (m, u, b) => m === 'DELETE' ? Promise.reject(new TypeError('Failed to fetch')) : base(m, u, b);
       montar();
-      fireEvent.click(papelera('TERCERO PRUEBA MODAL'));
+      fireEvent.click(await papelera('TERCERO PRUEBA MODAL'));
       expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo conectar con el servidor.');
     });
 
-    it('con 200 refresca la lista y no muestra aviso', async () => {
-      const setAllThirdParties = vi.fn();
-      montar({ setAllThirdParties });
-      fireEvent.click(papelera('TERCERO PRUEBA MODAL'));
-      await waitFor(() => expect(setAllThirdParties).toHaveBeenCalledWith(TERCEROS.filter(t => t.id !== 34)));
-      expect(llamadas.map(l => [l[0], l[1]])).toEqual([['DELETE', '/api/third-parties/34'], ['GET', '/api/third-parties']]);
+    it('con 200 refresca la lista (paginada en el servidor) y no muestra aviso', async () => {
+      montar();
+      fireEvent.click(await papelera('TERCERO PRUEBA MODAL'));
+      await waitFor(() => expect(screen.queryByText('TERCERO PRUEBA MODAL')).not.toBeInTheDocument());
+      const i = llamadas.findIndex(l => l[0] === 'DELETE');
+      expect(llamadas[i][1]).toBe('/api/third-parties/34');
+      expect(llamadas.slice(i + 1).some(l => l[0] === 'GET' && l[1].startsWith('/api/buscar/terceros'))).toBe(true);
+      expect(llamadas.some(l => l[1] === '/api/third-parties' && l[0] === 'GET')).toBe(false);   // nunca el catálogo
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
 
-    it('si la persona cancela la confirmación no llama al servidor', () => {
+    it('si la persona cancela la confirmación no llama al servidor', async () => {
       window.confirm.mockReturnValue(false);
       montar();
-      fireEvent.click(papelera('TERCERO PRUEBA MODAL'));
-      expect(llamadas).toEqual([]);
+      fireEvent.click(await papelera('TERCERO PRUEBA MODAL'));
+      expect(mutaciones()).toEqual([]);
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
 
@@ -110,7 +118,7 @@ describe('ContextPanel · avisos del panel', () => {
       const base = responder;
       responder = (m, u, b) => m === 'DELETE' ? respuesta(409, { detail: 'tiene 1 cuenta de cartera (CXC/CXP).' }) : base(m, u, b);
       const { rerender } = montar();
-      fireEvent.click(papelera('negre computadores sas'));
+      fireEvent.click(await papelera('negre computadores sas'));
       await screen.findByRole('alert');
       rerender(<ContextPanel activeTab="etiquetas" setActiveTab={() => {}}
         allThirdParties={TERCEROS} setAllThirdParties={() => {}} />);

@@ -28,7 +28,6 @@ function draftFake(extra = {}) {
     thirdPartyEmail: '', setThirdPartyEmail: vi.fn(),
     thirdPartyPhone: '', setThirdPartyPhone: vi.fn(),
     thirdPartyAddress: '', setThirdPartyAddress: vi.fn(),
-    allThirdParties: TERCEROS,
     applyIva: false, setApplyIva: vi.fn(),
     applyPropina: false, setApplyPropina: vi.fn(),
     applyGmf: false, setApplyGmf: vi.fn(),
@@ -43,34 +42,53 @@ function abrirSeccionTercero() {
   fireEvent.click(screen.getByText(/Identificación de Tercero/i));
 }
 
+// H3: el buscador y el semáforo consultan al servidor (/api/buscar/terceros).
+// Este falso servidor imita sus reglas sobre TERCEROS.
+function servidorFalso(url) {
+  const u = new URL(url, 'http://x');
+  if (!u.pathname.startsWith('/api/buscar/terceros')) return { ok: true, json: async () => [] };
+  const p = u.searchParams;
+  const norm = (x) => (x || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const exacto = (x) => (x || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  let items = TERCEROS;
+  if (p.get('ident')) items = TERCEROS.filter((t) => t.identification_number === p.get('ident'));
+  else if (p.get('nombre')) items = TERCEROS.filter((t) => exacto(t.name) === exacto(p.get('nombre')));
+  else if (p.get('q')) {
+    const q = p.get('q');
+    items = TERCEROS.filter((t) => norm(t.name).includes(norm(q)) || t.identification_number.includes(q));
+  }
+  return { ok: true, status: 200, json: async () => ({ items, mas: false }) };
+}
+
 beforeEach(() => {
-  global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => [] });
+  global.fetch = vi.fn(async (url) => servidorFalso(url));
 });
 
 describe('AdvancedSections — buscador de terceros registrados', () => {
-  it('filtra en memoria y excluye al genérico 999999999', () => {
+  it('busca en el servidor y excluye al genérico 999999999', async () => {
     useTransactionDraft.mockReturnValue(draftFake());
     render(<AdvancedSections />);
     abrirSeccionTercero();
 
     const buscador = screen.getByPlaceholderText(/Nombre o número/i);
     fireEvent.change(buscador, { target: { value: 'kev' } });
-    expect(screen.getByText('KEVIN MATEO GONZÁLEZ AGUDELO')).toBeInTheDocument();
+    expect(await screen.findByText('KEVIN MATEO GONZÁLEZ AGUDELO')).toBeInTheDocument();
 
     // el genérico jamás aparece como elegible (no identifica a nadie)
     fireEvent.change(buscador, { target: { value: '999999999' } });
     expect(screen.queryByText('Sin especificar')).not.toBeInTheDocument();
-    expect(screen.getByText(/Sin coincidencias/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Sin coincidencias/i)).toBeInTheDocument();
+    expect(screen.queryByText('Sin especificar')).not.toBeInTheDocument();
   });
 
-  it('elegir un resultado llena todos los campos del tercero', () => {
+  it('elegir un resultado llena todos los campos del tercero', async () => {
     const d = draftFake();
     useTransactionDraft.mockReturnValue(d);
     render(<AdvancedSections />);
     abrirSeccionTercero();
 
     fireEvent.change(screen.getByPlaceholderText(/Nombre o número/i), { target: { value: '10316' } });
-    fireEvent.click(screen.getByText('KEVIN MATEO GONZÁLEZ AGUDELO'));
+    fireEvent.click(await screen.findByText('KEVIN MATEO GONZÁLEZ AGUDELO'));
 
     expect(d.setThirdPartyName).toHaveBeenCalledWith('KEVIN MATEO GONZÁLEZ AGUDELO');
     expect(d.setThirdPartyType).toHaveBeenCalledWith('CC');
@@ -87,18 +105,18 @@ describe('AdvancedSections — buscador de terceros registrados', () => {
     expect(screen.getByText('Dirección')).toBeInTheDocument();
   });
 
-  it('semáforo: número ya registrado ⇒ "se reutilizará"', () => {
+  it('semáforo: número ya registrado ⇒ "se reutilizará"', async () => {
     useTransactionDraft.mockReturnValue(draftFake({ thirdPartyNumber: '100736548' }));
     render(<AdvancedSections />);
     abrirSeccionTercero();
-    expect(screen.getByText(/se reutilizará, no se duplica/i)).toBeInTheDocument();
+    expect(await screen.findByText(/se reutilizará, no se duplica/i, {}, { timeout: 2000 })).toBeInTheDocument();
   });
 
-  it('semáforo: solo nombre ya registrado ⇒ reutiliza (caso del reporte)', () => {
+  it('semáforo: solo nombre ya registrado ⇒ reutiliza (caso del reporte)', async () => {
     useTransactionDraft.mockReturnValue(draftFake({ thirdPartyName: '  ferretería el tornillo ' }));
     render(<AdvancedSections />);
     abrirSeccionTercero();
-    expect(screen.getByText(/Ya existe con este nombre/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Ya existe con este nombre/i, {}, { timeout: 2000 })).toBeInTheDocument();
   });
 
   it('semáforo: nombre nuevo sin número ⇒ avisa número provisional', () => {

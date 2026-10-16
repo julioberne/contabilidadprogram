@@ -62,7 +62,7 @@ export function useDashboardData(activePortfolio) {
   const [allThirdParties, setAllThirdParties] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const tercerosCargadosRef = useRef(false);   // catálogo de terceros ya traído (H3)
+  const [tercerosVersion, setTercerosVersion] = useState(0);   // H3: señal de cambio de terceros
 
   const intervalRef = useRef(null);
   // Cuántas TXs hay cargadas (para que un refresco no pierda páginas)
@@ -89,15 +89,10 @@ export function useDashboardData(activePortfolio) {
       // El refresco periódico no debe parpadear la UI: loading solo en cargas
       // iniciadas por el usuario (montaje, cambio de portafolio, reset/seed).
       if (!silencioso) setLoading(true);
-      // Estándar de consultas H3: el catálogo de terceros ya NO viaja en el
-      // refresco silencioso (cada 60 s y al volver a la pestaña, por pestaña):
-      // solo en la carga inicial, al cambiar de empresa o con `conTerceros`.
-      // Tras crear/editar/borrar, los consumidores llaman refreshTerceros().
-      const traerTerceros = !silencioso || opts.conTerceros === true || !tercerosCargadosRef.current;
-      const [dashRes, tercerosRes] = await Promise.all([
-        fetch(`${API}/dashboard-data?portfolio=${portfolioQ}&limit=${limit}&offset=0`),
-        traerTerceros ? fetch(`${API}/third-parties`) : Promise.resolve(null),
-      ]);
+      // Estándar de consultas H3: el catálogo de terceros ya NO se descarga
+      // (ni en la carga inicial ni en el refresco de 60 s). Cada selector busca
+      // en /api/buscar/terceros y la tabla de gestión pagina en el servidor.
+      const dashRes = await fetch(`${API}/dashboard-data?portfolio=${portfolioQ}&limit=${limit}&offset=0`);
 
       if (dashRes.ok) {
         const data = await dashRes.json();
@@ -117,11 +112,6 @@ export function useDashboardData(activePortfolio) {
         setCoaFlatAccounts(flat.filter((n) => !n.is_group));
       }
 
-      if (tercerosRes && tercerosRes.ok) {
-        const terceros = await tercerosRes.json();
-        setAllThirdParties(Array.isArray(terceros) ? terceros : terceros.data || []);
-        tercerosCargadosRef.current = true;
-      }
     } catch (err) {
       console.error('[useDashboardData] fetchAll error:', err);
     } finally {
@@ -166,16 +156,10 @@ export function useDashboardData(activePortfolio) {
     }
   }, [activePortfolio, portfolioQ]);
 
+  // H3: ya no recarga un catálogo; solo avisa que los terceros cambiaron
+  // (crear/editar/borrar) para que quien busque repita su consulta.
   const refreshTerceros = useCallback(async () => {
-    try {
-      const res = await fetch(`${API}/third-parties`);
-      if (res.ok) {
-        const data = await res.json();
-        setAllThirdParties(Array.isArray(data) ? data : data.data || []);
-      }
-    } catch (err) {
-      console.error('[useDashboardData] refreshTerceros error:', err);
-    }
+    setTercerosVersion((v) => v + 1);
   }, []);
 
   const loadMoreTransactions = useCallback(async (currentCount) => {
@@ -266,6 +250,7 @@ export function useDashboardData(activePortfolio) {
     refreshBalance,
     refreshTransactions,
     refreshTerceros,
+    tercerosVersion,
     fetchAll,
     loadMoreTransactions,
     prependTransaction,

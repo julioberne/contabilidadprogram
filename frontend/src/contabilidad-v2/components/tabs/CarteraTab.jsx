@@ -1,6 +1,7 @@
 // CarteraTab.jsx — Orchestrator (state + handlers)
 // Extracted components: CarteraKpiBar, CarteraLedgerTable, CarteraNewForm
 import React from 'react';
+import { useBusqueda } from '../../../shared/busqueda/useBusqueda.js';
 import { getDueSemaforo, SORT_OPTIONS, sortFns } from '../cartera/helpers';
 import CarteraKpiBar from '../cartera/CarteraKpiBar';
 import CarteraLedgerTable from '../cartera/CarteraLedgerTable';
@@ -9,7 +10,7 @@ import CarteraNewForm from '../cartera/CarteraNewForm';
 // ══════════════════════════════════════════════════════
 // CarteraTab — Componente completo CXC/CXP v2
 // ══════════════════════════════════════════════════════
-export default function CarteraTab({ cartera, allThirdParties, setAllThirdParties, panelCartera, fetchCartera, setPanelCartera, SectionLabel, API_BASE, refreshTP }) {
+export default function CarteraTab({ cartera, panelCartera, fetchCartera, setPanelCartera, SectionLabel, API_BASE, refreshTP }) {
   const today = new Date();
   const todayStr = today.toISOString().split('T')[0];
   const [kpiOpen, setKpiOpen] = React.useState(true);
@@ -246,9 +247,8 @@ export default function CarteraTab({ cartera, allThirdParties, setAllThirdPartie
   const getDueSemaforoToday = (dueDateStr) => getDueSemaforo(dueDateStr, today);
 
   const saldo = Math.max(0, parseFloat(formAmount || 0) - parseFloat(formPartial || 0));
-  const filteredTps = allThirdParties.filter(tp =>
-    !tpSearch || tp.name.toLowerCase().includes(tpSearch.toLowerCase()) || (tp.identification_number||'').includes(tpSearch)
-  ).slice(0, 6);
+  // H3 (estándar de consultas): búsqueda en el servidor; vacío = los 6 más usados.
+  const { items: filteredTps } = useBusqueda('terceros', tpSearch, { minimo: 0, limite: 6 });
 
   // Sub-tab filtering + buscador (tercero, NIT/CC, concepto)
   const q = searchQ.trim().toLowerCase();
