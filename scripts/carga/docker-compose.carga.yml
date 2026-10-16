@@ -1,0 +1,28 @@
+# Laboratorio de carga LOCAL (estándar de consultas, hito H1 / regla P14).
+# Postgres 17 (misma versión mayor que Supabase: 17.6) + PgBouncer en modo
+# transacción, que imita las restricciones del pooler :6543 de Supabase.
+# NADA aquí toca la base compartida con producción.
+#
+#   docker compose -f scripts/carga/docker-compose.carga.yml up -d
+#   docker compose -f scripts/carga/docker-compose.carga.yml down -v
+services:
+  pg:
+    image: pgvector/pgvector:pg17   # trae la extensión vector (columna embedding), como Supabase
+    environment:
+      POSTGRES_PASSWORD: carga
+      POSTGRES_DB: finsys_carga
+    command: ["postgres", "-c", "max_connections=60", "-c", "shared_buffers=256MB"]
+    ports: ["55432:5432"]
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    environment:
+      DB_HOST: pg
+      DB_USER: postgres
+      DB_PASSWORD: carga
+      DB_NAME: finsys_carga
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: "400"
+      DEFAULT_POOL_SIZE: "15"
+      AUTH_TYPE: scram-sha-256
+    ports: ["56432:5432"]
+    depends_on: [pg]

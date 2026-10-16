@@ -52,3 +52,6 @@ testsprite_tests/tmp/
 testsprite_tests/TC*.py
 testsprite_tests/standard_prd.json
 backups/
+
+# Laboratorio de carga local (scripts/carga/)
+scripts/carga/resultado_carga.json
