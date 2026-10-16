@@ -5,7 +5,7 @@
    "fin_sys_core/ai_engine.py": 2,
    "fin_sys_core/bot_driver.py": 2,
    "fin_sys_core/bot_sms.py": 1,
-   "fin_sys_core/consultas/busqueda.py": 13,
+   "fin_sys_core/consultas/busqueda.py": 11,
    "fin_sys_core/diario_query.py": 2,
    "kernel/kernel_journal_workflow.py": 4
   },

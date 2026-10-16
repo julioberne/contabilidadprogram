@@ -17,7 +17,8 @@ if _ROOT not in sys.path:
 import tests  # noqa: F401,E402
 
 from fin_sys_core.consultas.busqueda import (  # noqa: E402
-    LIMITE_MAX, VENTANA_USO, armar_busqueda_terceros, armar_recientes, digitos, normalizar,
+    LIMITE_MAX, VENTANA_USO, armar_busqueda_terceros, armar_contiene, armar_recientes, digitos,
+    normalizar,
 )
 
 
@@ -83,6 +84,16 @@ class TestArmar(unittest.TestCase):
         self.assertEqual((p["c_nombre"], p["c_id"]), ("Pedro", 7))
         with self.assertRaises(ValueError):
             armar_busqueda_terceros("", 8, orden="DROP")
+
+    def test_contiene_de_catalogos_chicos(self):
+        sql, p = armar_contiene("user_accounts", "id, name", "Café", 8)
+        self.assertTrue(sql.startswith("SELECT id, name FROM user_accounts WHERE TRUE AND "))
+        self.assertIn("LIKE %(contiene)s ORDER BY name LIMIT %(lim)s", sql)
+        self.assertEqual((p["contiene"], p["lim"]), ("%cafe%", 9))
+        sql, _ = armar_contiene("entities", "id", "ab", 8, extra="x = 1", igual_primero=True, minimo=3)
+        self.assertIn("WHERE x = 1 AND ", sql)
+        self.assertNotIn("LIKE", sql, "con menos del mínimo solo vale el nombre igual")
+        self.assertIn("= %(igual)s) DESC, name", sql)
 
     def test_normalizar(self):
         self.assertEqual(normalizar("  Peña Café "), "pena cafe")

@@ -85,6 +85,8 @@ AYUDA = (
     "    crea si no existe — el documento manda, así que nunca se duplica\n"
     "  · \"Tercero nuevo: Nombre\" lo crea sin documento (provisional)\n"
     "  · \"Etiqueta: obra, viaje\" pone etiquetas (las crea si no existen)\n"
+    "  · \"Cuenta: Nequi\" pone la cuenta de pago y \"Empresa: Constructora\"\n"
+    "    la empresa; si el nombre coincide con varias, te muestro solo esas\n"
     "  · foto o ubicación respondiendo → van a ESE borrador\n"
     "  · 📝 Completar abre la ficha del borrador dentro de Telegram\n"
     "  · 💾 Guardar (borradores de SMS): registra la cuenta, celular o llave\n"
@@ -721,8 +723,10 @@ _TERCERO_GENERICO = "999999999"
 # son obligatorios ("… tercero: Jorge cc 123"). Lo que no lleva marcador ES
 # el concepto (literal). Nada de esto pasa por el LLM.
 _RE_MARCA_INICIO = re.compile(r"^\s*(tercero\s+nuevo|tercero|concepto)\b\s*:?\s*", re.IGNORECASE)
-# «Etiqueta: obra armenia, viaje» (con dos puntos, como marca de inicio o en medio)
-_RE_MARCA_MEDIO = re.compile(r"\b(tercero\s+nuevo|tercero|concepto|etiquetas?)\s*:\s*", re.IGNORECASE)
+# «Etiqueta: obra armenia, viaje», «Cuenta: Nequi», «Empresa: Constructora» (con dos
+# puntos, como marca de inicio o en medio; sin los dos puntos son concepto)
+_RE_MARCA_MEDIO = re.compile(r"\b(tercero\s+nuevo|tercero|concepto|etiquetas?|cuenta|empresa)\s*:\s*",
+                             re.IGNORECASE)
 _RE_MARCA_CORTA = re.compile(r"^\s*([ct])\s*:\s*", re.IGNORECASE)
 # Datos del tercero dentro de su línea: documento, celular y correo
 _RE_DOC = re.compile(
@@ -806,8 +810,11 @@ def _parse_reply(texto):
     Una línea que es SOLO un monto («50000», «$50.000», «50 mil», «Monto: …»)
     es el monto; una que es solo un número largo (celular o documento) busca
     el tercero; lo que no lleva marcador ES el concepto (traducción literal,
-    no adivinanza); una línea de tercero jamás se mezcla con el concepto."""
+    no adivinanza); una línea de tercero jamás se mezcla con el concepto.
+    «Cuenta: …» y «Empresa: …» traen el nombre tal cual (lo resuelve
+    _poner_por_nombre contra los nombres reales); solo vienen si se dictaron."""
     concepto, tercero, monto, etiquetas = [], None, None, []
+    cuenta = empresa = None
     for linea in (texto or "").splitlines():
         linea = linea.strip()
         if not linea:
@@ -843,11 +850,19 @@ def _parse_reply(texto):
                     tercero = _parse_tercero(valor, nuevo=(clave == "tercero_nuevo"))
             elif clave in ("etiqueta", "etiquetas"):
                 etiquetas += [e for e in _nombres_etiquetas(valor) if e not in etiquetas]
+            elif clave == "cuenta":
+                cuenta = cuenta or re.sub(r"\s+", " ", valor)
+            elif clave == "empresa":
+                empresa = empresa or re.sub(r"\s+", " ", valor)
             else:
                 concepto.append(valor)
     texto_concepto = re.sub(r"\s+", " ", " ".join(concepto)).strip()
-    return {"concepto": texto_concepto or None, "tercero": tercero, "monto": monto,
-            "etiquetas": etiquetas}
+    datos = {"concepto": texto_concepto or None, "tercero": tercero, "monto": monto,
+             "etiquetas": etiquetas}
+    for clave, valor in (("cuenta", cuenta), ("empresa", empresa)):
+        if valor:                     # solo si se dictaron
+            datos[clave] = valor
+    return datos
 
 
 def _nombres_etiquetas(texto):
@@ -941,16 +956,14 @@ def _terceros_por_email(cur, email, limite=8):
 
 
 def _terceros_recientes(cur, limite=8):
-    """Últimos terceros usados en transacciones (sin el genérico)."""
-    cur.execute("""
-        SELECT tp.id, tp.identification_type, tp.identification_number, tp.name, tp.phone
-          FROM third_parties tp
-          JOIN (SELECT third_party_id, MAX(id) AS ultimo FROM transactions
-                 GROUP BY third_party_id) u ON u.third_party_id = tp.id
-         WHERE tp.identification_number <> %s
-         ORDER BY u.ultimo DESC LIMIT %s
-    """, (_TERCERO_GENERICO, int(limite)))
-    return [_tercero_dict(r) for r in cur.fetchall()]
+    """Últimos terceros usados en transacciones (sin el genérico). Misma consulta
+    acotada que el selector vacío de la web (estándar H3): solo las últimas
+    VENTANA_USO transacciones; antes agrupaba TODAS en cada toque de 👤."""
+    from fin_sys_core.consultas.busqueda import armar_recientes
+    sql, p = armar_recientes(limite, excluir_ident=_TERCERO_GENERICO, columnas=(
+        "tp.id, tp.identification_type, tp.identification_number, tp.name, tp.phone"))
+    cur.execute(sql, p)
+    return [_tercero_dict(r[:5]) for r in cur.fetchall()][:int(limite)]
 
 
 def _doc_legible(tercero) -> str:
@@ -1371,10 +1384,12 @@ def _flujo_reply(cur, link, draft_id, texto):
     datos = _parse_reply(texto)
     concepto, t, monto = datos["concepto"], datos["tercero"], datos.get("monto")
     etiquetas = datos.get("etiquetas") or []
-    if not concepto and not t and monto is None and not etiquetas:
+    por_nombre = [(c, datos[c]) for c in ("cuenta", "empresa") if datos.get(c)]
+    if not concepto and not t and monto is None and not etiquetas and not por_nombre:
         return (f"No encontré nada que poner en el borrador #{draft_id}. Responde con el "
                 "concepto, el monto (ej. 50000) o «Tercero: nombre cc 123».")
     notas, payload, botones = [], None, None
+    botones_nombre = []                  # [(campo, filas)] de «Cuenta:»/«Empresa:» con varias
 
     if etiquetas:
         res = _poner_etiquetas(cur, link, draft_id, etiquetas)
@@ -1397,6 +1412,16 @@ def _flujo_reply(cur, link, draft_id, texto):
             notas.append(f"📝 Concepto → «{concepto[:255]}»")
         if monto is not None:
             notas.append(f"💰 Monto → {_fmt_money(monto)} COP")
+
+    for campo, nombre in por_nombre:
+        res = _poner_por_nombre(cur, link, draft_id, campo, nombre)
+        if isinstance(res, str):
+            return res
+        notas.append(res["nota"])
+        if res.get("payload"):
+            payload = res["payload"]
+        if res.get("botones"):
+            botones_nombre.append((campo, res["botones"]))
 
     if t:
         accion, dato, puede_crear = _resolver_tercero_dictado(cur, t)
@@ -1425,6 +1450,14 @@ def _flujo_reply(cur, link, draft_id, texto):
             # Va DESPUÉS de editar_draft (otra conexión con FOR UPDATE sobre el borrador).
             _tomar_pendiente(cur, link, draft_id)
 
+    # Una sola botonera por mensaje: primero el tercero, luego cuenta, luego empresa.
+    for campo, filas in botones_nombre:
+        if botones is None:
+            botones = filas
+        else:
+            notas.append(f"↪️ La {campo} elígela después: responde de nuevo «{campo.capitalize()}: "
+                         "nombre completo».")
+
     if payload is None:
         cur.execute("SELECT payload FROM transaction_drafts WHERE id = %s AND chat_link_id = %s",
                     (draft_id, link["id"]))
@@ -1440,27 +1473,40 @@ def _flujo_reply(cur, link, draft_id, texto):
             "draft_id": draft_id, "buttons": botones}
 
 
+# Botones de las listas del borrador (estándar H3): se pide UNO de más para saber
+# si la lista quedó recortada y decirlo — antes cortaban en silencio y lo que
+# pasaba del tope nunca aparecía. Lo que no cabe se pide por nombre en el reply.
+_TOPE_CUENTAS, _TOPE_EMPRESAS, _TOPE_ETIQUETAS = 14, 12, 10
+_TOPE_COINCIDENCIAS = 8     # botones cuando «Cuenta:»/«Empresa:» coincide con varias
+_ICONOS_ENTIDAD = {"HOLDING": "🏛️", "EMPRESA": "🏢", "SUB_EMPRESA": "📍", "PROYECTO": "📐"}
+
+
 def _tags_reales(cur, puestas=()):
     """Etiquetas del módulo de Etiquetas (tag_definitions = fuente de la
     verdad): primero las que ya tiene el borrador, luego las más recientes
-    (antes eran las 12 más viejas: las nuevas nunca aparecían). → [(id, name)]."""
-    cur.execute("""
+    (antes eran las 12 más viejas: las nuevas nunca aparecían).
+    → [(id, name)], hasta _TOPE_ETIQUETAS + 1 (la de más = «hay más»)."""
+    cur.execute(f"""
         SELECT id, name FROM tag_definitions
          ORDER BY (name::text = ANY(%s::text[])) DESC, id DESC
-         LIMIT 10
+         LIMIT {_TOPE_ETIQUETAS + 1}
     """, (list(puestas),))
     return [(r[0], str(r[1]).strip()) for r in cur.fetchall()]
 
 
-def _botones_tags(cur, draft_id, payload):
+def _botones_tags(cur, draft_id, payload, avisos=None):
     """Toggle de etiquetas: ✓ en las puestas; tocar añade/quita. ➕ Nueva crea
-    una y la pone SOLO en este borrador."""
+    una y la pone SOLO en este borrador. Si la lista quedó recortada y se pasa
+    `avisos` (lista), se le agrega cómo llegar a las que no se ven."""
     puestas = list(payload.get("tags") or [])
+    reales = _tags_reales(cur, puestas)
     filas = []
-    for tid, nombre in _tags_reales(cur, puestas):
+    for tid, nombre in reales[:_TOPE_ETIQUETAS]:
         marca = "✓ " if nombre in puestas else ""
         filas.append([(f"{marca}{nombre}"[:60], f"tagset:{draft_id}:{tid}")])
     filas.append([("➕ Nueva etiqueta", f"tagnew:{draft_id}"), ("✔ Listo", f"tagdone:{draft_id}")])
+    if avisos is not None and len(reales) > _TOPE_ETIQUETAS:
+        avisos.append("Hay más: ➕ o responde al borrador con Etiqueta: nombre")
     return filas
 
 
@@ -1496,32 +1542,114 @@ def _poner_etiquetas(cur, link, draft_id, nombres):
 
 
 def _cuentas_reales(cur):
-    """Cuentas de 💳 Cuentas (user_accounts) para los botones. → [(id, name)]"""
-    cur.execute("SELECT id, name FROM user_accounts ORDER BY id LIMIT 14")
+    """Cuentas de 💳 Cuentas (user_accounts) para los botones.
+    → [(id, name)], hasta _TOPE_CUENTAS + 1 (la de más = «hay más»)."""
+    cur.execute(f"SELECT id, name FROM user_accounts ORDER BY id LIMIT {_TOPE_CUENTAS + 1}")
     return [(r[0], str(r[1]).strip()) for r in cur.fetchall()]
 
 
 def _empresas_reales(cur):
-    """Empresas del árbol para los botones de destino. → [(entity_id, label)].
+    """Empresas del árbol para los botones de destino. → [(entity_id, label)],
+    hasta _TOPE_EMPRESAS + 1 (la de más = «hay más»).
     Se listan ENTIDADES (no portafolios): es el lenguaje de Andrés; el
     portafolio se garantiza al elegir (ensure_portfolio_for_entity)."""
-    cur.execute("""
+    cur.execute(f"""
         SELECT id, name, type FROM entities
         WHERE COALESCE(status, '') <> 'ARCHIVADA'
         ORDER BY id
-        LIMIT 12
+        LIMIT {_TOPE_EMPRESAS + 1}
     """)
-    iconos = {"HOLDING": "🏛️", "EMPRESA": "🏢", "SUB_EMPRESA": "📍", "PROYECTO": "📐"}
-    return [(r[0], f"{iconos.get(r[2], '🏢')} {r[1].strip()}") for r in cur.fetchall()]
+    return [(r[0], f"{_ICONOS_ENTIDAD.get(r[2], '🏢')} {r[1].strip()}") for r in cur.fetchall()]
+
+
+# ── «Cuenta: nombre» / «Empresa: nombre» al responder el borrador (16-oct-2026) ──
+def _nombre_comparable(texto) -> str:
+    """Sin tildes, minúsculas y espacios colapsados: igual que el LIKE del SQL."""
+    from fin_sys_core.consultas.busqueda import normalizar
+    return re.sub(r"\s+", " ", normalizar(texto))
+
+
+def _que_contienen(cur, campo, texto):
+    """Cuentas (campo='cuenta') o empresas no archivadas (campo='empresa') cuyo
+    nombre CONTIENE el texto (desde 3 letras; antes, solo el igual), la igual
+    primero. Misma consulta que los selectores de la web, con el cursor del bot.
+    Acotado: _TOPE_COINCIDENCIAS + 1. → [(id, nombre, etiqueta del botón)]"""
+    from fin_sys_core.consultas.busqueda import armar_contiene
+    if campo == "cuenta":
+        sql, p = armar_contiene("user_accounts", "id, name, NULL", _nombre_comparable(texto),
+                                _TOPE_COINCIDENCIAS, igual_primero=True, minimo=3)
+    else:
+        sql, p = armar_contiene("entities", "id, name, type", _nombre_comparable(texto),
+                                _TOPE_COINCIDENCIAS, extra="COALESCE(status, '') <> 'ARCHIVADA'",
+                                igual_primero=True, minimo=3)
+    cur.execute(sql, p)
+    filas = []
+    for i, n, tipo in cur.fetchall():
+        n = str(n).strip()
+        filas.append((i, n, n if campo == "cuenta" else f"{_ICONOS_ENTIDAD.get(tipo, '🏢')} {n}"))
+    return filas
+
+
+def _elegir_por_nombre(texto, candidatos):
+    """Resolución DETERMINISTA (Regla 6b: el bot no adivina) entre candidatos
+    [(id, nombre, etiqueta)]: una IGUAL al texto, o una sola que lo contiene →
+    ("uno", c); varias → ("varias", [c…]) y el humano toca la que es;
+    ninguna → ("ninguna", None)."""
+    objetivo = _nombre_comparable(texto)
+    contienen = [c for c in candidatos if objetivo and objetivo in _nombre_comparable(c[1])]
+    iguales = [c for c in contienen if _nombre_comparable(c[1]) == objetivo]
+    if len(iguales) == 1:
+        return "uno", iguales[0]
+    if iguales:
+        return "varias", iguales              # homónimas: también las elige el humano
+    if len(contienen) == 1:
+        return "uno", contienen[0]
+    return ("varias", contienen) if contienen else ("ninguna", None)
+
+
+def _poner_por_nombre(cur, link, draft_id, campo, texto):
+    """Aplica «Cuenta: …» (cuenta de pago) o «Empresa: …» al borrador.
+    → {"nota", "payload"?, "botones"?} o str con el error de editar_draft."""
+    icono, que = ("💳", "cuenta") if campo == "cuenta" else ("🏢", "empresa")
+    tipo, dato = _elegir_por_nombre(texto, _que_contienen(cur, campo, texto))
+    if tipo == "ninguna":
+        return {"nota": f"{icono} No encontré ninguna {que} «{texto}»: no la cambié."}
+    if tipo == "varias":
+        if campo == "cuenta":
+            filas = [[(etq[:60], f"accset:{draft_id}:o:{i}")] for i, _, etq in dato[:_TOPE_COINCIDENCIAS]]
+            filas.append([("« Volver", f"accback:{draft_id}")])
+        else:
+            filas = [[(etq[:60], f"empset:{draft_id}:{i}")] for i, _, etq in dato[:_TOPE_COINCIDENCIAS]]
+            filas.append([("« Volver", f"empback:{draft_id}")])
+        nota = f"{icono} «{texto}»: hay varias {que}s con ese nombre. Toca la que es."
+        if len(dato) > _TOPE_COINCIDENCIAS:
+            nota += " Hay más: escribe más del nombre."
+        return {"nota": nota, "botones": filas}
+    ident, nombre, _ = dato
+    cur.connection.commit()              # editar_draft usa otra conexión (FOR UPDATE)
+    if campo == "cuenta":
+        editado = editar_draft(draft_id, {"account_id": ident}, hub_user_id=link["hub_user_id"])
+    else:
+        portafolio = _portafolio_de_entidad(cur, ident)
+        if not portafolio:
+            return {"nota": f"🏢 No pude preparar la empresa «{nombre}». Intenta desde la web."}
+        editado = editar_draft(draft_id, {"portfolio_name": portafolio}, hub_user_id=link["hub_user_id"])
+    if editado.get("error"):
+        return editado["error"]
+    return {"nota": f"{icono} {que.capitalize()} → {nombre}", "payload": editado["payload"]}
 
 
 def _cmd_empresa(cur, link, arg):
     """/empresa — muestra o cambia la empresa/portafolio default del chat.
     DETERMINISTA: match difuso contra nombres reales, jamás el LLM."""
     if not arg:
-        cur.execute("SELECT name FROM entities ORDER BY id LIMIT 12")
-        nombres = [r[0].strip() for r in cur.fetchall()]
+        cur.execute(f"SELECT name, COUNT(*) OVER () FROM entities ORDER BY id LIMIT {_TOPE_EMPRESAS}")
+        filas = cur.fetchall()
+        nombres = [r[0].strip() for r in filas]
         lista = "\n".join(f"  · {n}" for n in nombres) or "  (sin empresas)"
+        resto = (int(filas[0][1]) - len(filas)) if filas else 0
+        if resto > 0:
+            lista += f"\n  … y {resto} más: /empresa <pedazo del nombre>"
         return (f"🏢 Empresa/portafolio actual del chat: {link['default_portfolio']}\n\n"
                 f"Tus empresas:\n{lista}\n\n"
                 "Para cambiar: /empresa <nombre> (vale un pedazo del nombre)")
@@ -1663,10 +1791,13 @@ def handle_callback(channel: str, chat_id: str, data: str):
                 out["alert"] = "Borrador no encontrado."
                 return out
             payload = row[0] if isinstance(row[0], dict) else json.loads(row[0])
-            filas = _botones_tags(cur, draft_id, payload)
+            avisos = []
+            filas = _botones_tags(cur, draft_id, payload, avisos)
             conn.commit()
             out["alert"] = ("Toca para poner/quitar, o ➕ Nueva" if len(filas) > 1
                             else "Aún no hay etiquetas: crea una con ➕ Nueva")
+            if avisos:
+                out["alert"] += ". " + avisos[0]
             out["edit_buttons"] = filas
             return out
 
@@ -1875,7 +2006,9 @@ def handle_callback(channel: str, chat_id: str, data: str):
                            "  Tercero: Leidy Molina cc 1007289007\n\n"
                            "· Lo que escribas sin marca es el concepto.\n"
                            "· \"Tercero: nombre\" busca uno existente; con \"cc\" o \"nit\" y el "
-                           "número lo crea si no existe (nunca duplica: el documento manda).")
+                           "número lo crea si no existe (nunca duplica: el documento manda).\n"
+                           "· \"Cuenta: nombre\" y \"Empresa: nombre\" ponen la cuenta de pago y "
+                           "la empresa (si coincide con varias, te muestro solo esas).")
             return out
 
         # ── 💳 Cuenta (9-oct-2026): cuenta de pago o destino de un traslado ──
@@ -1906,9 +2039,13 @@ def handle_callback(channel: str, chat_id: str, data: str):
             if not cuentas:
                 out["alert"] = "No tienes cuentas. Créalas en 💳 Cuentas de la web."
                 return out
-            filas = [[(nombre[:60], f"accset:{draft_id}:{lado}:{cid}")] for cid, nombre in cuentas]
+            filas = [[(nombre[:60], f"accset:{draft_id}:{lado}:{cid}")]
+                     for cid, nombre in cuentas[:_TOPE_CUENTAS]]
             filas.append([("« Volver", f"acc:{draft_id}")])
             out["alert"] = "Elige la cuenta de pago" if lado == "o" else "¿A qué cuenta va el traslado?"
+            if len(cuentas) > _TOPE_CUENTAS:
+                out["alert"] += (". Hay más: responde al borrador con Cuenta: nombre" if lado == "o"
+                                 else ". Hay más: el destino se elige en la Bandeja web")
             out["edit_buttons"] = filas
             return out
 
@@ -1942,11 +2079,14 @@ def handle_callback(channel: str, chat_id: str, data: str):
             return out
 
         if accion == "emp":
+            empresas = _empresas_reales(cur)
             filas = [[(label, f"empset:{draft_id}:{eid}")]
-                     for eid, label in _empresas_reales(cur)]
+                     for eid, label in empresas[:_TOPE_EMPRESAS]]
             filas.append([("« Volver", f"empback:{draft_id}")])
             conn.commit()
             out["alert"] = "¿A qué empresa va este registro?"
+            if len(empresas) > _TOPE_EMPRESAS:
+                out["alert"] += " Hay más: responde al borrador con Empresa: nombre"
             out["edit_buttons"] = filas
             return out
 

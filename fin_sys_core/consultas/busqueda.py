@@ -223,6 +223,22 @@ def buscar_terceros(q: str = "", limite=LIMITE_DEFECTO, ids=None, ident: Optiona
     return r
 
 
+def armar_contiene(tabla: str, columnas: str, q: str, limite: int, extra: str = "TRUE",
+                   igual_primero: bool = False, minimo: int = 0):
+    """(sql, params) de un catálogo CHICO (cuentas, etiquetas, empresas) cuyo
+    `name` contiene `q` sin tildes, con tope limite+1. Una sola definición para la
+    web y el bot. `tabla`, `columnas` y `extra` son constantes del código, nunca
+    texto del usuario. Con menos de `minimo` caracteres solo vale el nombre igual
+    (regla B6: «contiene» desde 3 caracteres)."""
+    texto = normalizar(q)
+    nombre = _sql_norm("name")
+    p = {"lim": _limite(limite) + 1, "contiene": "%" + _like_seguro(texto) + "%", "igual": texto}
+    cond = f"{nombre} LIKE %(contiene)s" if len(texto) >= minimo else f"{nombre} = %(igual)s"
+    orden = f"({nombre} = %(igual)s) DESC, name" if igual_primero else "name"
+    return (f"SELECT {columnas} FROM {tabla} WHERE {extra} AND {cond} "
+            f"ORDER BY {orden} LIMIT %(lim)s"), p
+
+
 def buscar_cuentas(q: str = "", limite=LIMITE_DEFECTO, ids=None) -> dict:
     lim = _limite(limite)
     lista_ids = _ids(ids)
@@ -230,17 +246,11 @@ def buscar_cuentas(q: str = "", limite=LIMITE_DEFECTO, ids=None) -> dict:
         filas = _ejecutar("SELECT id, name, type, currency FROM user_accounts WHERE id = ANY(%(ids)s) ORDER BY name",
                           {"ids": lista_ids})
         return {"items": filas, "mas": False, "q": "", "limite": len(filas)}
-    texto = normalizar(q)
-    p = {"lim": lim + 1, "contiene": "%" + _like_seguro(texto) + "%"}
-    filas = _ejecutar(f"SELECT id, name, type, currency FROM user_accounts WHERE {_sql_norm('name')} LIKE %(contiene)s "
-                      "ORDER BY name LIMIT %(lim)s", p)
+    filas = _ejecutar(*armar_contiene("user_accounts", "id, name, type, currency", q, lim))
     return _respuesta(filas, lim, q)
 
 
 def buscar_etiquetas(q: str = "", limite=LIMITE_DEFECTO) -> dict:
     lim = _limite(limite)
-    texto = normalizar(q)
-    p = {"lim": lim + 1, "contiene": "%" + _like_seguro(texto) + "%"}
-    filas = _ejecutar(f"SELECT * FROM tag_definitions WHERE {_sql_norm('name')} LIKE %(contiene)s "
-                      "ORDER BY name LIMIT %(lim)s", p)
+    filas = _ejecutar(*armar_contiene("tag_definitions", "*", q, lim))
     return _respuesta(filas, lim, q)
