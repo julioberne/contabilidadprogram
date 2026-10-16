@@ -51,6 +51,12 @@ class TestArmar(unittest.TestCase):
         self.assertEqual(p["prefijo"], "t%")
         self.assertNotIn("contiene", p)
 
+    def test_dos_letras_es_inicio_de_palabra(self):
+        sql, p = armar_busqueda_terceros("Pé", 8)
+        self.assertEqual(p["palabra"], r"\mpe")
+        self.assertNotIn("contiene", p)
+        self.assertIn("~ %(palabra)s", sql)
+
     def test_dos_o_mas_contiene_y_digitos(self):
         _, p = armar_busqueda_terceros("Café", 8)
         self.assertEqual(p["contiene"], "%cafe%")

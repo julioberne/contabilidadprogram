@@ -8,7 +8,9 @@ hay más ("escribe más para afinar"). Nunca el catálogo completo.
 Escalera por largo de la búsqueda (texto normalizado, sin tildes):
     0 caracteres → los más usados (recientes/frecuentes)
     1 carácter   → nombre que EMPIEZA por esa letra, o documento exacto
-    2+           → nombre que CONTIENE el texto; si trae dígitos (≥3), también
+    2            → alguna PALABRA del nombre empieza así, o documento exacto
+    3+           → nombre que CONTIENE el texto (índice trigram, Plan B:
+                   scripts/migrate_trgm_busqueda.py); si trae dígitos (≥3), también
                    documento o celular que los contienen
 Orden: documento exacto, nombre que empieza, nombre que contiene; dentro de
 cada grupo, los más usados primero y luego por nombre.
@@ -167,6 +169,12 @@ def armar_busqueda_terceros(q: str, limite: int, ids=None, ident: Optional[str] 
     if len(texto) == 1:
         p["prefijo"] = _like_seguro(texto) + "%"
         cond = f"({nombre} LIKE %(prefijo)s OR tp.identification_number = %(exacto)s)"
+    elif len(texto) == 2:
+        # Plan B (B6/B8): con 2 letras, palabras que EMPIEZAN así; «contiene»
+        # va desde 3, que es lo que el índice trigram puede servir.
+        p["prefijo"] = _like_seguro(texto) + "%"
+        p["palabra"] = r"\m" + re.escape(texto)
+        cond = f"({nombre} ~ %(palabra)s OR tp.identification_number = %(exacto)s)"
     else:
         p["prefijo"] = _like_seguro(texto) + "%"
         p["contiene"] = "%" + _like_seguro(texto) + "%"
