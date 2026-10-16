@@ -1,7 +1,7 @@
 # Frente: búsqueda y filtros del Libro Diario (Módulo 02)
 
-**Estado:** ACTIVO — hito 1 HECHO y commiteado (16-oct-2026), **pendiente de publicar** junto con el
-frente `estandar-consultas` (tras el rebase: `1fa64a7` fix Mayor, `a2ffccb` backend, `9bb1ec5` frontend).
+**Estado:** ACTIVO — hito 1 **EN PRODUCCIÓN** (`e0f6925`, 16-oct-2026; `/api/diario/opciones` sin token → 401).
+Commits: `1fa64a7` fix Mayor, `a2ffccb` backend, `9bb1ec5` frontend. Falta la prueba a mano en la web.
 **Rama:** `claude/servidores-libro-mayor-9e4614` (worktree `affectionate-mestorf-f204bc`).
 
 ## Objetivo
@@ -20,8 +20,8 @@ SERVIDOR (la tabla carga de 50 en 50) y los extras propuestos.
   avisos ⚠ DUP y ⚠ sin NIT, enlace 📘 al Libro Mayor (`/contadores?tab=reportes&rep=mayor&cuenta=&empresa=`).
 
 ## Próximo paso
-1. Andrés: `scripts\publicar.cmd` en la terminal de la sesión (va con los 20 commits de la rama).
-2. Sonda tras deploy: `curl.exe -s -o NUL -w "%{http_code}" https://finsys-andres.duckdns.org/api/diario/opciones` → 401.
+1. Andrés: probar en la web la barra, los filtros y el enlace 📘 al Libro Mayor (Negocio A).
+2. Hecho: sonda `/api/diario/opciones` sin token → 401 (16-oct).
 3. Ideas en espera (no pedidas aún): editar en lote más campos (tercero, cuenta),
    duplicados con criterio más fino, vistas guardadas compartidas (en BD).
 
