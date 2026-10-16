@@ -98,12 +98,14 @@ from routers.third_party_accounts import router as third_party_accounts_router
 from routers.bot_anomalias import router as bot_anomalias_router
 from routers.accounting_files import router as accounting_files_router
 from routers.compendios import router as compendios_router
+from routers.diario import router as diario_router
 
 app.include_router(portfolios_router)
 app.include_router(transactions_router)
 app.include_router(profile_accounts_router)
 app.include_router(coa_contab_router)
 app.include_router(dashboard_data_router)
+app.include_router(diario_router)        # módulo 02: búsqueda y filtros del Diario
 app.include_router(tags_taxes_router)
 app.include_router(ct_router)
 app.include_router(hub_router)
