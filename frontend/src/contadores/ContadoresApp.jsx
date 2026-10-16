@@ -29,7 +29,10 @@ export default function ContadoresApp({ user }) {
   const esAdmin = user?.role === 'ADMIN' || !!user?.raw?.user?.is_superuser;
   const puede = esAdmin || hubRole === 'contador';
 
-  const [tab, setTab] = useState('bandeja');
+  // Enlace profundo desde el Libro Diario (16-oct-2026):
+  // /contadores?tab=reportes&rep=mayor&cuenta=5105&empresa=Negocio%20A
+  const [enlace] = useState(() => Object.fromEntries(new URLSearchParams(window.location.search)));
+  const [tab, setTab] = useState(() => (TABS.some(([k]) => k === enlace.tab) ? enlace.tab : 'bandeja'));
   const [portfolios, setPortfolios] = useState([]);
   const [portfolioId, setPortfolioId] = useState(null);
   const [cuentas, setCuentas] = useState([]);
@@ -44,8 +47,13 @@ export default function ContadoresApp({ user }) {
 
   useEffect(() => {
     if (!puede) return;
-    api.get('/portfolios').then((p) => setPortfolios(Array.isArray(p) ? p : [])).catch(() => {});
-  }, [puede]);
+    api.get('/portfolios').then((p) => {
+      const lista = Array.isArray(p) ? p : [];
+      setPortfolios(lista);
+      const pf = enlace.empresa && lista.find((x) => x.name === enlace.empresa);
+      if (pf) setPortfolioId(pf.id);
+    }).catch(() => {});
+  }, [puede, enlace.empresa]);
 
   useEffect(() => { if (puede) cargarResumen(); }, [puede, cargarResumen]);
 
@@ -99,7 +107,8 @@ export default function ContadoresApp({ user }) {
       {tab === 'periodos' && <PeriodosTab portfolioId={portfolioId} portfolios={portfolios} esAdmin={esAdmin} onCambio={cargarResumen} />}
       {tab === 'coa' && <PlanCuentasTab portfolioId={portfolioId} portfolios={portfolios} esAdmin={esAdmin} onCambio={() => setCoaVersion((v) => v + 1)} />}
       {tab === 'reglas' && <ReglasTab portfolioId={portfolioId} portfolios={portfolios} cuentas={cuentas} onCambio={cargarResumen} />}
-      {tab === 'reportes' && <ReportesTab portfolioId={portfolioId} portfolios={portfolios} cuentas={cuentas} />}
+      {tab === 'reportes' && <ReportesTab portfolioId={portfolioId} portfolios={portfolios} cuentas={cuentas}
+        inicial={enlace.tab === 'reportes' ? { sub: enlace.rep, cuenta: enlace.cuenta } : null} />}
     </div>
   );
 }

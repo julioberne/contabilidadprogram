@@ -12,7 +12,7 @@ import { useEmpresa } from '../../engine/EmpresaProvider.jsx';
 
 const API_BASE_URL = API;
 
-export function useLibroDiario() {
+export function useLibroDiario({ onActualizada } = {}) {
   const empresa = useEmpresa();
   const { fetchAll: fetchData, patchTransaction, refreshBalance } = empresa;
 
@@ -21,6 +21,8 @@ export function useLibroDiario() {
   const aplicarActualizacion = async (txId, res) => {
     let data = null;
     try { data = await res.json(); } catch { /* sin cuerpo */ }
+    // onActualizada: la tabla filtrada del Diario (16-oct) parcha su fila al instante.
+    if (data?.transaction) onActualizada?.(txId, data.transaction);
     if (data?.transaction && patchTransaction) {
       patchTransaction(txId, data.transaction);
       refreshBalance?.();

@@ -39,11 +39,11 @@ function csv(filas, nombre) {
   a.download = `${nombre}.csv`; a.click(); URL.revokeObjectURL(a.href);
 }
 
-export default function ReportesTab({ portfolioId, portfolios, cuentas }) {
-  const [sub, setSub] = useState('prueba');
+export default function ReportesTab({ portfolioId, portfolios, cuentas, inicial }) {
+  const [sub, setSub] = useState(() => (SUB.some(([k]) => k === inicial?.sub) ? inicial.sub : 'prueba'));
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
-  const [cuenta, setCuenta] = useState('');
+  const [cuenta, setCuenta] = useState(() => inicial?.cuenta || '');
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);

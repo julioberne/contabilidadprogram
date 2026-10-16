@@ -5,6 +5,8 @@ import { useEmpresa } from '../../engine/EmpresaProvider.jsx';
 import { API } from '../../../config';
 import { getRenderableModules } from '../../../registry/moduleRegistry.js';
 import SeleccionExportarBar from '../../components/SeleccionExportarBar.jsx';
+import AccionesLote from './AccionesLote.jsx';
+import { codigoPuc } from './diarioFiltros.js';
 import { alternarId, marcarVarias, seleccionadas, estadoCabecera } from './seleccion.js';
 
 const fmtCOP = (v) => `$${Number(v || 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -22,6 +24,16 @@ export default function LibroDiario({
   accounts,
   coaFlatAccounts,
   onEvidenceClick,
+  // Búsqueda y filtros en servidor (16-oct-2026) — todos opcionales
+  renderBarra,          // ({ onMarcarTodo }) => barra de filtros + subtotales
+  totalesFiltro,        // totales de lo filtrado (null = sin filtros → caja viva)
+  filtrando = false,
+  cargando = false,
+  error = '',
+  traerTodo,            // async () => TODAS las filas filtradas
+  onEliminada,          // (txId) => quita la fila de la tabla filtrada
+  onLoteHecho,          // tras editar en lote
+  irAlMayor,            // (tx) => abre el Libro Mayor de su cuenta
 }) {
   const startEditing = (txId, field, currentValue) => {
     setEditingCell({ txId, field });
@@ -32,9 +44,13 @@ export default function LibroDiario({
   // portafolio ACTIVO completo — no de la página cargada, que con paginación
   // (50 en 50) sumaría solo lo visible y mentiría.
   const { cajaViva = {}, fetchAll, removeTransaction, refreshBalance } = useEmpresa();
-  const totIngresos = Number(cajaViva.total_ingresos_cop || 0);
-  const totGastos = Number(cajaViva.total_gastos_cop || 0);
-  const totBalance = Number(cajaViva.balance_neto_cop ?? (totIngresos - totGastos));
+  // Con filtros activos, los totales son los de TODO lo filtrado (servidor).
+  const totIngresos = Number((totalesFiltro ? totalesFiltro.ingresos_cop : cajaViva.total_ingresos_cop) || 0);
+  const totGastos = Number((totalesFiltro ? totalesFiltro.gastos_cop : cajaViva.total_gastos_cop) || 0);
+  const totBalance = totalesFiltro ? totIngresos - totGastos
+    : Number(cajaViva.balance_neto_cop ?? (totIngresos - totGastos));
+  const totUsd = totalesFiltro && (totalesFiltro.ingresos_usd || totalesFiltro.gastos_usd)
+    ? totalesFiltro.ingresos_usd - totalesFiltro.gastos_usd : null;
 
   // 🗑 Eliminar registro (2026-09-11, pedido de Andrés): SIEMPRE con la
   // clave del administrador — el backend la re-verifica en cada intento y
@@ -57,6 +73,7 @@ export default function LibroDiario({
       }
       setDelTxId(null); setDelClave('');
       setExpandedTxId(null);
+      onEliminada?.(tx.id);
       // Plan A5: quitar la fila localmente + KPIs/cuentas en un viaje
       if (removeTransaction) { removeTransaction(tx.id); refreshBalance?.(); }
       else fetchAll?.(true);
@@ -72,8 +89,22 @@ export default function LibroDiario({
   // roles del módulo 14 ⇩ Exportación. La casilla no expande la fila ni
   // edita (CA-135-09); se exporta lo marcado que está cargado.
   const puedeExportar = React.useMemo(() => getRenderableModules().some((m) => m.id === 'exportacion'), []);
+  const puedeVerMayor = React.useMemo(() => getRenderableModules().some((m) => m.id === 'contadores'), []);
   const [seleccion, setSeleccion] = React.useState(() => new Set());
-  const marcadas = React.useMemo(() => seleccionadas(seleccion, transactions), [seleccion, transactions]);
+  // "☑ Marcar todo lo filtrado" trae filas que aún no están cargadas en la tabla.
+  const [extra, setExtra] = React.useState([]);
+  const universo = React.useMemo(() => {
+    const ids = new Set(transactions.map((t) => t.id));
+    return [...transactions, ...extra.filter((t) => !ids.has(t.id))];
+  }, [transactions, extra]);
+  const marcadas = React.useMemo(() => seleccionadas(seleccion, universo), [seleccion, universo]);
+  const marcarTodo = traerTodo ? async () => {
+    try {
+      const filas = await traerTodo();
+      setExtra(filas); setSeleccion(new Set(filas.map((t) => t.id)));
+    } catch (e) { alert(`❌ ${e.message}`); }
+  } : undefined;
+  const limpiarSeleccion = () => { setSeleccion(new Set()); setExtra([]); };
   const cabecera = estadoCabecera(seleccion, transactions);
   const columnas = puedeExportar ? 10 : 9;
 
@@ -82,13 +113,22 @@ export default function LibroDiario({
           <div className="bg-white border-2 border-black p-2 shadow-brutal overflow-hidden flex flex-col">
             <div className="flex items-center justify-between border-b-2 border-black pb-1 mb-2 flex-wrap gap-1">
               <h2 className="text-sm font-bold uppercase">📖 Módulo 02: Libro Diario Inteligente</h2>
-              <div className="flex items-center gap-1 font-mono text-[10px] font-bold uppercase"
-                   title="Totales de TODAS las transacciones del portafolio activo (no solo las filas cargadas abajo)">
+              <div className="flex items-center gap-1 font-mono text-[10px] font-bold uppercase flex-wrap"
+                   title={totalesFiltro
+                     ? `Totales de las ${totalTxCount} transacciones que cumplen los filtros (no solo las cargadas abajo)`
+                     : 'Totales de TODAS las transacciones del portafolio activo (no solo las filas cargadas abajo)'}>
+                {totalesFiltro && <span className="border border-black bg-brutalAmber text-black px-2 py-0.5">⚙ Filtrado · {totalTxCount}</span>}
                 <span className="border border-black bg-brutalGreen text-black px-2 py-0.5">▲ ING {fmtCOP(totIngresos)}</span>
                 <span className="border border-black bg-brutalCrimson text-white px-2 py-0.5">▼ GAS {fmtCOP(totGastos)}</span>
                 <span className={`border border-black px-2 py-0.5 ${totBalance >= 0 ? 'bg-black text-brutalGreen' : 'bg-black text-red-400'}`}>∑ {fmtCOP(totBalance)}</span>
+                {totUsd !== null && <span className="border border-black px-2 py-0.5 bg-white">∑ USD {Number(totUsd).toLocaleString('es-CO', { maximumFractionDigits: 2 })}</span>}
               </div>
             </div>
+
+            {renderBarra?.({ onMarcarTodo: puedeExportar ? marcarTodo : undefined })}
+            {error && (
+              <div className="mb-2 border-2 border-brutalCrimson bg-red-50 px-2 py-1 text-[10px] font-bold text-red-700">❌ {error}</div>
+            )}
             
             {/* Rejilla de Movimientos Históricos */}
             <div className="overflow-x-auto">
@@ -118,7 +158,9 @@ export default function LibroDiario({
                   {transactions.length === 0 ? (
                     <tr>
                       <td colSpan={columnas} className="p-8 text-center uppercase text-gray-400 font-bold">
-                        No hay registros en este portafolio. Agrega uno manual o habla por micrófono.
+                        {cargando ? '▓ Cargando…' : filtrando
+                          ? 'Ningún movimiento cumple los filtros. Quita alguno o usa «Limpiar todo».'
+                          : 'No hay registros en este portafolio. Agrega uno manual o habla por micrófono.'}
                       </td>
                     </tr>
                   ) : (
@@ -164,6 +206,12 @@ export default function LibroDiario({
                               }`}
                             >
                               {tx.type.substring(0, 3)}
+                            </span>
+                          )}
+                          {tx.n_iguales > 1 && (
+                            <span className="ml-1 px-1 border border-black bg-brutalAmber text-black text-[8px] font-extrabold"
+                              title={`Posible duplicado: hay ${tx.n_iguales} movimientos con la misma fecha, tipo, valor y cuenta. Solo es un aviso.`}>
+                              ⚠ DUP
                             </span>
                           )}
                         </td>
@@ -294,7 +342,11 @@ export default function LibroDiario({
                               onDoubleClick={() => startEditing(tx.id, "identification_number", tx.identification_number)} 
                               className="cursor-pointer block w-full h-full"
                             >
-                              {tx.identification_number}
+                              {!tx.third_party_name && !tx.identification_number
+                                ? <span className="text-amber-600 font-bold" title="Sin tercero (dato a completar)">⚠ sin tercero</span>
+                                : String(tx.identification_number || '').startsWith('SN-') || !tx.identification_number
+                                  ? <span className="text-amber-600 font-bold" title={`${tx.third_party_name || 'Tercero'} sin NIT/CC registrado (dato a completar)`}>⚠ sin NIT</span>
+                                  : tx.identification_number}
                             </span>
                           )}
                         </td>
@@ -483,6 +535,13 @@ export default function LibroDiario({
                               {/* 🗑 Eliminación con clave de admin */}
                               <div className="flex justify-end items-center gap-2 pt-2 mt-2 border-t border-dashed border-black"
                                    onClick={(e) => e.stopPropagation()}>
+                                {irAlMayor && puedeVerMayor && codigoPuc(tx.category) && (
+                                  <button type="button" onClick={() => irAlMayor(tx)}
+                                    title={`Abre el Libro Mayor de la cuenta ${codigoPuc(tx.category)} (Contadores → Reportes)`}
+                                    className="mr-auto px-2 py-1 border-2 border-black bg-white text-[9px] font-bold uppercase hover:bg-black hover:text-white transition-all">
+                                    📘 Ver en Libro Mayor ({codigoPuc(tx.category)})
+                                  </button>
+                                )}
                                 {delTxId !== tx.id ? (
                                   <button
                                     onClick={() => { setDelTxId(tx.id); setDelClave(''); setDelError(''); }}
@@ -549,7 +608,11 @@ export default function LibroDiario({
           </div>
           {/* Fuera de la tarjeta: su overflow-hidden anularía el sticky */}
           {puedeExportar && (
-            <SeleccionExportarBar txs={marcadas} onLimpiar={() => setSeleccion(new Set())} />
+            <>
+              <AccionesLote txs={marcadas} coaFlatAccounts={coaFlatAccounts}
+                onHecho={() => { limpiarSeleccion(); if (onLoteHecho) onLoteHecho(); else fetchAll?.(true); }} />
+              <SeleccionExportarBar txs={marcadas} onLimpiar={limpiarSeleccion} />
+            </>
           )}
         </div>
   );
