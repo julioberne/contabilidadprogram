@@ -43,8 +43,12 @@ def libro_mayor(portfolio_id: Optional[int], cuenta_codigo: str,
                    MAX(cuenta_nombre) AS cuenta_nombre, MAX(cuenta_tipo) AS cuenta_tipo
             FROM kernel_journal_entries
             WHERE cuenta_codigo = %(cta)s AND {EN_LIBROS} {pf_sql}
-              AND (%(desde)s::date IS NULL OR fecha < %(desde)s::date)
+              AND %(desde)s::date IS NOT NULL AND fecha < %(desde)s::date
         """, params)
+        # Sin `desde` no hay saldo anterior: antes la condición era
+        # `desde IS NULL OR …` y el saldo inicial sumaba TODOS los movimientos,
+        # que luego se volvían a sumar en el detalle → saldo final al doble
+        # (visto en Negocio A, 111005: inicial −6.748.495,50, final −13.496.991).
         ini = cur.fetchone()
         cur.execute(f"""
             SELECT id, fecha, entry_group_id, referencia, descripcion, debito, credito, estado,

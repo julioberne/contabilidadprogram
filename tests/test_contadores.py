@@ -380,6 +380,10 @@ def test_reportes_en_libros():
     assert f"{PREFIX}-R2" not in refs, "un borrador no va al mayor"
     propios = [m for m in lm["movimientos"] if PREFIX in (m["referencia"] or "")]
     assert sum(m["debito"] for m in propios) - sum(m["credito"] for m in propios) == 1000.0, propios
+    # sin `desde` no hay saldo anterior (antes sumaba todo dos veces)
+    todo = rep.libro_mayor(PORTFOLIO_ID, CTA_GASTO)
+    assert todo["saldo_inicial"] == 0.0, todo["saldo_inicial"]
+    assert round(todo["saldo_final"], 2) == round(todo["total_debito"] - todo["total_credito"], 2), todo["saldo_final"]
     # balance de prueba del periodo cuadra
     bp = rep.balance_prueba(PORTFOLIO_ID, "2026-03-01", "2026-03-31")
     assert bp["cuadra"], bp["totales"]
