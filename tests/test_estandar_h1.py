@@ -65,6 +65,11 @@ class TestClasificacion(unittest.TestCase):
 
 class TestMiddleware(unittest.TestCase):
     def setUp(self):
+        # La cubeta casi no se recarga durante el test: con 10 fichas/s, una ráfaga
+        # lenta (CI, Windows) recuperaba una ficha y la petición siguiente daba 200.
+        p = mock.patch.object(adm, "LECTURA_TASA", 0.001)
+        p.start()
+        self.addCleanup(p.stop)
         self.estado = adm.Admision()
         self.client = TestClient(_app_con_admision(self.estado))
 
