@@ -32,7 +32,7 @@ services:
       # eran "configurables por entorno" pero el compose NUNCA las pasaba al
       # contenedor. Defaults = comportamiento normal de siempre; se usan p.ej.
       # para el puente :5432 cuando el pooler :6543 de Supabase se cae.
-      - DB_POOL_MIN=${DB_POOL_MIN:-2}
+      - DB_POOL_MIN=${DB_POOL_MIN:-10}   # = DB_POOL_MAX: pool caliente (H2; psycopg2 cierra lo que pasa de min)
       - DB_POOL_MAX=${DB_POOL_MAX:-10}
       - DB_FALLBACK_MAX=${DB_FALLBACK_MAX:-5}
       - FINSYS_ALLOW_5432=${FINSYS_ALLOW_5432:-0}

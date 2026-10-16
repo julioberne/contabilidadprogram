@@ -34,10 +34,27 @@ os.makedirs("uploads", exist_ok=True)
 
 from contextlib import asynccontextmanager
 
+def _ajustar_hilos():
+    """Hilos por worker para las rutas `def` (estándar P3). Starlette usa 40 por
+    defecto; con un pool de 10 conexiones, 16-20 bastan cuando lo lento sin BD
+    (IA, voz, PDF) vaya a la cola (H5). Hasta entonces NO se baja: solo se fija
+    si FINSYS_HILOS está definido, y siempre se informa el valor en el log."""
+    try:
+        import anyio.to_thread
+        limitador = anyio.to_thread.current_default_thread_limiter()
+        valor = os.environ.get("FINSYS_HILOS")
+        if valor:
+            limitador.total_tokens = max(4, int(valor))
+        print(f"🧵 Hilos por worker para rutas síncronas: {limitador.total_tokens}")
+    except Exception as e:
+        print(f"⚠️ No se pudo ajustar el threadpool: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app):
     """Arranque del servidor: sincroniza tablas y registra listeners (DT-02/DT-11)."""
     _startup()
+    _ajustar_hilos()
     yield
     # Apagado limpio: sin esto, en cada reload/SIGTERM las conexiones del pool
     # quedaban colgando hasta que el pooler de Supabase las expirara.
@@ -72,8 +89,10 @@ install_timing_middleware(app)
 
 # Control de admisión por usuario y clase de carga (estándar de consultas, H1).
 # FINSYS_ADMISION=registrar (por defecto: solo registra) | activo | apagado.
-from shared.admision import install_admission_middleware
+from shared.admision import install_admission_middleware, install_saturation_middleware
 install_admission_middleware(app)
+# Pool saturado (get_conn esperó su tope) → 503 + Retry-After en vez de un 500 (H2).
+install_saturation_middleware(app)
 
 
 # ==============================================================================

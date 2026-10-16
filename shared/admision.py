@@ -204,3 +204,34 @@ def resumen() -> dict:
         "contadores": dict(ESTADO.contadores),
         "informes_en_curso": ESTADO._informes_worker,
     }
+
+
+# ── Pool saturado → 503 + Retry-After (estándar de consultas, H2 / P2) ───────
+_DETALLE_SATURADO = ("El servidor está atendiendo muchas consultas a la vez. "
+                     "Intenta de nuevo en unos segundos.")
+
+
+def install_saturation_middleware(app):
+    """Si durante la petición get_conn() rechazó por pool saturado, la respuesta
+    se convierte en 503 + Retry-After — AUNQUE el endpoint haya dicho 200.
+    Motivo (laboratorio, 16-oct-2026): varios drivers se tragan el error y
+    devuelven [] o datos de ejemplo con 200 (p. ej. /api/portfolios inventaba
+    "Negocio A/B"); con saturación esos datos están incompletos o son falsos.
+    El 503 le dice al cliente que es transitorio y el wrapper de fetch reintenta."""
+    from fin_sys_core.db_pool import saturacion_ctx
+
+    @app.middleware("http")
+    async def _saturacion(request: Request, call_next):
+        marca = {"saturado": False}
+        token = saturacion_ctx.set(marca)
+        try:
+            response = await call_next(request)
+        finally:
+            saturacion_ctx.reset(token)
+        if marca["saturado"]:
+            ESTADO.contadores["saturado_503"] = ESTADO.contadores.get("saturado_503", 0) + 1
+            return JSONResponse(status_code=503, content={"detail": _DETALLE_SATURADO},
+                                headers={"Retry-After": str(RETRY_AFTER_S)})
+        return response
+
+    return app
