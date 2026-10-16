@@ -1,8 +1,8 @@
 # Frente: estándar de consultas escalables (todo FIN-SYS)
 
-**Estado:** ACTIVO — H0-H3 HECHOS y verificados (16-oct-2026). **Nada publicado.**
-**Rama:** `claude/servidores-libro-mayor-9e4614` (worktree `affectionate-mestorf-f204bc`), **19 commits sin push**
-desde `d87c1fe` (incluye el Diario, frente `libro-diario-filtros` = H0).
+**Estado:** ACTIVO — H0-H3 HECHOS y verificados (16-oct-2026). **Pendiente de publicar** (preparado con /desplegar).
+**Rama:** `claude/servidores-libro-mayor-9e4614` (worktree `affectionate-mestorf-f204bc`), rebasada sobre
+`83a3cc0`: 20 commits `1fa64a7`…`335d841` + este docs (incluye el Diario, frente `libro-diario-filtros` = H0).
 
 ## Objetivo
 Que ninguna pantalla cueste según el tamaño del holding sino según lo que pide el usuario, y que
@@ -25,9 +25,11 @@ Runbook de escalamiento: `docs/escalamiento.md`. Laboratorio: `scripts/laborator
   refresco de 60 s). Hooks en `frontend/src/shared/busqueda/useBusqueda.js`.
 
 ## Próximo paso
-1. **Andrés:** revisar el diff de `fin_sys_core/db_pool.py` y publicar con `scripts\publicar.cmd`.
-   Sondas: `/api/health/vida` 200; `/api/portfolios` sin token 401; `/api/health/profundo` →
-   `pool.minconn` 10 y `pool.espera`; probar la Mini App en el celular y TercerosTab en la web.
+1. **Andrés:** revisar el diff de `fin_sys_core/db_pool.py` y publicar con `scripts\publicar.cmd`
+   (antes: en Dokploy → Environment, que `DB_POOL_MIN` no exista o valga 10; si vale 2 el pool no queda caliente).
+   Sondas: `/api/health/vida` 200; `/api/buscar/terceros` y `/api/diario/opciones` sin token 401 (antes 404);
+   `/api/portfolios` sin token 401; `/api/health/profundo` → `pool.minconn` 10 y `pool.espera`;
+   a mano: Mini App en el celular, TercerosTab y Libro Diario en la web.
 2. **Siguiente sesión (cierre de H3):** el bot con `buscar_terceros` — "terceros recientes" hace
    GROUP BY sobre todas las TX (`fin_sys_core/bot_driver.py:943-952`) y los botones de cuentas/empresas/
    etiquetas cortan en LIMIT 14/12/10. Hito propio, con `tests/test_bot_*.py`.
