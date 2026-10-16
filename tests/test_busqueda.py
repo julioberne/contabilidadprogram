@@ -17,15 +17,33 @@ if _ROOT not in sys.path:
 import tests  # noqa: F401,E402
 
 from fin_sys_core.consultas.busqueda import (  # noqa: E402
-    LIMITE_MAX, armar_busqueda_terceros, digitos, normalizar,
+    LIMITE_MAX, VENTANA_USO, armar_busqueda_terceros, armar_recientes, digitos, normalizar,
 )
 
 
 class TestArmar(unittest.TestCase):
-    def test_vacio_trae_los_mas_usados_con_tope(self):
+    def test_vacio_trae_los_recientes_con_tope(self):
         sql, p = armar_busqueda_terceros("", 8)
-        self.assertIn("ORDER BY u.ultima DESC", sql)
+        self.assertIn("ORDER BY u.ultimo DESC", sql)
         self.assertEqual(p["lim"], 9, "pide uno de más para saber si hay más")
+        self.assertEqual(p["ventana"], VENTANA_USO)
+
+    def test_el_uso_nunca_agrupa_todas_las_transacciones(self):
+        """Antes cada tecla agrupaba TODAS las TX; ahora solo la ventana por llave primaria."""
+        for q in ("", "T", "Café", "318 866"):
+            sql, p = armar_busqueda_terceros(q, 8)
+            self.assertIn("ORDER BY id DESC LIMIT %(ventana)s", sql, q)
+            self.assertEqual(p["ventana"], VENTANA_USO)
+        for kw in ({"ids": "3"}, {"ident": "900123"}, {"nombre": "Pedro"},
+                   {"orden": "nombre", "con_total": True}):
+            sql, _ = armar_busqueda_terceros("", 8, **kw)
+            self.assertNotIn("transactions", sql, kw)
+
+    def test_recientes_del_bot_sin_generico(self):
+        sql, p = armar_recientes(8, excluir_ident="999999999", columnas="tp.id, tp.name")
+        self.assertTrue(sql.startswith("SELECT tp.id, tp.name, u.n AS usos"))
+        self.assertIn("tp.identification_number <> %(excluir)s", sql)
+        self.assertEqual((p["excluir"], p["lim"]), ("999999999", 9))
 
     def test_una_letra_es_prefijo(self):
         _, p = armar_busqueda_terceros("T", 8)
