@@ -1,66 +1,55 @@
 # Frente: estándar de consultas escalables (todo FIN-SYS)
 
-**Estado:** ACTIVO — H0-H3 **EN PRODUCCIÓN**: `e0f6925` (16-oct-2026), CI verde y sondas OK.
-**Rama:** `claude/servidores-libro-mayor-9e4614` (worktree `affectionate-mestorf-f204bc`), al día con master
-(incluye el Diario, frente `libro-diario-filtros` = H0).
+**Estado:** ACTIVO — H0-H3 (con el cierre del bot) **EN PRODUCCIÓN** (`191b340`, 16-oct-2026).
+**H4 y Plan B hechos, sin publicar** (`43bf674`, `586fb51`). Rama `claude/servidores-libro-mayor-9e4614`
+(worktree `affectionate-mestorf-f204bc`). Orden acordado con Andrés (16-oct): **uno por uno en esta
+rama**: H4 → Plan B → **H5** → H6 → H7 → H8 (H8 con permiso para `database_driver.py`, plan previo).
 
 ## Objetivo
 Que ninguna pantalla cueste según el tamaño del holding sino según lo que pide el usuario, y que
-nada espere sin tope. Plan H0–H9 y 41 reglas (B/F/P): `docs/estandar-consultas-escalables.md`.
+nada espere sin tope. Plan H0–H9 y 41 reglas (B/F/P): `docs/estandar-consultas-escalables.md` (§6 hitos).
 Runbook de escalamiento: `docs/escalamiento.md`. Laboratorio: `scripts/laboratorio/README.md`.
 
-## Hecho (en producción)
-- **H0** Diario con filtros en servidor (`/api/diario/*`) + fix del Libro Mayor (sin `desde` duplicaba saldo).
-- **H1** `SET LOCAL statement_timeout` SÍ funciona por :6543; admisión por usuario en `registrar`
-  (`shared/admision.py`); `/api/health/vida` (Docker) y `/profundo`; sesión obligatoria en GET
-  abiertos (RRHH salario/pagos, Hub, tags, portafolios…); `FINSYS_DDL_ARRANQUE=0` opcional.
-- **Laboratorio** `scripts/laboratorio/` + agente `.claude/agents/laboratorio-rendimiento.md`: 6 criterios,
-  informe en `docs/laboratorio/`, trinquete en el CI (`scripts/laboratorio/linea_base.json`).
-- **H2** pool que espera su turno (1 s, fila 2×pool → 503 + Retry-After) y **caliente**
-  (`DB_POOL_MIN = DB_POOL_MAX`): psycopg2 cerraba lo que pasaba de min=2 y reconectaba en fila
-  (10 simultáneas 4,5 s → 0,34 s). Con saturación responde 503 aunque el endpoint diga 200.
-- **H3** `GET /api/buscar/terceros|cuentas|etiquetas` (top-N + `mas`; `ids`/`ident`/`nombre` exacto;
-  listado por cursor `orden=nombre&despues_nombre&despues_id`). Web y Mini App ya **no descargan**
-  `/third-parties` (registro, TercerosTab paginada, CarteraTab, EvidenceModal, ThirdPartyModal, Mini App,
-  refresco de 60 s). Hooks en `frontend/src/shared/busqueda/useBusqueda.js`.
+## En producción
+- **H0** Diario con filtros en servidor (`/api/diario/*`) + fix del Libro Mayor.
+- **H1** `SET LOCAL statement_timeout` por :6543; admisión en `registrar`; `/api/health/vida` y `/profundo`;
+  sesión obligatoria en los GET abiertos; `FINSYS_DDL_ARRANQUE=0` opcional.
+- **H2** pool que espera su turno (1 s, fila 2×pool → 503) y caliente (`DB_POOL_MIN = DB_POOL_MAX` = 10).
+- **H3** `/api/buscar/*` top-N; web y Mini App sin catálogo de terceros; uso de terceros acotado a las
+  últimas 2.000 TX (`VENTANA_USO`); bot con «Cuenta:»/«Empresa:», recientes acotados, listas que avisan.
+- **Laboratorio** (`scripts/laboratorio/`, trinquete en el CI). Informe 15:50 (local): p95 a 5 usuarios
+  1,2-1,9 s → 0,3-0,55 s; 0 % errores; proyección 500k TX/empresa ~11 usuarios (cuello: Diario por tercero).
 
-## Hecho, sin publicar (cierre de H3, 16-oct)
-- `e95ff3f` el "uso" de cada tercero sale de las últimas `VENTANA_USO`=2000 TX (por la llave primaria);
-  antes cada tecla de la web/Mini App agrupaba TODAS las TX. `ids`/`ident`/`nombre`/listado no tocan TX.
-- Bot: "👤 Tercero" usa `armar_recientes` (la misma consulta acotada). Reply con **«Cuenta: nombre»**
-  (cuenta de pago) y **«Empresa: nombre»**: igual o única → se aplica; varias → botones solo de esas;
-  ninguna → no toca nada; «contiene» desde 3 letras (B6). Botones de cuentas/empresas/etiquetas y
-  `/empresa` avisan si la lista quedó recortada. `armar_contiene` = una sola búsqueda de catálogos chicos
-  (web y bot): deuda «contiene» 25 → 23. Tests: `tests/test_bot_listas.py` (en el CI).
+## Hecho, sin publicar
+- **H4 `43bf674`** Diario: duplicado fila por fila solo para la página (antes ventana sobre TODAS las TX);
+  `filtradas MATERIALIZED` (una lectura para página+totales+grupos); `totales=false` + cursor
+  `despues_fecha/despues_id` en orden por fecha (`siguiente`); OFFSET ≤ 2.000; búsqueda 1/2/3+ letras
+  con `aviso`; opciones top-50 + `mas` + `campo&q`; cupo `DIARIO_SIMULTANEAS`=3 → 503. El índice
+  `idx_tx_portfolio_date` ya existía en la BD. Verificado: 26 tests con BD, vitest, build, navegador.
+- **Plan B `586fb51`** `scripts/migrate_trgm_busqueda.py` (pg_trgm + 3 GIN en third_parties con las
+  expresiones de `busqueda.py`); en `busqueda.py`, 2 letras = inicio de palabra, «contiene» desde 3.
+- Fuera de H4 a propósito: «Marcar todo» y el CSV (tope 5.000) → H5 (CSV a la cola) y H8 (lote en el
+  servidor); montos como string → H6/H8.
 
 ## Próximo paso
-1. **Andrés, a mano:** Mini App en el celular (buscar y asignar tercero), TercerosTab (tabla de a 50,
-   "cargar más") y Libro Diario con filtros en la web. Sondas ya pasadas (16-oct): `/api/health/vida` 200;
-   `/api/buscar/terceros`, `/api/diario/opciones` y `/api/portfolios` sin token 401; pool `minconn` 10,
-   admisión `registrar`. Para cifras reales: laboratorio con `--url` de producción y `LAB_TOKEN`, de noche.
-2. **Andrés:** publicar el cierre de H3 con `scripts\publicar.cmd` (rama `claude/servidores-libro-mayor-9e4614`).
-   Probar en el chat: responder a un borrador «Cuenta: <parte del nombre>» y «Empresa: <parte>».
-3. **Decisión pendiente de Andrés:** los widgets de colegio
-   (`frontend/src/contabilidad-v2/modules/registro/widgets/{Pensiones,Recaudos,Uniformes}Widget.jsx`)
-   tratan a TODO tercero como estudiante → ¿etiqueta o tipo para marcar estudiantes? Son los 3
-   catálogos completos que quedan en la auditoría.
-4. Después: Diario plan A (duplicados solo para la página, montos Decimal), H5 cola+worker, H6 fin de
-   las descargas de todas las TX (7 casos), plan B (índice trigram, migración de Andrés).
+1. **Andrés:** `scripts\publicar.cmd` en la terminal de esta sesión (H4 + Plan B). Después, la migración:
+   `.venv\Scripts\python.exe scripts\migrate_trgm_busqueda.py --dry-run` y luego `--concurrently --explain`.
+2. **H5 cola y worker** (siguiente hito): plan antes de código → aprobación. Alcance en §6 del doc:
+   pgmq (Supabase Queues; activar la extensión = Andrés) o PGQueuer; servicio `worker` en
+   `docker-compose.yml`; 202 + `/api/operaciones`; pasar al worker .xlsx, compendio, PDF, voz, foto, IA,
+   envíos de Telegram y tareas periódicas; el CSV del Diario como exportación en la cola.
+   Ojo: `bot_telegram.py` nunca se lanza en local; colas de prueba `*_prueba`.
+3. **Decisión pendiente de Andrés:** widgets de colegio (`registro/widgets/{Pensiones,Recaudos,Uniformes}Widget.jsx`)
+   tratan a todo tercero como estudiante → ¿etiqueta o tipo? Son los 3 catálogos completos que quedan.
+4. Medición real: laboratorio contra producción de noche con `LAB_TOKEN`; prueba de volumen en BD aparte.
 
 ## Decisiones (y porqué)
-- Pruebas contra la BD compartida SOLO LECTURA y acotadas (Andrés lo autorizó); volumen grande en un
-  proyecto Supabase aparte (`scripts/carga --lab-env`): la BD es la de producción.
+- Pruebas contra la BD compartida SOLO LECTURA y acotadas; carga de día solo con OK explícito de Andrés.
 - `FINSYS_HILOS` no se baja hasta H5 (IA, voz y PDF necesitan hilos sin BD).
-- Deuda registrada que necesita permiso: drivers que tragan errores y devuelven `[]` (9 casos en
-  `database_driver.py`/`control_tower_driver.py`); índice/retención de `bot_messages`
-  (~95.700 recorridos completos con 1.081 filas).
-
-## Datos medidos (16-oct)
-Supabase **Micro**: Postgres 17.6, `max_connections` 60, CPU compartida; la app entra como `postgres`.
-Desde el PC local cada viaje a la BD cuesta ~180 ms y abrir el pool caliente ~16 s: no es producción.
+- Deuda con permiso: drivers que tragan errores (9 casos), índice/retención de `bot_messages` (~96k recorridos).
 
 ## Cómo verificar
-`python -m unittest tests.test_busqueda tests.test_pool_espera tests.test_estandar_h1 tests.test_laboratorio
-tests.test_diario_filtros` · `python scripts/laboratorio/auditoria_codigo.py` · en `frontend/`:
-`npx vitest run --pool=threads` (sin esa opción el worker se cuelga en el worktree) ·
-`python scripts/laboratorio/laboratorio.py` (informe). Error preexistente sin BD: `tests/test_coa_fix.py`.
+Python del checkout principal; con BD (solo lectura) vía el `wt.py` del scratchpad anterior, que carga el
+`.env` principal. `python -m unittest tests.test_diario_filtros tests.test_busqueda tests.test_bot_listas
+tests.test_laboratorio tests.test_pool_espera tests.test_estandar_h1` · `python scripts/laboratorio/auditoria_codigo.py`
+· en `frontend/`: `npx vitest run --pool=threads` · backend del worktree en :8003 (`localhost:8003` tiene la sesión).
