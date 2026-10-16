@@ -9,10 +9,19 @@ Solo lectura. La lógica vive en fin_sys_core/diario_query.py.
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from psycopg2 import errors as pg_errors
 
 from routers.auth_guard import require_auth
 
 router = APIRouter(tags=["Diario"])
+
+_LENTA = ("La consulta tardó demasiado. Acota los filtros (fechas, empresa o "
+          "búsqueda) e intenta de nuevo.")
+
+
+def _demasiado_lenta():
+    # 503 + Retry-After (estándar P6/P7): el cliente reintenta con calma o acota.
+    return HTTPException(status_code=503, detail=_LENTA, headers={"Retry-After": "5"})
 
 
 def _empresas(portfolio: Optional[str], empresas: Optional[str]):
@@ -62,6 +71,8 @@ def diario_movimientos(
                                   limit=limit, offset=offset)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except pg_errors.QueryCanceled:
+        raise _demasiado_lenta()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -72,5 +83,7 @@ def diario_opciones(portfolio: Optional[str] = None, empresas: Optional[str] = N
     from fin_sys_core.diario_query import opciones_filtros
     try:
         return opciones_filtros(_empresas(portfolio, empresas))
+    except pg_errors.QueryCanceled:
+        raise _demasiado_lenta()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

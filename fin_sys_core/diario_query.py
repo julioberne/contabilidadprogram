@@ -71,6 +71,17 @@ BANDERAS = {
 
 LIMITE_MAX = 5000      # tope por petición (exportar "todo lo filtrado")
 
+# Tiempo máximo por sentencia (estándar de consultas P6). `SET LOCAL` vive solo
+# dentro de la transacción y muere con el rollback de put_conn; probado por el
+# pooler :6543 con scripts/probar_set_local.py (16-oct-2026). Una consulta que
+# se pasa lanza psycopg2.errors.QueryCanceled → el router responde 503.
+TIMEOUT_MOVIMIENTOS_MS = 5000
+TIMEOUT_OPCIONES_MS = 3000
+
+
+def _con_timeout(cur, ms: int) -> None:
+    cur.execute("SET LOCAL statement_timeout = %s", (f"{int(ms)}ms",))
+
 # Búsqueda sin tildes ni mayúsculas ("cafe" encuentra "Café") sin depender de
 # la extensión unaccent: translate() con las vocales acentuadas del español.
 _CON_TILDE = "áéíóúüàèìòùäëïöâêîôûñ"
@@ -346,6 +357,7 @@ def buscar_movimientos(filtros: Dict[str, Any], orden: str = "fecha_desc",
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            _con_timeout(cur, TIMEOUT_MOVIMIENTOS_MS)
             cur.execute(sql, params)
             fila = cur.fetchone() or {}
     finally:
@@ -398,6 +410,7 @@ def opciones_filtros(empresas: List[str]) -> Dict[str, Any]:
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            _con_timeout(cur, TIMEOUT_OPCIONES_MS)
             cur.execute(_OPCIONES_SQL, {"empresas": list(empresas or [])})
             return dict(cur.fetchone() or {})
     finally:

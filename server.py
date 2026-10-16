@@ -70,6 +70,11 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 from shared.observability import install_timing_middleware
 install_timing_middleware(app)
 
+# Control de admisión por usuario y clase de carga (estándar de consultas, H1).
+# FINSYS_ADMISION=registrar (por defecto: solo registra) | activo | apagado.
+from shared.admision import install_admission_middleware
+install_admission_middleware(app)
+
 
 # ==============================================================================
 # 🔌 Registrar Routers (1 archivo por dominio)
@@ -99,6 +104,7 @@ from routers.bot_anomalias import router as bot_anomalias_router
 from routers.accounting_files import router as accounting_files_router
 from routers.compendios import router as compendios_router
 from routers.diario import router as diario_router
+from routers.salud import router as salud_router
 
 app.include_router(portfolios_router)
 app.include_router(transactions_router)
@@ -106,6 +112,7 @@ app.include_router(profile_accounts_router)
 app.include_router(coa_contab_router)
 app.include_router(dashboard_data_router)
 app.include_router(diario_router)        # módulo 02: búsqueda y filtros del Diario
+app.include_router(salud_router)         # /api/health/vida (sin BD) y /profundo
 app.include_router(tags_taxes_router)
 app.include_router(ct_router)
 app.include_router(hub_router)
@@ -130,6 +137,41 @@ app.include_router(compendios_router)  # Exportación 13.6: 🤝 compendio para 
 # 🚀 Evento de Startup
 # ==============================================================================
 
+def _registrar_listener_partida_doble():
+    from kernel.kernel_event_bus import on, off
+    from kernel.kernel_accounting import registrar_asiento
+    off('fin.transaccion.registrada')    # reset: evita duplicados en hot-reload
+    on('fin.transaccion.registrada', registrar_asiento)
+
+
+def _startup_sin_ddl(db_host, db_port):
+    """Arranque con FINSYS_DDL_ARRANQUE=0: sin ALTER/CREATE, pero conserva el
+    fail-fast (DT-25) con un SELECT 1 y el listener de partida doble."""
+    print("⏭️  FINSYS_DDL_ARRANQUE=0: se salta el DDL de arranque (esquema por migraciones)")
+    conn = None
+    try:
+        from fin_sys_core.database_driver import get_db_connection, release_db_connection
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.close()
+    except Exception as e:
+        if os.environ.get("FINSYS_ALLOW_MOCK") == "1":
+            print(f"⚠️ [MODO SIMULACIÓN EXPLÍCITO] Sin PostgreSQL — {e}")
+        else:
+            raise RuntimeError(
+                f"PostgreSQL no disponible en {db_host}:{db_port} ({e}). El servidor NO "
+                "arranca en modo simulación silenciosa (DT-25).") from e
+    finally:
+        if conn is not None:
+            try:
+                release_db_connection(conn)
+            except Exception:
+                pass
+    _registrar_listener_partida_doble()
+    print("✅ Zero-COA: listener de partida doble registrado")
+
+
 def _startup():
     """Ejecutado al iniciar el servidor para sincronizar las tablas de Postgres."""
     # ── Fail-fast institucional (DT-25/DT-26, 2026-09-04) ─────────────────
@@ -151,6 +193,17 @@ def _startup():
             "local+prod — ya causó el incidente DT-22). Usa 6543 (transaction mode), o "
             "exporta FINSYS_ALLOW_5432=1 si sabes exactamente lo que haces."
         )
+
+    # ── DDL al arrancar detrás de bandera (estándar de consultas, H1/P14) ──
+    # Cada arranque de worker (y gunicorn recicla cada 1000 peticiones) corría
+    # ALTER TABLE … IF NOT EXISTS: en PostgreSQL ese ALTER pide el bloqueo
+    # ACCESS EXCLUSIVE aunque la columna ya exista, y bajo carga puede encolar
+    # todas las lecturas de la tabla detrás de él. FINSYS_DDL_ARRANQUE=0 lo
+    # salta (el esquema lo mantienen las migraciones de Andrés); por defecto
+    # sigue como antes para no romper despliegues que aún dependan de él.
+    if os.environ.get("FINSYS_DDL_ARRANQUE", "1") == "0":
+        _startup_sin_ddl(db_host, db_port)
+        return
 
     print("🔄 Sincronizando esquema de base de datos PostgreSQL...")
     import database_driver as _dd
@@ -234,47 +287,14 @@ def health_check():
     caído" de "BD caída" (que es todo su propósito). Ahora el servidor
     contesta rápido SIEMPRE: si la sonda no vuelve en 4s, db = timeout.
     """
-    # ⚠️ SIEMPRE devolver la conexión al pool, jamás conn.close(): psycopg2 no
-    # saca de _used una conexión cerrada a mano, así que cada close() quemaba
-    # un slot PERMANENTE. Con el healthcheck de Docker cada 30s, el pool moría
-    # completo a los ~10 min de cada deploy (auditoría 2026-09-04).
-    def _sonda():
-        conn = None
-        try:
-            from fin_sys_core.database_driver import get_db_connection, release_db_connection
-            conn = get_db_connection()
-            cur = conn.cursor()
-            cur.execute("SELECT 1")
-            cur.close()
-            return "connected"
-        except Exception as e:
-            return f"error: {e}"
-        finally:
-            if conn is not None:
-                try:
-                    release_db_connection(conn)
-                except Exception:
-                    pass
-
-    import concurrent.futures
-    ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    try:
-        db_status = ex.submit(_sonda).result(timeout=4)
-    except concurrent.futures.TimeoutError:
-        # El hilo colgado terminará solo y devolverá su conexión; aquí lo
-        # importante es responder YA con la verdad.
-        db_status = "error: la base de datos no respondió en 4s (timeout)"
-    except Exception as e:
-        db_status = f"error: {e}"
-    finally:
-        ex.shutdown(wait=False)   # jamás bloquear el health esperando al hilo
-    # Estado del pool (sin viaje a la BD). Con el alias de fin_sys_core hay
-    # UN solo pool por proceso, así que este número es fiel (2026-09-15).
-    try:
-        from fin_sys_core.db_pool import pool_status
-        pool = pool_status()
-    except Exception as e:
-        pool = {"active": False, "reason": str(e)}
+    # 16-oct-2026 (estándar de consultas, H1): la sonda vive en routers/salud.py
+    # con caché de 10 s y UNA sola sonda a la vez por worker. Antes cada pestaña
+    # (cada 30 s) y el healthcheck de Docker abrían su propio hilo y tomaban una
+    # conexión del pool. Mismo contrato de respuesta (HealthBeacon y
+    # scripts/publicar.py leen `db`). Docker ahora mira /api/health/vida.
+    from routers.salud import sonda_bd, estado_pool
+    db_status = sonda_bd()
+    pool = estado_pool()
     return {
         "status": "ok",
         "db": db_status,
