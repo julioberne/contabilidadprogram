@@ -108,8 +108,12 @@ describe('useDashboardData (plan A5)', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     await act(async () => { await result.current.loadMoreTransactions(50); });
     expect(result.current.transactions).toHaveLength(100);
+    const antes = llamadas.length;
     await act(async () => { await result.current.fetchAll(true); });
-    expect(llamadas.at(-2)).toContain('limit=100');
+    const nuevas = llamadas.slice(antes);
+    expect(nuevas.find((u) => u.includes('/dashboard-data'))).toContain('limit=100');
+    // H3: el refresco silencioso ya no descarga el catálogo de terceros
+    expect(nuevas.some((u) => u.endsWith('/third-parties'))).toBe(false);
     expect(result.current.transactions).toHaveLength(100);
   });
 

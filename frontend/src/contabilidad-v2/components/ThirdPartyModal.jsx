@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { API } from '../../config';
+import { useBusqueda } from '../../shared/busqueda/useBusqueda.js';
 
 const ThirdPartyModal = ({ isOpen, onClose, onSelect }) => {
-  const [thirdParties, setThirdParties] = useState([]);
   const [search, setSearch] = useState("");
   const [isCreatingNew, setIsCreatingNew] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  // H3 (estándar de consultas): búsqueda en el servidor (top-30, vacío = los
+  // más usados) en vez de descargar el catálogo completo al abrir el modal.
+  const { items: filteredParties, mas: hayMas, cargando: isLoading } =
+    useBusqueda('terceros', search, { minimo: isOpen ? 0 : 999, limite: 30 });
 
   // New Third Party Form State
   const [newType, setNewType] = useState("NIT");
@@ -17,29 +19,10 @@ const ThirdPartyModal = ({ isOpen, onClose, onSelect }) => {
 
   useEffect(() => {
     if (isOpen) {
-      fetchThirdParties();
       setIsCreatingNew(false);
       setSearch("");
     }
   }, [isOpen]);
-
-  const fetchThirdParties = async () => {
-    setIsLoading(true);
-    try {
-      const response = await fetch(`${API}/third-parties`);
-      const data = await response.json();
-      setThirdParties(data);
-    } catch (err) {
-      console.error("Error fetching third parties:", err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const filteredParties = thirdParties.filter(tp => 
-    tp.name.toLowerCase().includes(search.toLowerCase()) || 
-    tp.identification_number.includes(search)
-  );
 
   const handleSelect = (tp) => {
     onSelect({
@@ -106,7 +89,12 @@ const ThirdPartyModal = ({ isOpen, onClose, onSelect }) => {
             </div>
 
             <div className="border-2 border-black max-h-64 overflow-y-auto bg-gray-50">
-              {isLoading ? (
+              {hayMas && !isLoading && (
+                <div className="px-2 py-1 text-[10px] font-bold text-gray-500 border-b border-black">
+                  Se muestran 30. Hay más: escribe más para afinar.
+                </div>
+              )}
+              {isLoading && filteredParties.length === 0 ? (
                 <div className="p-4 text-center font-bold">Cargando terceros...</div>
               ) : filteredParties.length === 0 ? (
                 <div className="p-4 text-center font-bold text-gray-500">No se encontraron terceros. Crea uno nuevo.</div>

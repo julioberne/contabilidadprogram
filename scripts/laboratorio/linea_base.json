@@ -10,8 +10,6 @@
    "kernel/kernel_journal_workflow.py": 4
   },
   "catalogo-terceros-completo": {
-   "frontend/src/contabilidad-v2/components/EvidenceModal.jsx": 1,
-   "frontend/src/contabilidad-v2/components/ThirdPartyModal.jsx": 1,
    "frontend/src/contabilidad-v2/hooks/useDashboardData.js": 2,
    "frontend/src/contabilidad-v2/modules/registro/widgets/PensionesWidget.jsx": 1,
    "frontend/src/contabilidad-v2/modules/registro/widgets/RecaudosWidget.jsx": 1,
@@ -48,8 +46,6 @@
    "fin_sys_core/mock_policy.py": 1
   },
   "filtro-en-navegador": {
-   "frontend/src/contabilidad-v2/components/EvidenceModal.jsx": 1,
-   "frontend/src/contabilidad-v2/components/ThirdPartyModal.jsx": 1,
    "frontend/src/contabilidad-v2/components/tabs/CarteraTab.jsx": 3,
    "frontend/src/contabilidad-v2/components/tabs/EtiquetasTab.jsx": 1,
    "frontend/src/contabilidad-v2/components/tabs/TercerosTab.jsx": 1,

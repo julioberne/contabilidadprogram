@@ -4,6 +4,7 @@
 // tercero registrado, completar su contacto, pegar la geolocalización).
 import React from 'react';
 import { API } from '../../config';
+import { useBusqueda, buscarUna } from '../../shared/busqueda/useBusqueda.js';
 import { useEmpresa } from '../engine/EmpresaProvider.jsx';
 
 export default function EvidenceModal({
@@ -23,9 +24,10 @@ export default function EvidenceModal({
     else fetchAll?.(true);
   }, [selectedEvidenceTx?.id, patchTransaction, fetchAll]);
   const [editTp, setEditTp] = React.useState(false);
-  const [terceros, setTerceros] = React.useState(null);
   const [tpSel, setTpSel] = React.useState('');
   const [tpBusca, setTpBusca] = React.useState('');
+  // Búsqueda remota (H3): solo con el editor abierto; vacío = los 30 más usados.
+  const { items: tpItems, mas: tpMas } = useBusqueda('terceros', tpBusca, { minimo: editTp ? 0 : 999, limite: 30 });
   const [tpForm, setTpForm] = React.useState({ name: '', phone: '', email: '', address: '',
     identification_type: 'NIT', identification_number: '' });
   const [geoInput, setGeoInput] = React.useState('');
@@ -104,14 +106,8 @@ export default function EvidenceModal({
       identification_type: txv.identification_type || 'NIT',
       identification_number: (txv.identification_number && txv.identification_number !== '999999999')
         ? txv.identification_number : '' });
-    // UNA sola petición: el buscador filtra EN MEMORIA (cero requests por
-    // tecla — con miles de terceros sigue siendo instantáneo).
-    if (terceros === null) {
-      try {
-        const r = await fetch(`${API}/third-parties`);
-        if (r.ok) setTerceros(await r.json());
-      } catch { setTerceros([]); }
-    }
+    // H3 (estándar de consultas): ya no se descarga el catálogo completo;
+    // el buscador pide al servidor el top-30 (vacío = los más usados).
   };
 
   const abrirEdicionTags = async () => {
@@ -157,7 +153,7 @@ export default function EvidenceModal({
           body: JSON.stringify({ third_party_id: Number(tpSel) }),
         });
         if (!r.ok) throw new Error('No se pudo revincular el tercero');
-        const t = (terceros || []).find(x => x.id === Number(tpSel)) || {};
+        const t = tpItems.find(x => x.id === Number(tpSel)) || {};
         parchar({ third_party_id: t.id, third_party_name: t.name,
           identification_type: t.identification_type, identification_number: t.identification_number,
           tp_phone: t.phone, tp_email: t.email, tp_address: t.address });
@@ -169,7 +165,7 @@ export default function EvidenceModal({
         // REUTILIZA ese en vez de chocar con el número único.
         const numero = (tpForm.identification_number || '').trim();
         let nuevo = numero
-          ? (terceros || []).find(t => String(t.identification_number) === numero)
+          ? ((await buscarUna('terceros', { ident: numero }).catch(() => ({ items: [] }))).items || [])[0] || null
           : null;
         if (!nuevo) {
           const rc = await fetch(`${API}/third-parties`, {
@@ -410,16 +406,12 @@ export default function EvidenceModal({
                   </div>
                 )}
                 {editTp && (() => {
-                  const q = tpBusca.trim().toLowerCase();
-                  const filtrados = (terceros || []).filter(t => !q
-                    || (t.name || '').toLowerCase().includes(q)
-                    || String(t.identification_number || '').includes(q));
-                  const visibles = filtrados.slice(0, 30);
+                  const visibles = tpItems;
                   return (
                   <div className="border-2 border-dashed border-black bg-yellow-50 p-2 space-y-1 normal-case">
                     <div className="text-[9px] font-bold uppercase">Vincular a un tercero YA registrado:</div>
                     <input value={tpBusca} onChange={e => { setTpBusca(e.target.value); setTpSel(''); }}
-                           placeholder="🔍 Buscar por nombre o número… (filtra al instante, sin peticiones)"
+                           placeholder="🔍 Buscar por nombre, documento o celular…"
                            className="w-full border border-black px-1 py-0.5 text-[10px] bg-white" />
                     <select value={tpSel} onChange={e => setTpSel(e.target.value)} size={Math.min(Math.max(visibles.length + 1, 2), 5)}
                             className="w-full border border-black px-1 py-0.5 text-[10px] bg-white">
@@ -430,8 +422,8 @@ export default function EvidenceModal({
                         </option>
                       ))}
                     </select>
-                    {filtrados.length > 30 && (
-                      <div className="text-[8px] text-gray-500">Mostrando 30 de {filtrados.length} — afina la búsqueda</div>
+                    {tpMas && (
+                      <div className="text-[8px] text-gray-500">Hay más de 30 — escribe más para afinar</div>
                     )}
                     {!tpSel && (
                       <>
