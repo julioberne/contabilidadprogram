@@ -1,48 +1,46 @@
 # Frente: estándar de consultas escalables (todo FIN-SYS)
 
-**Estado:** ACTIVO — H1 HECHO y commiteado (16-oct-2026), **sin push ni deploy**.
-**Rama:** `claude/servidores-libro-mayor-9e4614` (worktree `affectionate-mestorf-f204bc`),
-junto con los commits del Diario (frente `libro-diario-filtros`, que es H0).
+**Estado:** ACTIVO — H1 y el **laboratorio** HECHOS y commiteados (16-oct-2026), **sin push ni deploy**.
+**Rama:** `claude/servidores-libro-mayor-9e4614` (worktree `affectionate-mestorf-f204bc`), junto con
+el Diario (frente `libro-diario-filtros` = H0).
 
 ## Objetivo
-Que ninguna pantalla cueste según el tamaño del holding sino según lo que pide
-el usuario, y que nada espere sin tope. Plan completo y las 41 reglas (B1–B14,
-F1–F12, P1–P15): `docs/estandar-consultas-escalables.md`. Investigación previa:
-`docs/filtros-contables-gran-escala.md`.
+Que ninguna pantalla cueste según el tamaño del holding sino según lo que pide el usuario, y que
+nada espere sin tope. Plan y 41 reglas (B, F, P): `docs/estandar-consultas-escalables.md`.
 
-## H1 hecho (medir y blindar sin tocar drivers)
-- `scripts/probar_set_local.py`: **SET LOCAL statement_timeout SÍ funciona por :6543**
-  y no se filtra a la transacción siguiente → los timeouts no necesitan roles nuevos.
-- Valores reales (16-oct): Postgres **17.6**, `max_connections` **60** (= cómputo
-  **Micro**, CPU compartida), la app entra como `postgres` (timeout 2 min),
-  `anon` 3 s, `authenticated` 8 s; el pooler NO deja pasar `application_name`.
-- `shared/admision.py`: cuotas por usuario (10 lect/s, ráfaga 30) y tope de pesadas
-  (2 por usuario, 4 por worker). `FINSYS_ADMISION=registrar` por defecto (solo
-  log `[admision] habría rechazado`); `activo` → 429 + Retry-After; falla abierto.
-- `routers/salud.py`: `/api/health/vida` (sin BD; Docker ahora mira esta) y
-  `/api/health/profundo`; `/api/health` igual que antes pero con caché de 10 s.
-- `FINSYS_DDL_ARRANQUE=0` salta el DDL de arranque (por defecto sigue activo).
-- Diario: `SET LOCAL statement_timeout` 5 s / 3 s → 503 + Retry-After.
-- **Sesión obligatoria** en GET que respondían sin ella: RRHH (¡salario y pagos!),
-  Hub, `inventory/movements`, `tags`, `custom-taxes`, `portfolios`;
-  `module-flags/admin` → admin. `/api/module-flags` sigue público (main.jsx antes del login).
-- Laboratorio de carga `scripts/carga/` (Postgres 17 + PgBouncer en Docker, holding
-  sintético, escenarios con escalones). **No corrido: no hay Docker en este PC.**
+## Hecho
+- **H1:** `SET LOCAL statement_timeout` SÍ funciona por :6543 (no hacen falta roles para timeouts).
+  BD real: Postgres 17.6, `max_connections` 60 (= **Micro**, CPU compartida), la app entra como
+  `postgres`. Admisión `FINSYS_ADMISION=registrar`; `/api/health/vida` (Docker) y `/profundo`;
+  `FINSYS_DDL_ARRANQUE=0` opcional; timeouts del Diario; sesión obligatoria en GET abiertos
+  (RRHH salario/pagos, Hub, inventario, tags, tasas, portafolios).
+- **Laboratorio** `scripts/laboratorio/` (README ahí) + agente `.claude/agents/laboratorio-rendimiento.md`:
+  6 criterios + proyección, informe en `docs/laboratorio/`, trinquete de la auditoría en el CI
+  (`linea_base.json`). Carga: solo GET, ≤20 usuarios, ≤60 s, freno p95/errores/pool, 21–07 h.
+  Volumen grande: proyecto Supabase aparte con `--lab-env` (la guarda rechaza el usuario de prod).
+
+## Primer informe (`docs/laboratorio/informe-2026-10-16-1351.md`, backend LOCAL)
+- 🟡 `bot_messages`: ~95.700 recorridos completos vs 1.445 por índice → a una consulta del bot le
+  falta índice y la tabla crece sin tope (revisar retención y el índice).
+- 🟡 Auditoría: 19 patrones de gravedad alta (7 descargas de todas las TX, 10 catálogos de terceros
+  completos, 2 dataset de Análisis) y 145 medios → deuda conocida; el trinquete impide que crezca.
+- 🔴 Proyección a 500.000 TX/empresa: ~11 usuarios; cuello = Diario con grupos (recorre
+  `transactions` 5 veces) → plan A del Diario.
+- 🟡 Carga útil: dataset de Análisis pasa 200 KB desde ~50.000 TX; terceros desde ~5.000.
+- Una **pausa global de ~10 s** (todas las peticiones a la vez, sonda de BD con timeout) en una
+  corrida; no se repitió aislando el endpoint. Si reaparece: red, Supavisor o el vigía de `db_pool.py`.
+- Latencias locales infladas (1 worker con recarga, ~180 ms de red): no representan producción.
 
 ## Próximo paso
-1. Andrés: `scripts\publicar.cmd` (Diario + H1). Sondas: `/api/health/vida` 200,
-   `/api/portfolios` sin token 401, `/api/health` con `db: connected`.
-2. Andrés: instalar Docker Desktop y correr el laboratorio (`scripts/carga/README.md`).
-3. Tras ~1 semana en `registrar`: revisar logs `[admision]` y decidir `activo`.
-4. Siguiente hito: **H2** (pool que espera: semáforo con timeout en `db_pool.py`,
-   sin conexiones directas de respaldo, threadpool 16). Requiere revisión de Andrés.
-
-## Decisiones
-- Con 60 conexiones (Micro), el presupuesto P1 es ajustado: 2 workers × (10 + 5
-  de respaldo) + bot ya puede llegar a ~45. Subir de cómputo antes que de pool.
-- `FINSYS_DDL_ARRANQUE` queda en 1 hasta confirmar que las migraciones cubren el esquema.
+1. Andrés: `scripts\publicar.cmd` (Diario + H1 + laboratorio). Sondas: `/api/health/vida` 200,
+   `/api/portfolios` sin token 401.
+2. Andrés, de noche: laboratorio contra producción con `LAB_TOKEN` (comando en el README) → cifras reales.
+3. **H2** (pool que espera: semáforo con timeout en `db_pool.py`, sin respaldo directo,
+   threadpool 16) + `docs/escalamiento.md` (presupuesto de conexiones y escalones de Supabase).
+   `db_pool.py` es infraestructura común → revisión de Andrés.
+4. Índice/retención de `bot_messages` (hallazgo del laboratorio).
 
 ## Cómo verificar
-- `python -m unittest tests.test_estandar_h1` (14, sin BD) y
-  `tests.test_diario_filtros` (con BD, solo lectura).
-- Error preexistente sin BD: `tests/test_coa_fix.py` (conecta al importar).
+`python -m unittest tests.test_laboratorio tests.test_estandar_h1` (sin BD) ·
+`python scripts/laboratorio/auditoria_codigo.py` (trinquete) · error preexistente sin BD:
+`tests/test_coa_fix.py`.
