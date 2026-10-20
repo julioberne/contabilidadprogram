@@ -29,13 +29,28 @@ import time
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(_ROOT)
 sys.path.insert(0, _ROOT)
-if os.path.exists(".env"):
-    with open(".env", "r", encoding="utf-8") as f:
-        for line in f:
-            ls = line.strip()
-            if ls and not ls.startswith("#") and "=" in ls:
-                k, v = ls.split("=", 1)
-                os.environ.setdefault(k.strip(), v.strip())
+
+
+def _cargar_env():
+    """El .env del proyecto: el de esta carpeta o, desde un worktree
+    (.claude/worktrees/<x>, que no lo tiene), el de la carpeta principal."""
+    import pathlib
+    raiz = pathlib.Path(_ROOT)
+    for base in (raiz, *raiz.parents):
+        env = base / ".env"
+        if env.is_file():
+            with open(env, "r", encoding="utf-8") as f:
+                for line in f:
+                    ls = line.strip()
+                    if ls and not ls.startswith("#") and "=" in ls:
+                        k, v = ls.split("=", 1)
+                        os.environ.setdefault(k.strip(), v.strip())
+            return env
+    return None
+
+
+if not _cargar_env() or not os.getenv("DB_HOST"):
+    sys.exit("❌ No encontré el .env con DB_HOST (ni aquí ni en la carpeta principal): no me conecto a ciegas.")
 
 import psycopg2  # noqa: E402
 
