@@ -1,10 +1,11 @@
 # Frente: estándar de consultas escalables (todo FIN-SYS)
 
 **Estado:** ACTIVO — H0-H3 (con el cierre del bot) **EN PRODUCCIÓN** (`191b340`, 16-oct-2026).
-**H4, Plan B y H5.1-H5.2 hechos, sin publicar** (`43bf674`, `586fb51`, `215ea23`, `ab44f49`). Rama
-`claude/servidores-libro-mayor-9e4614` (worktree `affectionate-mestorf-f204bc`). Orden acordado con Andrés
-(16-oct): **uno por uno en esta rama**: H4 → Plan B → H5 (**H5.3** sigue) → H6 → H7 → H8 (H8 con
-permiso para `database_driver.py`, plan previo).
+**En producción** (20-oct): H4, Plan B (código), webhook SMS y H5.1-H5.2 (`5a94172`). **Sin publicar:**
+`7835511` (las migraciones encuentran el `.env` desde el worktree) y **H5.3 `c7d8d72`**. **Sin migrar:** Plan B y H5
+(los dos scripts fallaron el 19-oct por el `.env`; ya corregido). Rama `claude/servidores-libro-mayor-9e4614`.
+Orden acordado: uno por uno en esta rama → **H5.4** (bot) → H5.5 → H6 → H7 → H8 (H8 con permiso para
+`database_driver.py`, plan previo).
 
 ## Objetivo
 Que ninguna pantalla cueste según el tamaño del holding sino según lo que pide el usuario, y que
@@ -42,17 +43,14 @@ Runbook de escalamiento: `docs/escalamiento.md`. Laboratorio: `scripts/laborator
   la entrega ZIP retiene una conexión mientras arma (`entrega_driver.py:141-156`).
 
 ## Próximo paso
-1. **Andrés:** `scripts\publicar.cmd` (H4, Plan B, SMS, H5; el compose suma el servicio `worker`). Luego:
-   `..\..\..\.venv\Scripts\python.exe scripts\migrate_trgm_busqueda.py --concurrently --explain` y
-   `..\..\..\.venv\Scripts\python.exe scripts\migrate_operaciones.py` (en Supabase → Queues NO exponer por PostgREST).
-   Con la migración: correr `tests.test_cola` con BD (ciclo completo en `trabajos_prueba`) y, si pasa,
-   `FINSYS_EXPORT_EN_COLA=1` en Dokploy → probar una exportación (botón "EN COLA…" → descarga).
-2. **H5.3**: entrega ZIP y CSV del Diario a la cola. **H5.4**: bot (voz/IA/foto al worker; envíos con
-   límite y retry_after). **H5.5**: tareas periódicas al worker (resumen, retención, avisos) y purga de
-   `operaciones` terminadas (>30 días). Cada uno con plan previo.
-3. **Decisión pendiente de Andrés:** widgets de colegio (`registro/widgets/{Pensiones,Recaudos,Uniformes}Widget.jsx`)
-   tratan a todo tercero como estudiante → ¿etiqueta o tipo? Son los 3 catálogos completos que quedan.
-4. Medición real: laboratorio contra producción de noche con `LAB_TOKEN`; prueba de volumen en BD aparte.
+1. **Andrés:** correr `..\..\..\.venv\Scripts\python.exe scripts\migrate_trgm_busqueda.py --concurrently --explain` y
+   `...\migrate_operaciones.py` (deben decir "✅ Conectado a …supabase.com:6543"; Supabase → Queues sin PostgREST);
+   publicar `c7d8d72` con `scripts\publicar.cmd`.
+2. **Claude:** con la migración, `tests.test_cola` con BD (ciclo en `trabajos_prueba`) y revisar `/api/health/profundo` → `cola`.
+3. **Andrés:** `FINSYS_EN_COLA=exportacion,entrega,diario_csv` en Dokploy → probar exportación, 📦 entrega y CSV
+   grande del Diario (más de 2.000 filas; con orden que no es por fecha sale por fecha y se avisa).
+4. **H5.4 bot**: voz/IA/foto al worker y envíos a Telegram con límite y retry_after (plan previo; `bot_telegram.py`
+   nunca se lanza en local). **H5.5**: tareas periódicas al worker + purga de `operaciones` (>30 días).
 
 ## Decisiones (y porqué)
 - Pruebas contra la BD compartida SOLO LECTURA y acotadas; carga de día solo con OK explícito de Andrés.
