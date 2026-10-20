@@ -1,9 +1,10 @@
 # Frente: estándar de consultas escalables (todo FIN-SYS)
 
 **Estado:** ACTIVO — H0-H3 (con el cierre del bot) **EN PRODUCCIÓN** (`191b340`, 16-oct-2026).
-**H4 y Plan B hechos, sin publicar** (`43bf674`, `586fb51`). Rama `claude/servidores-libro-mayor-9e4614`
-(worktree `affectionate-mestorf-f204bc`). Orden acordado con Andrés (16-oct): **uno por uno en esta
-rama**: H4 → Plan B → **H5** → H6 → H7 → H8 (H8 con permiso para `database_driver.py`, plan previo).
+**H4, Plan B y H5.1-H5.2 hechos, sin publicar** (`43bf674`, `586fb51`, `215ea23`, `ab44f49`). Rama
+`claude/servidores-libro-mayor-9e4614` (worktree `affectionate-mestorf-f204bc`). Orden acordado con Andrés
+(16-oct): **uno por uno en esta rama**: H4 → Plan B → H5 (**H5.3** sigue) → H6 → H7 → H8 (H8 con
+permiso para `database_driver.py`, plan previo).
 
 ## Objetivo
 Que ninguna pantalla cueste según el tamaño del holding sino según lo que pide el usuario, y que
@@ -28,17 +29,27 @@ Runbook de escalamiento: `docs/escalamiento.md`. Laboratorio: `scripts/laborator
   `idx_tx_portfolio_date` ya existía en la BD. Verificado: 26 tests con BD, vitest, build, navegador.
 - **Plan B `586fb51`** `scripts/migrate_trgm_busqueda.py` (pg_trgm + 3 GIN en third_parties con las
   expresiones de `busqueda.py`); en `busqueda.py`, 2 letras = inicio de palabra, «contiene» desde 3.
-- Fuera de H4 a propósito: «Marcar todo» y el CSV (tope 5.000) → H5 (CSV a la cola) y H8 (lote en el
+- Fuera de H4 a propósito: «Marcar todo» y el CSV (tope 5.000) → H5.3 (CSV a la cola) y H8 (lote en el
   servidor); montos como string → H6/H8.
+- **H5.1-H5.2 `ab44f49`** (Andrés eligió pgmq para la cola; `operaciones` solo estado):
+  `fin_sys_core/cola.py`, `worker.py` (+`worker_jobs.py`), `routers/operaciones.py`, servicio `worker`
+  en compose, `cola` en `/api/health/profundo`; exportación .xlsx en la cola con `FINSYS_EXPORT_EN_COLA=1`
+  (sin bandera o sin migración, síncrona). Seguridad: cola por defecto `trabajos_prueba`; un worker sin
+  `FINSYS_WORKER_PRODUCCION=1` se niega a tomar `trabajos`. **`215ea23`** webhook SMS ya no frena la API.
+- Hallazgos del relevamiento (19-oct) para H5.3-H5.5: el bot procesa todo en serie (`bot_telegram.py:325`;
+  una voz o la IA frena a todos los chats), sin manejo de 429/retry_after (la respuesta se pierde), SMS
+  con hasta 45 s de espera; la voz web deja el audio en `./uploads` sin borrarlo (`transactions.py:313`);
+  la entrega ZIP retiene una conexión mientras arma (`entrega_driver.py:141-156`).
 
 ## Próximo paso
-1. **Andrés:** `scripts\publicar.cmd` en la terminal de esta sesión (H4 + Plan B). Después, la migración:
-   `.venv\Scripts\python.exe scripts\migrate_trgm_busqueda.py --dry-run` y luego `--concurrently --explain`.
-2. **H5 cola y worker** (siguiente hito): plan antes de código → aprobación. Alcance en §6 del doc:
-   pgmq (Supabase Queues; activar la extensión = Andrés) o PGQueuer; servicio `worker` en
-   `docker-compose.yml`; 202 + `/api/operaciones`; pasar al worker .xlsx, compendio, PDF, voz, foto, IA,
-   envíos de Telegram y tareas periódicas; el CSV del Diario como exportación en la cola.
-   Ojo: `bot_telegram.py` nunca se lanza en local; colas de prueba `*_prueba`.
+1. **Andrés:** `scripts\publicar.cmd` (H4, Plan B, SMS, H5; el compose suma el servicio `worker`). Luego:
+   `..\..\..\.venv\Scripts\python.exe scripts\migrate_trgm_busqueda.py --concurrently --explain` y
+   `..\..\..\.venv\Scripts\python.exe scripts\migrate_operaciones.py` (en Supabase → Queues NO exponer por PostgREST).
+   Con la migración: correr `tests.test_cola` con BD (ciclo completo en `trabajos_prueba`) y, si pasa,
+   `FINSYS_EXPORT_EN_COLA=1` en Dokploy → probar una exportación (botón "EN COLA…" → descarga).
+2. **H5.3**: entrega ZIP y CSV del Diario a la cola. **H5.4**: bot (voz/IA/foto al worker; envíos con
+   límite y retry_after). **H5.5**: tareas periódicas al worker (resumen, retención, avisos) y purga de
+   `operaciones` terminadas (>30 días). Cada uno con plan previo.
 3. **Decisión pendiente de Andrés:** widgets de colegio (`registro/widgets/{Pensiones,Recaudos,Uniformes}Widget.jsx`)
    tratan a todo tercero como estudiante → ¿etiqueta o tipo? Son los 3 catálogos completos que quedan.
 4. Medición real: laboratorio contra producción de noche con `LAB_TOKEN`; prueba de volumen en BD aparte.
