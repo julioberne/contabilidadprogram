@@ -15,6 +15,7 @@
    ============================================================ */
 import { useEffect, useMemo, useState } from 'react';
 import { api } from './api.js';
+import { esperarOperacion } from '../shared/operaciones.js';
 import { Modal, AvisoError, DialogoTexto, btnNegro, btnBlanco } from './Dialogos.jsx';
 import { formatoBytes } from './organizador.js';
 import { ATAJOS, rangoRelativo, rangoMes, atajoDe } from './periodos.js';
@@ -112,7 +113,7 @@ export default function NuevaExportacion({ paquetes, portfolios, carpetas, inici
   const [comp, setComp] = useState(COMPENDIO_INICIAL);
   const [txs, setTxs] = useState({ lista: [], cargando: true, error: '' });
   const [prevuelo, setPrevuelo] = useState(null);         // { firma, data }
-  const [ocupado, setOcupado] = useState('');             // '' | 'revisando' | 'generando'
+  const [ocupado, setOcupado] = useState('');             // '' | 'revisando' | 'en cola' | 'generando'
   const [error, setError] = useState('');
   const [hecho, setHecho] = useState(null);
   const [dialogo, setDialogo] = useState(null);
@@ -193,9 +194,15 @@ export default function NuevaExportacion({ paquetes, portfolios, carpetas, inici
         onGenerado?.(res);
         return;
       }
-      const res = await api.post('/analytics/export', {
+      let res = await api.post('/analytics/export', {
         receta: solicitud.receta, paquete: solicitud.paquete, folder_id: carpeta ? Number(carpeta) : null,
       });
+      if (res?.en_cola) {                     // H5: 202 → el worker lo arma; aquí solo se espera
+        setOcupado('en cola');
+        res = await esperarOperacion(res.operacion, {
+          onEstado: (op) => setOcupado(op.estado === 'EN_CURSO' ? 'generando' : 'en cola'),
+        });
+      }
       setHecho(res);
       onGenerado?.(res);
       api.descargar(res.id, res.nombre_archivo).catch((e) => setError(`Se archivó, pero la descarga falló: ${e.message}`));
@@ -239,7 +246,8 @@ export default function NuevaExportacion({ paquetes, portfolios, carpetas, inici
       <button type="button" className={btnNegro} disabled={!puedeGenerar} onClick={generar}
         title={!revisionVigente ? 'Revisa primero' : esCompendio ? 'Crea el link con folio para el cliente'
           : 'Genera el libro con folio, lo guarda en el archivo y lo descarga'}>
-        {ocupado === 'generando' ? '⏳ GENERANDO…' : esCompendio ? '🤝 CREAR COMPENDIO' : '📥 GENERAR Y DESCARGAR'}</button>
+        {ocupado === 'generando' ? '⏳ GENERANDO…' : ocupado === 'en cola' ? '⏳ EN COLA…'
+          : esCompendio ? '🤝 CREAR COMPENDIO' : '📥 GENERAR Y DESCARGAR'}</button>
     </>
   );
 

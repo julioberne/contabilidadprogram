@@ -43,6 +43,13 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - COMPENDIO_AVISO_TELEGRAM=${COMPENDIO_AVISO_TELEGRAM:-1}
       - COMPENDIO_AVISO_CHAT=${COMPENDIO_AVISO_CHAT:-}
+      # Estándar H5 (2026-10-19): cola de trabajos pgmq. La API de producción
+      # encola en `trabajos` (en local, por defecto, `trabajos_prueba`). La
+      # exportación .xlsx va a la cola solo con FINSYS_EXPORT_EN_COLA=1, que se
+      # enciende DESPUÉS de correr scripts/migrate_operaciones.py y con el
+      # servicio worker arriba (si la cola no está instalada, sigue síncrona).
+      - FINSYS_COLA=trabajos
+      - FINSYS_EXPORT_EN_COLA=${FINSYS_EXPORT_EN_COLA:-0}
     expose:
       - "8000"
     volumes:
@@ -114,6 +121,52 @@ services:
     volumes:
       # El MISMO volumen del backend: las notas de voz que guarda el bot
       # deben existir para la web (evidencias servidas en /uploads).
+      - uploads:/app/uploads
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - finsys-net
+
+  # ─────────────────────────────────────────────────────────────
+  # WORKER: trabajos de la cola pgmq (estándar H5, 2026-10-19)
+  # Misma imagen, command distinto, sin puertos. Hace lo pesado que antes
+  # corría dentro de la petición (hoy: la exportación .xlsx). Requiere
+  # scripts/migrate_operaciones.py; sin la migración solo espera y registra.
+  # FINSYS_WORKER_PRODUCCION=1 SOLO aquí: un worker local se niega a tomar
+  # la cola de producción (la BD es la misma en local y en producción).
+  # ─────────────────────────────────────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: finsys-worker
+    restart: unless-stopped
+    command: ["python", "-m", "fin_sys_core.worker"]
+    # Sin HTTP: el worker toca un archivo en cada vuelta; si no lo toca en
+    # 2 minutos, está colgado.
+    healthcheck:
+      test: ["CMD-SHELL", "find /tmp/finsys-worker-vivo -mmin -2 | grep -q ."]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - SENTRY_DSN=${SENTRY_DSN}
+      - FINSYS_COLA=trabajos
+      - FINSYS_WORKER_PRODUCCION=1
+      - FINSYS_WORKER_HILOS=${FINSYS_WORKER_HILOS:-2}
+      # Pool chico y caliente: 2 trabajos a la vez + latidos (docs/escalamiento.md)
+      - DB_POOL_MIN=${WORKER_DB_POOL:-3}
+      - DB_POOL_MAX=${WORKER_DB_POOL:-3}
+      - FINSYS_ALLOW_5432=${FINSYS_ALLOW_5432:-0}
+    volumes:
       - uploads:/app/uploads
     depends_on:
       backend:

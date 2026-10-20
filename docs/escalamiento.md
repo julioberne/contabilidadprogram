@@ -12,9 +12,10 @@ Valores medidos el 16-oct-2026 con `scripts/probar_set_local.py` y el laboratori
 | Canal | Pooler en modo transacción `:6543` (`SET LOCAL statement_timeout` funciona; `SET` de sesión no) | `probar_set_local.py` |
 | API | gunicorn, `GUNICORN_WORKERS=2`, pool **10 caliente** por worker (`DB_POOL_MIN = DB_POOL_MAX`) | `Dockerfile`, `docker-compose.yml` |
 | Bot | proceso aparte, pool 2-10 (procesa en serie) | `docker-compose.yml` |
+| Worker (H5) | proceso aparte, pool 3, `FINSYS_WORKER_HILOS=2`: la cola pgmq `trabajos` (hoy, la exportación .xlsx) | `docker-compose.yml`, `fin_sys_core/worker.py` |
 | Desarrollo local | **la misma BD**, pool 10 | `.env` |
 
-**Clientes del pooler** (lo que pone `docker-compose.yml`): 2 workers × 10 + bot ≤ 10 + dev 10 = **≤ 40 de ~200**.
+**Clientes del pooler** (lo que pone `docker-compose.yml`): 2 workers × 10 + bot ≤ 10 + worker 3 + dev 10 = **≤ 43 de ~200**.
 **Conexiones del servidor**: en modo transacción, una conexión ociosa del pool NO ocupa una conexión
 de Postgres; el techo real lo da el *pool size* de Supavisor del proyecto (verlo en el panel de
 Supabase → Database → Connection pooling) y las 60 de `max_connections` (menos ~15 de servicios de Supabase).
@@ -76,6 +77,11 @@ página *Compute and Disk* de Supabase (revisarla al subir; cambian).
 | `FINSYS_HILOS` | (40 de Starlette) | No bajar hasta que lo lento sin BD vaya a la cola (H5); luego 16-20 |
 | `FINSYS_DDL_ARRANQUE` | 1 | `0` cuando las migraciones cubran el esquema (evita `ALTER` en cada reciclaje) |
 | `GUNICORN_WORKERS` | 2 | Procesos de la API |
+| `FINSYS_COLA` | trabajos_prueba | Cola pgmq que usan la API y el worker; `trabajos` solo en docker-compose |
+| `FINSYS_EXPORT_EN_COLA` | 0 | `1` = la exportación .xlsx responde 202 y la arma el worker (encender tras `migrate_operaciones.py`) |
+| `FINSYS_WORKER_HILOS` | 2 | Trabajos a la vez en el worker. Subir si la edad del más viejo (`/api/health/profundo` → `cola`) pasa de 60 s |
+| `FINSYS_WORKER_PRODUCCION` | — | `1` solo en el worker de Dokploy: sin ella un worker se niega a tomar la cola de producción |
+| `DIARIO_SIMULTANEAS` | 3 | Consultas del Diario a la vez por worker de la API (H4); la siguiente espera 2 s → 503 |
 
 **Puente de emergencia `:5432`** (modo sesión, límite ~15 clientes compartido): `DB_PORT=5432`,
 `FINSYS_ALLOW_5432=1`, `DB_POOL_MAX=3`, `DB_POOL_MIN=2`, `GUNICORN_WORKERS=2`, y apagar el dev local.

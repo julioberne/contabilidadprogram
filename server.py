@@ -125,6 +125,7 @@ from routers.compendios import router as compendios_router
 from routers.diario import router as diario_router
 from routers.salud import router as salud_router
 from routers.busqueda import router as busqueda_router
+from routers.operaciones import router as operaciones_router
 
 app.include_router(portfolios_router)
 app.include_router(transactions_router)
@@ -134,6 +135,7 @@ app.include_router(dashboard_data_router)
 app.include_router(diario_router)        # módulo 02: búsqueda y filtros del Diario
 app.include_router(salud_router)         # /api/health/vida (sin BD) y /profundo
 app.include_router(busqueda_router)      # /api/buscar/* — búsqueda remota única (H3)
+app.include_router(operaciones_router)   # /api/operaciones/{id} — trabajos en la cola (H5)
 app.include_router(tags_taxes_router)
 app.include_router(ct_router)
 app.include_router(hub_router)

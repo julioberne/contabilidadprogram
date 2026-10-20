@@ -85,6 +85,9 @@ def salud_vida():
 
 @router.get("/api/health/profundo")
 def salud_profunda():
+    from fin_sys_core.cola import metricas
     from shared.admision import resumen
+    # cola: largo, edad del mensaje más viejo y operaciones en vuelo (H5);
+    # {"activa": false} mientras no se corra scripts/migrate_operaciones.py.
     return {"status": "ok", "db": sonda_bd(), "pool": estado_pool(),
-            "admision": resumen(), "version": "2.0"}
+            "admision": resumen(), "cola": metricas(), "version": "2.0"}
