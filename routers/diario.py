@@ -3,15 +3,18 @@
 
 GET /api/diario/movimientos  → página + totales (+ grupos) de lo filtrado
 GET /api/diario/opciones     → valores existentes para llenar los selectores
+POST /api/diario/csv         → CSV grande de lo filtrado por la cola (H5.3)
 
-Solo lectura. La lógica vive en fin_sys_core/diario_query.py.
+Lectura, salvo el CSV, que el worker guarda en el organizador. La lógica vive
+en fin_sys_core/diario_query.py y fin_sys_core/diario_csv.py.
 """
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from psycopg2 import errors as pg_errors
 
-from routers.auth_guard import require_auth
+from routers.auth_guard import require_auth, require_contador
+from routers.operaciones import a_la_cola
 
 router = APIRouter(tags=["Diario"])
 
@@ -38,8 +41,7 @@ def _empresas(portfolio: Optional[str], empresas: Optional[str]):
     return [portfolio] if portfolio else []
 
 
-@router.get("/api/diario/movimientos")
-def diario_movimientos(
+def _filtros(
     portfolio: Optional[str] = None,
     empresas: Optional[str] = None,
     q: Optional[str] = None,
@@ -56,6 +58,20 @@ def diario_movimientos(
     cartera: Optional[str] = None,
     cartera_estado: Optional[str] = None,
     banderas: Optional[str] = None,
+) -> dict:
+    """Los filtros del Diario desde la query (los mismos para la tabla y el CSV)."""
+    return {
+        "empresas": _empresas(portfolio, empresas), "q": q, "tipos": tipos,
+        "desde": desde, "hasta": hasta, "terceros": terceros, "cuentas": cuentas,
+        "categorias": categorias, "etiquetas": etiquetas, "monto_min": monto_min,
+        "monto_max": monto_max, "moneda": moneda, "cartera": cartera,
+        "cartera_estado": cartera_estado, "banderas": banderas,
+    }
+
+
+@router.get("/api/diario/movimientos")
+def diario_movimientos(
+    filtros: dict = Depends(_filtros),
     orden: str = "fecha_desc",
     agrupar: Optional[str] = None,
     limit: int = 50,
@@ -67,13 +83,6 @@ def diario_movimientos(
 ):
     from fin_sys_core.diario_query import DiarioOcupado, buscar_movimientos
 
-    filtros = {
-        "empresas": _empresas(portfolio, empresas), "q": q, "tipos": tipos,
-        "desde": desde, "hasta": hasta, "terceros": terceros, "cuentas": cuentas,
-        "categorias": categorias, "etiquetas": etiquetas, "monto_min": monto_min,
-        "monto_max": monto_max, "moneda": moneda, "cartera": cartera,
-        "cartera_estado": cartera_estado, "banderas": banderas,
-    }
     despues = (despues_fecha, despues_id) if (despues_fecha or despues_id) else None
     try:
         return buscar_movimientos(filtros, orden=orden, agrupar=agrupar or None,
@@ -86,6 +95,26 @@ def diario_movimientos(
         raise _demasiado_lenta()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/diario/csv", status_code=202)
+def diario_csv(response: Response, filtros: dict = Depends(_filtros), orden: str = "fecha_desc",
+               folder_id: Optional[int] = None, user: dict = Depends(require_contador)):
+    """H5.3: CSV de TODO lo filtrado (más de 2.000 filas), armado por el worker y
+    guardado en el organizador → 202 + /api/operaciones/{id}. 409 si la cola no
+    está activa (el navegador arma entonces el CSV con su tope de siempre)."""
+    from fin_sys_core.diario_query import ORDENES, construir_filtros
+    if orden not in ORDENES:
+        raise HTTPException(status_code=400, detail=f"Orden inválido: '{orden}'")
+    try:
+        construir_filtros(filtros)               # filtros malos → 400 ya, no en el worker
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    encolada = a_la_cola("diario_csv", "diario_csv", {"filtros": filtros, "orden": orden,
+                                                      "folder_id": folder_id}, user, response)
+    if not encolada:
+        raise HTTPException(status_code=409, detail="La exportación grande del Diario aún no está activa.")
+    return encolada
 
 
 @router.get("/api/diario/opciones")

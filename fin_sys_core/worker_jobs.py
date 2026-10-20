@@ -35,3 +35,29 @@ def exportacion_xlsx(datos: Dict[str, Any], op: Dict[str, Any]) -> Dict[str, Any
                            tipo_documental_id=datos.get("tipo_documental_id"))
     except (ValueError, drv.Conflicto, drv.NoEncontrado) as e:
         raise ErrorDefinitivo(str(e)) from e
+
+
+@manejador("entrega_zip")
+def entrega_zip(datos: Dict[str, Any], op: Dict[str, Any]) -> Dict[str, Any]:
+    """H5.3: el 📦 compendio de entrega (ZIP con índice y folio). Antes, dentro de
+    POST /api/accounting-files/entrega con una conexión del pool abierta mientras
+    se armaba el ZIP en memoria. Mismo resultado que la ruta síncrona."""
+    import accounting_files_driver as drv
+    import entrega_driver
+    pedido = {k: datos.get(k) for k in ("ids", "nombre", "nota", "folder_id")}
+    try:
+        return entrega_driver.crear(pedido, datos.get("usuario"))
+    except (ValueError, drv.Conflicto, drv.NoEncontrado) as e:
+        raise ErrorDefinitivo(str(e)) from e
+
+
+@manejador("diario_csv")
+def diario_csv(datos: Dict[str, Any], op: Dict[str, Any]) -> Dict[str, Any]:
+    """H5.3: el CSV del Libro Diario de más de 2.000 filas, sin el tope de 5.000
+    del navegador; queda en el organizador con folio propio."""
+    from fin_sys_core import diario_csv as csv_mod
+    try:
+        return csv_mod.generar(datos.get("filtros") or {}, datos.get("orden") or "fecha_desc",
+                               datos.get("usuario"), folder_id=datos.get("folder_id"))
+    except ValueError as e:
+        raise ErrorDefinitivo(str(e)) from e

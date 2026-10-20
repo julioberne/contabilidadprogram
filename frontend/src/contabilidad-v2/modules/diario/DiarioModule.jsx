@@ -18,6 +18,10 @@ import { useEmpresa } from '../../engine/EmpresaProvider.jsx';
 import { useLibroDiario } from './useLibroDiario.js';
 import { useDiarioFiltrado, MAX_TODO } from './useDiarioFiltrado.js';
 import { CLAVES_URL, aCsv, aParametros, codigoPuc, desdeParametros, filtrosActivos } from './diarioFiltros.js';
+import { API } from '../../../config';
+import { authHeaders } from '../../../shell/authHeaders.js';
+import { api } from '../../../exportacion/api.js';
+import { esperarOperacion } from '../../../shared/operaciones.js';
 
 function escribirUrl(filtros, orden, agrupar) {
   const p = new URLSearchParams(window.location.search);
@@ -25,6 +29,23 @@ function escribirUrl(filtros, orden, agrupar) {
   aParametros(filtros, { orden, agrupar }).forEach((v, k) => p.set(k, v));
   const qs = p.toString();
   window.history.replaceState(window.history.state, '', window.location.pathname + (qs ? `?${qs}` : ''));
+}
+
+/** Hasta aquí el navegador arma el CSV al instante; más, va a la cola (H5.3). */
+const CSV_DIRECTO = 2000;
+
+/** Pide el CSV grande a la cola y espera el archivo → {id, nombre_archivo, n, folio, orden_usado} o
+ *  null si la cola no está activa (409) o el usuario no puede (403): entonces sigue el CSV del navegador. */
+async function csvEnCola(portfolio, filtros, orden) {
+  const p = aParametros(filtros, { orden });
+  p.delete('rango');
+  if (portfolio) p.set('portfolio', portfolio);
+  if (!p.get('orden')) p.set('orden', orden);
+  const r = await fetch(`${API}/diario/csv?${p}`, { method: 'POST', headers: { ...authHeaders() } });
+  if (r.status === 409 || r.status === 403) return null;
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.detail || `Error ${r.status} al pedir el CSV`);
+  return esperarOperacion(d.operacion);
 }
 
 function descargar(texto, nombre) {
@@ -62,6 +83,18 @@ export default function DiarioModule({ onEvidenceClick }) {
   const exportarCsv = async () => {
     setExportando(true);
     try {
+      // H5.3: más de CSV_DIRECTO filas → lo arma el worker (sin el tope de
+      // MAX_TODO) y queda en el organizador. Si la cola no está activa (409) o
+      // el usuario no es contador (403), se sigue con el CSV del navegador.
+      if (fil.total > CSV_DIRECTO) {
+        const archivo = await csvEnCola(empresa.activePortfolio, filtros, orden);
+        if (archivo) {
+          await api.descargar(archivo.id, archivo.nombre_archivo);
+          alert(`📥 CSV de ${archivo.n} movimientos listo y guardado en el organizador (${archivo.folio})`
+            + (archivo.orden_usado !== orden ? '. Va ordenado por fecha (el orden elegido no aplica a exportaciones grandes).' : '.'));
+          return;
+        }
+      }
       const filas = fil.rows.length >= fil.total ? fil.rows : await fil.traerTodo();
       const hoy = new Date().toISOString().slice(0, 10);
       descargar(aCsv(filas), `libro-diario-${(empresa.activePortfolio || 'empresa').replace(/\s+/g, '-')}-${hoy}.csv`);

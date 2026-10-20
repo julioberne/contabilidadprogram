@@ -26,7 +26,6 @@ sesión: nunca una URL pública (R-135-05).
   GET/POST /api/accounting-folders · PATCH/DELETE /api/accounting-folders/{id} (DELETE admin)
   GET/POST /api/accounting-doc-types · PATCH/DELETE /api/accounting-doc-types/{id} (DELETE admin)
 """
-import os
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
@@ -34,6 +33,7 @@ from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Respons
 from pydantic import BaseModel
 
 from routers.auth_guard import require_admin, require_contador
+from routers.operaciones import a_la_cola
 
 router = APIRouter(tags=["Organizador contable"])
 
@@ -102,21 +102,14 @@ def preflight(req: PreflightRequest, user: dict = Depends(require_contador)):
 
 @router.post("/api/analytics/export")
 def exportar(req: ExportRequest, response: Response, user: dict = Depends(require_contador)):
-    # Estándar H5.2: con FINSYS_EXPORT_EN_COLA=1 el libro lo arma el worker
-    # (202 + /api/operaciones/{id}); la API ya no retiene un hilo ni una conexión
-    # del pool mientras se construye. Sin la bandera, o si la cola aún no está
-    # instalada, sigue síncrono como siempre.
-    if os.getenv("FINSYS_EXPORT_EN_COLA") == "1":
-        from fin_sys_core.cola import ColaNoDisponible, encolar
-        datos = {"receta": req.receta, "paquete": req.paquete, "folder_id": req.folder_id,
-                 "tipo_documental_id": req.tipo_documental_id,
-                 "usuario": {k: user.get(k) for k in ("uid", "name", "role", "su")}}
-        try:
-            r = encolar("exportacion_xlsx", datos, usuario=str(user.get("uid") or ""))
-            response.status_code = 202
-            return {"operacion": r["id"], "estado": "PENDIENTE", "en_cola": True, "nueva": r["nueva"]}
-        except ColaNoDisponible:
-            pass
+    # Estándar H5.2: en la cola, el libro lo arma el worker (202 +
+    # /api/operaciones/{id}); la API ya no retiene un hilo ni una conexión del
+    # pool mientras se construye.
+    encolada = a_la_cola("exportacion", "exportacion_xlsx", {
+        "receta": req.receta, "paquete": req.paquete, "folder_id": req.folder_id,
+        "tipo_documental_id": req.tipo_documental_id}, user, response)
+    if encolada:
+        return encolada
     try:
         return _drv().generar(req.receta, user, paquete=req.paquete, folder_id=req.folder_id,
                               tipo_documental_id=req.tipo_documental_id)
@@ -207,8 +200,12 @@ class EntregaIn(BaseModel):
 
 
 @router.post("/api/accounting-files/entrega", status_code=201)
-def entrega(body: EntregaIn, user: dict = Depends(require_contador)):
-    """📦 Compendio de entrega: varios archivos → un ZIP con índice (CSV con SHA-256) y folio propio."""
+def entrega(body: EntregaIn, response: Response, user: dict = Depends(require_contador)):
+    """📦 Compendio de entrega: varios archivos → un ZIP con índice (CSV con SHA-256) y folio propio.
+    H5.3: en la cola, el ZIP lo arma el worker (202 + /api/operaciones/{id})."""
+    encolada = a_la_cola("entrega", "entrega_zip", body.model_dump(), user, response)
+    if encolada:
+        return encolada
     try:
         import entrega_driver
         return entrega_driver.crear(body.model_dump(), user)

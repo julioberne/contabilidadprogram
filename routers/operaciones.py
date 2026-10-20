@@ -5,11 +5,29 @@ GET /api/operaciones/{id} → estado, resultado o error de un trabajo que la
 API encoló (respuesta 202 de, p. ej., POST /api/analytics/export). Solo lo
 ve quien lo pidió, o un admin. Solo lectura.
 """
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Any, Dict
+
+from fastapi import APIRouter, Depends, HTTPException, Response
 
 from routers.auth_guard import require_auth
 
 router = APIRouter(tags=["Operaciones"])
+
+
+def a_la_cola(trabajo: str, tipo: str, datos: Dict[str, Any], user: dict, response: Response):
+    """Estándar H5: si `trabajo` está en FINSYS_EN_COLA, lo encola y deja la
+    respuesta en 202 → {"operacion", "en_cola": True}; si no, o si la cola aún no
+    está instalada, None (el llamador sigue síncrono como siempre)."""
+    from fin_sys_core.cola import ColaNoDisponible, en_cola, encolar
+    if not en_cola(trabajo):
+        return None
+    datos = {**datos, "usuario": {k: user.get(k) for k in ("uid", "name", "role", "su")}}
+    try:
+        r = encolar(tipo, datos, usuario=str(user.get("uid") or ""))
+    except ColaNoDisponible:
+        return None
+    response.status_code = 202
+    return {"operacion": r["id"], "estado": "PENDIENTE", "en_cola": True, "nueva": r["nueva"]}
 
 
 def _es_admin(user: dict) -> bool:

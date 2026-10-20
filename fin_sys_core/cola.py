@@ -52,6 +52,16 @@ def es_cola_de_prueba(cola: str) -> bool:
     return cola == COLA_PRUEBA or cola.endswith("_prueba")
 
 
+def en_cola(trabajo: str) -> bool:
+    """¿Este trabajo va por la cola? FINSYS_EN_COLA=exportacion,entrega,diario_csv
+    (H5.3: una sola variable). FINSYS_EXPORT_EN_COLA=1 sigue valiendo como
+    «exportacion». Vacía = todo síncrono, como antes de H5."""
+    lista = {t.strip().lower() for t in (os.getenv("FINSYS_EN_COLA") or "").split(",") if t.strip()}
+    if os.getenv("FINSYS_EXPORT_EN_COLA") == "1":
+        lista.add("exportacion")
+    return trabajo in lista
+
+
 def clave_de(tipo: str, usuario: Optional[str], datos: Dict[str, Any]) -> str:
     """Clave determinista: mismo tipo, usuario y datos → misma clave."""
     huella = hashlib.sha1(json.dumps(datos, sort_keys=True, default=str).encode("utf-8")).hexdigest()

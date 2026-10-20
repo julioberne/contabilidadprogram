@@ -44,11 +44,13 @@ services:
       - COMPENDIO_AVISO_TELEGRAM=${COMPENDIO_AVISO_TELEGRAM:-1}
       - COMPENDIO_AVISO_CHAT=${COMPENDIO_AVISO_CHAT:-}
       # Estándar H5 (2026-10-19): cola de trabajos pgmq. La API de producción
-      # encola en `trabajos` (en local, por defecto, `trabajos_prueba`). La
-      # exportación .xlsx va a la cola solo con FINSYS_EXPORT_EN_COLA=1, que se
-      # enciende DESPUÉS de correr scripts/migrate_operaciones.py y con el
-      # servicio worker arriba (si la cola no está instalada, sigue síncrona).
+      # encola en `trabajos` (en local, por defecto, `trabajos_prueba`). Qué va
+      # por la cola (H5.3, una sola variable): FINSYS_EN_COLA=exportacion,entrega,diario_csv.
+      # Se enciende DESPUÉS de correr scripts/migrate_operaciones.py y con el
+      # servicio worker arriba (si la cola no está instalada, sigue síncrono).
+      # FINSYS_EXPORT_EN_COLA=1 sigue valiendo como «exportacion».
       - FINSYS_COLA=trabajos
+      - FINSYS_EN_COLA=${FINSYS_EN_COLA:-}
       - FINSYS_EXPORT_EN_COLA=${FINSYS_EXPORT_EN_COLA:-0}
     expose:
       - "8000"

@@ -156,6 +156,46 @@ class TestExportacionEnCola(unittest.TestCase):
         self.assertEqual((r.status_code, r.json()), (200, listo), "sin migración: síncrona, sin error")
 
 
+class TestUnaSolaVariable(unittest.TestCase):
+    def test_lista_y_sinonimo(self):
+        with mock.patch.dict(os.environ, {"FINSYS_EN_COLA": " exportacion , entrega ", "FINSYS_EXPORT_EN_COLA": "0"}):
+            self.assertTrue(cola.en_cola("entrega"))
+            self.assertTrue(cola.en_cola("exportacion"))
+            self.assertFalse(cola.en_cola("diario_csv"))
+        with mock.patch.dict(os.environ, {"FINSYS_EN_COLA": "", "FINSYS_EXPORT_EN_COLA": "1"}):
+            self.assertTrue(cola.en_cola("exportacion"), "la bandera vieja sigue valiendo")
+            self.assertFalse(cola.en_cola("entrega"))
+        with mock.patch.dict(os.environ, {"FINSYS_EN_COLA": "", "FINSYS_EXPORT_EN_COLA": ""}):
+            self.assertFalse(cola.en_cola("exportacion"))
+
+
+class TestEntregaEnCola(unittest.TestCase):
+    CUERPO = {"ids": [3, 4], "nombre": "Para el contador", "folder_id": None}
+
+    def test_en_la_cola_202(self):
+        with mock.patch.dict(os.environ, {"FINSYS_EN_COLA": "entrega"}), \
+             mock.patch("fin_sys_core.cola.encolar", return_value={"id": 8, "nueva": True, "cola": "trabajos_prueba"}) as enc:
+            r = TestClient(_app_exportacion()).post("/api/accounting-files/entrega", json=self.CUERPO)
+        self.assertEqual((r.status_code, r.json()["operacion"]), (202, 8))
+        tipo, datos = enc.call_args[0]
+        self.assertEqual((tipo, datos["ids"], datos["usuario"]["uid"]), ("entrega_zip", [3, 4], "u1"))
+
+    def test_sin_la_variable_sigue_sincrona(self):
+        import entrega_driver
+        listo = {"id": 2, "folio": "F-1", "n": 2, "nombre_archivo": "e.zip"}
+        with mock.patch.dict(os.environ, {"FINSYS_EN_COLA": "", "FINSYS_EXPORT_EN_COLA": ""}), \
+             mock.patch.object(entrega_driver, "crear", return_value=listo):
+            r = TestClient(_app_exportacion()).post("/api/accounting-files/entrega", json=self.CUERPO)
+        self.assertEqual((r.status_code, r.json()), (201, listo))
+
+    def test_manejador_mapea_errores_del_pedido(self):
+        import entrega_driver
+        from fin_sys_core.worker import MANEJADORES, ErrorDefinitivo
+        with mock.patch.object(entrega_driver, "crear", side_effect=ValueError("ZIP muy grande")):
+            with self.assertRaises(ErrorDefinitivo):
+                MANEJADORES["entrega_zip"]({"ids": [1]}, {})
+
+
 class TestRutaOperaciones(unittest.TestCase):
     OP = {"id": 5, "tipo": "exportacion_xlsx", "estado": "HECHA", "resultado": {"id": 1}, "error": None,
           "intentos": 1, "max_intentos": 3, "usuario": "u1", "empresa": None,

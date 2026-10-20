@@ -11,6 +11,7 @@
    ============================================================ */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api.js';
+import { esperarOperacion } from '../shared/operaciones.js';
 import {
   AvisoError, DialogoCarpeta, DialogoConfirmar, DialogoElegir, DialogoTexto, btn, btnBlanco, btnNegro,
 } from './Dialogos.jsx';
@@ -142,10 +143,14 @@ export default function Organizador({ user, resumen, onCambio, paquetes, pedidoN
       etiqueta={`Nombre de la entrega · ${elegidos.size} archivo(s) (ej.: Entrega al contador — septiembre)`}
       onCerrar={() => setDialogo(null)}
       onOk={async (nombre) => {
-        const res = await api.post('/accounting-files/entrega', {
+        let res = await api.post('/accounting-files/entrega', {
           ids: [...elegidos], nombre: nombre || null,
           folder_id: ubicacion.nivel === 'carpeta' ? ubicacion.id : null,
         });
+        if (res?.en_cola) {                   // H5.3: 202 → el worker arma el ZIP
+          avisar('📦 Armando la entrega en la cola… te aviso cuando esté.');
+          res = await esperarOperacion(res.operacion);
+        }
         setDialogo(null);
         salirDeElegir();
         avisar(`📦 ${res.folio} armado con ${res.n} archivo(s)`
