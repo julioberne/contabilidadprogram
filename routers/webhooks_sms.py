@@ -23,6 +23,7 @@ from urllib.parse import parse_qs
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from routers.auth_guard import require_auth
 
@@ -81,13 +82,28 @@ async def recibir_sms(request: Request):
         raise HTTPException(status_code=413, detail=f"Cuerpo mayor a {MAX_BODY_BYTES} bytes.")
     datos = _leer_cuerpo(request, body)
 
-    from bot_sms import encolar_sms, resolver_identidad, solo_digitos
+    from bot_sms import solo_digitos
     remitente = solo_digitos(datos.get("from") or datos.get("sms_number") or "")
     texto = str(datos.get("text") or datos.get("sms_message") or "").strip()
     sent_stamp = str(datos.get("sentStamp") or datos.get("sent_stamp") or "").strip() or None
     if not texto:
         raise HTTPException(status_code=422, detail="text vacío.")
 
+    # Estándar H5: lo que toca la BD va en el threadpool. Antes corría dentro
+    # de esta ruta async y, mientras esperaba a la BD (o su turno en el pool,
+    # hasta 1 s), detenía el bucle de eventos de TODA la API.
+    msg_id, duplicado, identidad = await run_in_threadpool(_encolar_en_bd, token, remitente, texto,
+                                                           sent_stamp)
+    if duplicado:
+        return {"status": "DUPLICADO"}
+    return {"status": "ACEPTADO", "id": msg_id,
+            "chat_vinculado": bool(identidad.get("chat_link_id"))}
+
+
+def _encolar_en_bd(token, remitente, texto, sent_stamp):
+    """Valida token, remitente y tasa, y deja el SMS en bot_messages.
+    → (msg_id, duplicado, identidad). Lanza HTTPException 401/403/429/500."""
+    from bot_sms import encolar_sms, resolver_identidad
     from db_pool import get_conn, put_conn
     conn = get_conn()
     try:
@@ -121,11 +137,7 @@ async def recibir_sms(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         put_conn(conn)
-
-    if duplicado:
-        return {"status": "DUPLICADO"}
-    return {"status": "ACEPTADO", "id": msg_id,
-            "chat_vinculado": bool(identidad.get("chat_link_id"))}
+    return msg_id, duplicado, identidad
 
 
 # ── Gestión de tokens (sesión web) ───────────────────────────────────────────
