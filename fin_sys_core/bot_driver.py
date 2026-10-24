@@ -1375,6 +1375,17 @@ def _flujo_respuesta(cur, link, destino, msg):
             return res
         return {"text": res["nota"] + "\n\n" + render_summary(draft_id, res["payload"]),
                 "draft_id": draft_id, "buttons": _botones_borrador(draft_id)}
+    if destino.get("kind") == "buscar_etiqueta":
+        # Respuesta al «🔎 Buscar etiqueta…»: solo las que coinciden, para tocar
+        q = re.sub(r"\s+", " ", msg.get("text") or "").strip()
+        if not q:
+            return "Escribe parte del nombre de la etiqueta respondiendo a ese mensaje."
+        cur.execute("SELECT payload FROM transaction_drafts WHERE id = %s AND chat_link_id = %s",
+                    (draft_id, link["id"]))
+        fila = cur.fetchone()
+        payload = (fila[0] if isinstance(fila[0], dict) else json.loads(fila[0])) if fila else {}
+        texto, filas = _resultado_busqueda_etiquetas(cur, draft_id, q, list(payload.get("tags") or []))
+        return {"text": texto, "draft_id": draft_id, "buttons": filas}
     return _flujo_reply(cur, link, draft_id, msg.get("text") or "")
 
 
@@ -1476,38 +1487,99 @@ def _flujo_reply(cur, link, draft_id, texto):
 # Botones de las listas del borrador (estándar H3): se pide UNO de más para saber
 # si la lista quedó recortada y decirlo — antes cortaban en silencio y lo que
 # pasaba del tope nunca aparecía. Lo que no cabe se pide por nombre en el reply.
-_TOPE_CUENTAS, _TOPE_EMPRESAS, _TOPE_ETIQUETAS = 14, 12, 10
+_TOPE_CUENTAS, _TOPE_EMPRESAS = 14, 12
 _TOPE_COINCIDENCIAS = 8     # botones cuando «Cuenta:»/«Empresa:» coincide con varias
 _ICONOS_ENTIDAD = {"HOLDING": "🏛️", "EMPRESA": "🏢", "SUB_EMPRESA": "📍", "PROYECTO": "📐"}
+# 🏷️ Etiquetas (24-oct-2026): TODAS se alcanzan — páginas de 12 en dos columnas,
+# ◀ ▶ y 🔎 Buscar. Antes: 10 y en silencio (con 19 creadas, Oficina, Operativo,
+# Recurrente… nunca aparecían).
+_ETIQUETAS_POR_PAGINA = 12
 
 
-def _tags_reales(cur, puestas=()):
-    """Etiquetas del módulo de Etiquetas (tag_definitions = fuente de la
-    verdad): primero las que ya tiene el borrador, luego las más recientes
-    (antes eran las 12 más viejas: las nuevas nunca aparecían).
-    → [(id, name)], hasta _TOPE_ETIQUETAS + 1 (la de más = «hay más»)."""
-    cur.execute(f"""
-        SELECT id, name FROM tag_definitions
-         ORDER BY (name::text = ANY(%s::text[])) DESC, id DESC
-         LIMIT {_TOPE_ETIQUETAS + 1}
-    """, (list(puestas),))
-    return [(r[0], str(r[1]).strip()) for r in cur.fetchall()]
+def _tags_reales(cur, pagina=0):
+    """Una página del catálogo de etiquetas (tag_definitions = fuente de la
+    verdad), en orden ESTABLE para que las páginas no se corran al poner o
+    quitar: las más usadas en las últimas VENTANA_USO transacciones primero,
+    luego por nombre. → ([(id, name)], total)."""
+    from fin_sys_core.consultas.busqueda import VENTANA_USO
+    cur.execute("""
+        SELECT d.id, d.name, COUNT(*) OVER () AS total
+          FROM tag_definitions d
+          LEFT JOIN (SELECT t AS name, COUNT(*) AS n
+                       FROM (SELECT tags FROM transactions WHERE tags IS NOT NULL
+                              ORDER BY id DESC LIMIT %(ventana)s) v, unnest(v.tags) AS t
+                      GROUP BY t) u ON u.name = d.name
+         ORDER BY COALESCE(u.n, 0) DESC, lower(d.name), d.id
+         LIMIT %(lim)s OFFSET %(off)s
+    """, {"ventana": VENTANA_USO, "lim": _ETIQUETAS_POR_PAGINA,
+          "off": max(int(pagina), 0) * _ETIQUETAS_POR_PAGINA})
+    filas = cur.fetchall()
+    return [(r[0], str(r[1]).strip()) for r in filas], (filas[0][2] if filas else 0)
 
 
-def _botones_tags(cur, draft_id, payload, avisos=None):
-    """Toggle de etiquetas: ✓ en las puestas; tocar añade/quita. ➕ Nueva crea
-    una y la pone SOLO en este borrador. Si la lista quedó recortada y se pasa
-    `avisos` (lista), se le agrega cómo llegar a las que no se ven."""
+def _filas_de_etiquetas(draft_id, etiquetas, puestas, sufijo):
+    """Botones de etiquetas en DOS columnas; ✓ en las puestas. `sufijo` va al
+    final del tagset (la página, o «s» si vienen de una búsqueda)."""
+    botones = [(f"{'✓ ' if nombre in puestas else ''}{nombre}"[:40], f"tagset:{draft_id}:{tid}:{sufijo}")
+               for tid, nombre in etiquetas]
+    return [botones[i:i + 2] for i in range(0, len(botones), 2)]
+
+
+def _botones_tags(cur, draft_id, payload, pagina=0):
+    """Toggle de etiquetas por páginas: ✓ en las puestas; tocar añade/quita.
+    🔎 Buscar filtra por nombre; ➕ Nueva crea una y la pone SOLO en este borrador."""
     puestas = list(payload.get("tags") or [])
-    reales = _tags_reales(cur, puestas)
-    filas = []
-    for tid, nombre in reales[:_TOPE_ETIQUETAS]:
-        marca = "✓ " if nombre in puestas else ""
-        filas.append([(f"{marca}{nombre}"[:60], f"tagset:{draft_id}:{tid}")])
-    filas.append([("➕ Nueva etiqueta", f"tagnew:{draft_id}"), ("✔ Listo", f"tagdone:{draft_id}")])
-    if avisos is not None and len(reales) > _TOPE_ETIQUETAS:
-        avisos.append("Hay más: ➕ o responde al borrador con Etiqueta: nombre")
+    etiquetas, total = _tags_reales(cur, pagina)
+    paginas = max((total + _ETIQUETAS_POR_PAGINA - 1) // _ETIQUETAS_POR_PAGINA, 1)
+    if not etiquetas and pagina > 0:                    # la página dejó de existir
+        return _botones_tags(cur, draft_id, payload, 0)
+    filas = _filas_de_etiquetas(draft_id, etiquetas, puestas, pagina)
+    if paginas > 1:
+        nav = []
+        if pagina > 0:
+            nav.append(("◀", f"tagpg:{draft_id}:{pagina - 1}"))
+        nav.append((f"{pagina + 1}/{paginas}", f"tagpg:{draft_id}:{pagina}"))
+        if pagina < paginas - 1:
+            nav.append(("▶", f"tagpg:{draft_id}:{pagina + 1}"))
+        filas.append(nav)
+    filas.append([("🔎 Buscar", f"tagbus:{draft_id}"), ("➕ Nueva", f"tagnew:{draft_id}"),
+                  ("✔ Listo", f"tagdone:{draft_id}")])
     return filas
+
+
+_RE_BUSQUEDA_EN_TEXTO = re.compile(r"🔎[^«]*«(.+?)»")
+
+
+def _buscar_etiquetas(cur, texto):
+    """Etiquetas cuyo nombre contiene `texto` (sin tildes ni mayúsculas; desde 3
+    letras, regla B6 — con menos, solo el nombre igual). → ([(id, name)], hay_mas)"""
+    from fin_sys_core.consultas.busqueda import armar_contiene
+    sql, p = armar_contiene("tag_definitions", "id, name", texto, _ETIQUETAS_POR_PAGINA,
+                            igual_primero=True, minimo=3)
+    cur.execute(sql, p)
+    filas = [(r[0], str(r[1]).strip()) for r in cur.fetchall()]
+    return filas[:_ETIQUETAS_POR_PAGINA], len(filas) > _ETIQUETAS_POR_PAGINA
+
+
+def _resultado_busqueda_etiquetas(cur, draft_id, texto, puestas):
+    """Texto y botones de «🔎 Buscar»: solo las que coinciden (tocar pone/quita)
+    y, si ninguna se llama así, ➕ Crear «texto». El texto buscado viaja en el
+    mensaje («…«obra»…»): los botones lo releen de ahí (callback ≤ 64 B)."""
+    q = re.sub(r"\s+", " ", texto or "").strip()[:60]
+    encontradas, hay_mas = _buscar_etiquetas(cur, q)
+    if encontradas:
+        mensaje = (f"🔎 Etiquetas con «{q}»: {len(encontradas)}{' (hay más: escribe más letras)' if hay_mas else ''}. "
+                   "Toca para poner o quitar.")
+    elif len(q) < 3:
+        mensaje = f"🔎 Ninguna etiqueta se llama «{q}». Para buscar por parte del nombre, escribe 3 letras o más."
+    else:
+        mensaje = f"🔎 Ninguna etiqueta contiene «{q}»."
+    filas = _filas_de_etiquetas(draft_id, encontradas, puestas, "s")
+    from fin_sys_core.consultas.busqueda import normalizar
+    if q and not any(normalizar(n) == normalizar(q) for _, n in encontradas):
+        filas.append([(f"➕ Crear «{q}»"[:40], f"tagcrea:{draft_id}")])
+    filas.append([("« Todas", f"tagpg:{draft_id}:0"), ("✔ Listo", f"tagdone:{draft_id}")])
+    return mensaje, filas
 
 
 def _poner_etiquetas(cur, link, draft_id, nombres):
@@ -1716,7 +1788,7 @@ def guardar_summary_message_id(draft_id: int, message_id):
 # Callbacks de botones (Etapa E) — deterministas, el LLM no participa
 # ══════════════════════════════════════════════════════════════════════════════
 
-def handle_callback(channel: str, chat_id: str, data: str):
+def handle_callback(channel: str, chat_id: str, data: str, texto_mensaje=None):
     """Procesa el toque de un botón inline. → dict de instrucciones:
       {"alert": toast corto,
        "edit_text": nuevo texto del mensaje original (None = no tocar),
@@ -1780,7 +1852,11 @@ def handle_callback(channel: str, chat_id: str, data: str):
             log_outbound(channel, chat_id, out["text"], link["id"], draft_id)
             return out
 
-        if accion == "tags":
+        if accion in ("tags", "tagpg"):
+            try:
+                pagina = int(partes[2]) if accion == "tagpg" else 0
+            except (IndexError, ValueError):
+                pagina = 0
             cur.execute("""
                 SELECT payload FROM transaction_drafts
                 WHERE id = %s AND chat_link_id = %s
@@ -1791,14 +1867,40 @@ def handle_callback(channel: str, chat_id: str, data: str):
                 out["alert"] = "Borrador no encontrado."
                 return out
             payload = row[0] if isinstance(row[0], dict) else json.loads(row[0])
-            avisos = []
-            filas = _botones_tags(cur, draft_id, payload, avisos)
+            filas = _botones_tags(cur, draft_id, payload, pagina)
             conn.commit()
-            out["alert"] = ("Toca para poner/quitar, o ➕ Nueva" if len(filas) > 1
-                            else "Aún no hay etiquetas: crea una con ➕ Nueva")
-            if avisos:
-                out["alert"] += ". " + avisos[0]
+            if accion == "tags":
+                out["alert"] = ("Toca para poner/quitar · ◀ ▶ más · 🔎 buscar" if len(filas) > 1
+                                else "Aún no hay etiquetas: crea una con ➕ Nueva")
             out["edit_buttons"] = filas
+            return out
+
+        if accion == "tagbus":
+            # Pide el texto a buscar (force_reply): la respuesta a ESE mensaje trae
+            # solo las etiquetas que coinciden (ver _flujo_respuesta).
+            conn.commit()
+            out["alert"] = "Escribe parte del nombre respondiendo al mensaje"
+            out["text"] = (f"🔎 Buscar etiqueta para el borrador #{draft_id}: RESPONDE a este mensaje "
+                           "con parte del nombre (ej. «obra»). Sin importar tildes ni mayúsculas.")
+            out["text_kind"] = "buscar_etiqueta"
+            out["text_buttons"] = {"force_reply": True, "input_field_placeholder": "Parte del nombre"}
+            out["edit_buttons"] = _botones_borrador(draft_id)
+            return out
+
+        if accion == "tagcrea":
+            m_q = _RE_BUSQUEDA_EN_TEXTO.search(texto_mensaje or "")
+            if not m_q:
+                conn.commit()
+                out["alert"] = "No sé qué crear: usa ➕ Nueva."
+                return out
+            res = _poner_etiquetas(cur, link, draft_id, [m_q.group(1)])
+            conn.commit()
+            if isinstance(res, str):
+                out["alert"] = res[:190]
+                return out
+            out["alert"] = f"🏷️ {m_q.group(1)}"[:190]
+            out["edit_text"] = res["nota"] + "\n\n" + render_summary(draft_id, res["payload"])
+            out["edit_buttons"] = _botones_borrador(draft_id)
             return out
 
         if accion == "tagnew":
@@ -1849,7 +1951,16 @@ def handle_callback(channel: str, chat_id: str, data: str):
             if editado.get("error"):
                 out["alert"] = editado["error"][:190]
                 return out
-            out["edit_buttons"] = _botones_tags(cur, draft_id, editado["payload"])
+            # Se queda donde estaba: en la misma página, o en los resultados de 🔎
+            sufijo = partes[3] if len(partes) > 3 else "0"
+            m_q = _RE_BUSQUEDA_EN_TEXTO.search(texto_mensaje or "") if sufijo == "s" else None
+            if m_q:
+                _, out["edit_buttons"] = _resultado_busqueda_etiquetas(
+                    cur, draft_id, m_q.group(1), list(editado["payload"].get("tags") or []))
+            else:
+                out["edit_buttons"] = _botones_tags(cur, draft_id, editado["payload"],
+                                                    int(sufijo) if sufijo.isdigit() else 0)
+            conn.commit()
             return out
 
         if accion == "tagdone":

@@ -193,18 +193,112 @@ class TestFlujoReply(unittest.TestCase):
         self.assertEqual(_datas(r["buttons"]), ["accset:9:o:5", "accset:9:o:8", "accback:9"])
 
 
-class TestAvisoDeListaRecortada(unittest.TestCase):
-    def test_etiquetas(self):
-        cur = _Cur(("FROM tag_definitions", [(i, f"e{i}") for i in range(bot_driver._TOPE_ETIQUETAS + 1)]))
-        avisos = []
-        filas = bot_driver._botones_tags(cur, 9, {"tags": []}, avisos)
-        self.assertEqual(len(filas), bot_driver._TOPE_ETIQUETAS + 1)   # + ➕ / ✔
-        self.assertIn("Etiqueta: nombre", avisos[0])
-        self.assertIn(f"LIMIT {bot_driver._TOPE_ETIQUETAS + 1}", cur.sqls[0])
-        avisos = []
-        bot_driver._botones_tags(_Cur(("FROM tag_definitions", [(1, "obra")])), 9, {"tags": []}, avisos)
-        self.assertEqual(avisos, [])
+def _etiquetas(n, total=None):
+    """Filas (id, name, total) como las devuelve _tags_reales (COUNT(*) OVER ())."""
+    return [(i, f"e{i}", total if total is not None else n) for i in range(1, n + 1)]
 
+
+def _callback_con_texto(cur, data, texto):
+    conn = mock.MagicMock()
+    conn.cursor.return_value = cur
+    with mock.patch.object(db_pool, "get_conn", return_value=conn), \
+            mock.patch.object(db_pool, "put_conn"), \
+            mock.patch.object(bot_driver, "_get_link", return_value=LINK):
+        return bot_driver.handle_callback("telegram", "123", data, texto_mensaje=texto)
+
+
+class TestEtiquetasPorPaginas(unittest.TestCase):
+    """24-oct-2026: con 19 etiquetas el botón mostraba 10 y nunca aparecían
+    Oficina, Operativo, Recurrente… Ahora: páginas de 12 en dos columnas."""
+
+    def test_primera_pagina_dos_columnas_y_siguiente(self):
+        cur = _Cur(("FROM tag_definitions", _etiquetas(12, total=19)))
+        filas = bot_driver._botones_tags(cur, 9, {"tags": ["e2"]}, 0)
+        self.assertEqual(filas[0], [("e1", "tagset:9:1:0"), ("✓ e2", "tagset:9:2:0")])
+        self.assertEqual(len(filas), 6 + 2)                       # 6 filas de 2 + ◀▶ + acciones
+        self.assertEqual(filas[6], [("1/2", "tagpg:9:0"), ("▶", "tagpg:9:1")])
+        self.assertEqual(_datas([filas[-1]]), ["tagbus:9", "tagnew:9", "tagdone:9"])
+        self.assertEqual(cur.params[0]["off"], 0)
+        self.assertIn("ORDER BY COALESCE(u.n, 0) DESC", cur.sqls[0])   # las más usadas primero
+        self.assertIn("LIMIT %(ventana)s", cur.sqls[0])                # uso acotado (estándar H3)
+
+    def test_ultima_pagina(self):
+        cur = _Cur(("FROM tag_definitions", _etiquetas(7, total=19)))
+        filas = bot_driver._botones_tags(cur, 9, {"tags": []}, 1)
+        self.assertEqual(filas[-2], [("◀", "tagpg:9:0"), ("2/2", "tagpg:9:1")])
+        self.assertEqual(filas[0][0][1], "tagset:9:1:1")           # el toggle recuerda la página
+        self.assertEqual(cur.params[0]["off"], 12)
+
+    def test_si_caben_no_hay_paginas(self):
+        filas = bot_driver._botones_tags(_Cur(("FROM tag_definitions", _etiquetas(5))), 9, {"tags": []})
+        self.assertNotIn("tagpg:9:0", _datas(filas))
+
+    def test_callback_cambia_de_pagina(self):
+        cur = _Cur(("SELECT payload FROM transaction_drafts", [({"tags": []},)]),
+                   ("FROM tag_definitions", _etiquetas(7, total=19)))
+        out = _callback(cur, "tagpg:9:1")
+        self.assertIn("tagset:9:1:1", _datas(out["edit_buttons"]))
+        self.assertIsNone(out["alert"])
+
+    def test_todos_los_datos_caben_en_64_bytes(self):
+        for d in ("tagset:999999:99999:12", "tagset:999999:99999:s", "tagpg:999999:12", "tagcrea:999999"):
+            self.assertLessEqual(len(d.encode()), 64)
+
+
+class TestBuscarEtiquetas(unittest.TestCase):
+
+    def test_resultado_con_crear_si_ninguna_se_llama_asi(self):
+        cur = _Cur(("FROM tag_definitions", [(38, "Bonaire obra"), (44, "Casa obra")]))
+        texto, filas = bot_driver._resultado_busqueda_etiquetas(cur, 9, " obra ", ["Casa obra"])
+        self.assertIn("🔎 Etiquetas con «obra»: 2", texto)
+        self.assertEqual(filas[0], [("Bonaire obra", "tagset:9:38:s"), ("✓ Casa obra", "tagset:9:44:s")])
+        self.assertEqual(filas[1], [("➕ Crear «obra»", "tagcrea:9")])
+        self.assertEqual(_datas([filas[-1]]), ["tagpg:9:0", "tagdone:9"])
+
+    def test_igual_sin_tildes_no_ofrece_crear(self):
+        cur = _Cur(("FROM tag_definitions", [(41, "Recreación")]))
+        _, filas = bot_driver._resultado_busqueda_etiquetas(cur, 9, "recreacion", [])
+        self.assertNotIn("tagcrea:9", _datas(filas))
+
+    def test_ninguna(self):
+        texto, filas = bot_driver._resultado_busqueda_etiquetas(_Cur(), 9, "xyz", [])
+        self.assertEqual(texto, "🔎 Ninguna etiqueta contiene «xyz».")
+        self.assertEqual(bot_driver._RE_BUSQUEDA_EN_TEXTO.search(texto).group(1), "xyz")
+        self.assertIn("tagcrea:9", _datas(filas))
+
+    def test_boton_buscar_pide_el_texto(self):
+        out = _callback(_Cur(), "tagbus:9")
+        self.assertEqual(out["text_kind"], "buscar_etiqueta")
+        self.assertTrue(out["text_buttons"]["force_reply"])
+
+    def test_respuesta_trae_solo_las_que_coinciden(self):
+        cur = _Cur(("SELECT payload FROM transaction_drafts", [({"tags": []},)]),
+                   ("FROM tag_definitions", [(38, "Bonaire obra")]))
+        r = bot_driver._flujo_respuesta(cur, LINK, {"id": 9, "status": "BORRADOR", "kind": "buscar_etiqueta"},
+                                        {"kind": "text", "text": "obra"})
+        self.assertEqual(r["draft_id"], 9)
+        self.assertIn("tagset:9:38:s", _datas(r["buttons"]))
+
+    def test_tocar_en_resultados_se_queda_en_resultados(self):
+        cur = _Cur(("SELECT name FROM tag_definitions", [("Bonaire obra",)]),
+                   ("SELECT payload FROM transaction_drafts", [({"tags": []},)]),
+                   ("FROM tag_definitions", [(38, "Bonaire obra")]))
+        with mock.patch.object(bot_driver, "editar_draft",
+                               return_value={"payload": {"tags": ["Bonaire obra"]}}):
+            out = _callback_con_texto(cur, "tagset:9:38:s", "🔎 Etiquetas con «obra»: 1. Toca para poner o quitar.")
+        self.assertEqual(out["alert"], "+ Bonaire obra")
+        self.assertEqual(out["edit_buttons"][0], [("✓ Bonaire obra", "tagset:9:38:s")])
+
+    def test_crear_desde_la_busqueda(self):
+        with mock.patch.object(bot_driver, "_poner_etiquetas",
+                               return_value={"nota": "🏷️ Etiquetas → obra (creada: obra)", "payload": {}}) as pe, \
+                mock.patch.object(bot_driver, "render_summary", return_value="RESUMEN"):
+            out = _callback_con_texto(_Cur(), "tagcrea:9", "🔎 Ninguna etiqueta contiene «obra».")
+        self.assertEqual(pe.call_args[0][3], ["obra"])
+        self.assertTrue(out["edit_text"].startswith("🏷️ Etiquetas → obra"))
+
+
+class TestAvisoDeListaRecortada(unittest.TestCase):
     def test_cuentas_por_boton(self):
         cuentas = [(i, f"Cuenta {i}") for i in range(1, bot_driver._TOPE_CUENTAS + 2)]
         out = _callback(_Cur(("FROM user_accounts", cuentas)), "accsel:9:o")

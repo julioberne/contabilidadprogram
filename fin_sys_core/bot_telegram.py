@@ -281,7 +281,10 @@ def _procesar_callback(bot_driver, cb: dict):
             answer_callback(cb_id)
             return
         chat_id = str(chat.get("id", ""))
-        out = bot_driver.handle_callback("telegram", chat_id, cb.get("data") or "")
+        # El texto del mensaje tocado viaja aparte: p. ej. la búsqueda de 🔎
+        # etiquetas («…«obra»…») que el callback (≤ 64 B) no puede llevar.
+        out = bot_driver.handle_callback("telegram", chat_id, cb.get("data") or "",
+                                         texto_mensaje=m.get("text"))
         answer_callback(cb_id, out.get("alert"))
         if out.get("edit_text") is not None or out.get("edit_buttons") is not None:
             edit_message(chat_id, m.get("message_id"),

@@ -356,12 +356,10 @@ class TestEtiquetasEnRespuesta(unittest.TestCase):
         self.assertEqual(bot_driver._nombres_etiquetas("#obra; caja\n caja ,  "), ["obra", "caja"])
 
     def test_botonera_de_etiquetas_ofrece_nueva(self):
-        cur = _CursorTags([(5, "obra"), (3, "caja")])
+        cur = _CursorTags([(5, "obra", 2), (3, "caja", 2)])
         filas = bot_driver._botones_tags(cur, 9, {"tags": ["obra"]})
-        self.assertEqual(filas[0], [("✓ obra", "tagset:9:5")])
-        self.assertEqual(filas[1], [("caja", "tagset:9:3")])
-        self.assertEqual(filas[-1], [("➕ Nueva etiqueta", "tagnew:9"), ("✔ Listo", "tagdone:9")])
-        self.assertEqual(cur.params, (["obra"],))        # las puestas van primero
+        self.assertEqual(filas[0], [("✓ obra", "tagset:9:5:0"), ("caja", "tagset:9:3:0")])
+        self.assertEqual(filas[-1], [("🔎 Buscar", "tagbus:9"), ("➕ Nueva", "tagnew:9"), ("✔ Listo", "tagdone:9")])
 
     def test_respuesta_al_mensaje_que_pide_la_etiqueta(self):
         with mock.patch.object(bot_driver, "_poner_etiquetas",
