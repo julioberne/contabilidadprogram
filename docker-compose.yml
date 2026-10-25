@@ -172,6 +172,11 @@ services:
       # H5.4: el worker responde en Telegram los mensajes pesados del bot. SOLO
       # envía (sendMessage/sendChatAction/edit): getUpdates sigue solo en `bot`.
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      # H5.5: con `tareas` en FINSYS_EN_COLA, el worker corre las tareas periódicas
+      # del bot (SMS cada 5 s, Mini App, resumen, retención, limpieza de la cola)
+      # y el poller deja de hacerlo. Misma variable que en el bot: nunca los dos.
+      - FINSYS_EN_COLA=${FINSYS_EN_COLA:-}
+      - BOT_RETENCION_ACTIVA=${BOT_RETENCION_ACTIVA:-1}
       # Pool chico y caliente: 2 trabajos a la vez + latidos (docs/escalamiento.md)
       - DB_POOL_MIN=${WORKER_DB_POOL:-3}
       - DB_POOL_MAX=${WORKER_DB_POOL:-3}

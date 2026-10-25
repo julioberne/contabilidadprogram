@@ -458,6 +458,14 @@ def _procesar_uno(conn, cur, fila, send_fn, kind="sms"):
     from bot_driver import (SCHEMA_VERSION, _botones_borrador, guardar_summary_message_id,
                             log_outbound, render_summary)
     msg_id, content, chat_link_id, raw_chat_id, ext_id = fila
+    # Estándar H5.5: reservar ESTE SMS antes de procesarlo. Si otro proceso lo
+    # tiene (bot y worker durante un deploy) o ya lo convirtió, se salta: un SMS
+    # nunca crea dos borradores. El candado dura hasta el commit de abajo.
+    cur.execute("SELECT 1 FROM bot_messages WHERE id = %s AND kind = %s AND draft_id IS NULL "
+                "FOR UPDATE SKIP LOCKED", (msg_id, kind))
+    if cur.fetchone() is None:
+        conn.commit()
+        return False
     datos = json.loads(content) if isinstance(content, str) else (content or {})
     texto = (datos.get("text") or "").strip()
     remitente = datos.get("from") or REMITENTE_DEFAULT

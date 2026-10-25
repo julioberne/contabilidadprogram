@@ -251,6 +251,29 @@ def metricas(cola: Optional[str] = None) -> Dict[str, Any]:
         put_conn(conn)
 
 
+def purgar(dias: int = 30, colas=(COLA_PRODUCCION, COLA_PRUEBA)) -> Dict[str, int]:
+    """Limpieza (H5.5, tarea periódica del worker): operaciones HECHAS o FALLIDAS
+    de más de `dias` y el archivo de pgmq (pgmq.a_<cola>) de la misma edad. Las
+    que siguen en vuelo nunca se tocan. → {"operaciones": n, "archivo": n}."""
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM operaciones WHERE estado IN ('HECHA', 'FALLIDA') "
+                        "AND terminada < now() - make_interval(days => %s)", (int(dias),))
+            n_ops = cur.rowcount
+            n_arch = 0
+            for c in colas:
+                if not c.replace("_", "").isalnum():
+                    continue                   # nombre de tabla: solo letras, números y _
+                cur.execute(f"DELETE FROM pgmq.a_{c} WHERE archived_at < now() - make_interval(days => %s)",
+                            (int(dias),))
+                n_arch += cur.rowcount
+        conn.commit()
+        return {"operaciones": n_ops, "archivo": n_arch}
+    finally:
+        put_conn(conn)
+
+
 def _ejecutar(sql: str, params) -> None:
     conn = get_conn()
     try:

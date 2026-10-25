@@ -370,6 +370,63 @@ def procesar_mensaje(bot_driver, msg: dict) -> str:
     return "inline"
 
 
+def _ticks(bot_driver, proximo_tick, proximo_purga):
+    """Tareas periódicas cuando viven en el poller (sin `tareas` en FINSYS_EN_COLA,
+    como siempre). Con `tareas`, las corre el worker (fin_sys_core/tareas.py).
+    → (proximo_tick, proximo_purga)."""
+    # ── Resumen analítico periódico (hito 2, B1) ─────────────────
+    # Cada 15 min se consulta a la BD si ya tocan las
+    # ANALYTICS_RESUMEN_HORAS (default 24; 0 = apagado) desde el
+    # último envío — el tick es el "scheduler" del sistema y queda
+    # listo para los recordatorios de cartera de la Fase 2.
+    if time.monotonic() >= proximo_tick:
+        proximo_tick = time.monotonic() + 900
+        try:
+            from insight_engine import tick_resumen_telegram
+            if tick_resumen_telegram(send_message):
+                print("📊 [TG] Resumen analítico enviado a los chats vinculados.")
+        except Exception as e:
+            print(f"⚠️ [TG] tick del resumen falló (se reintenta): {e}")
+
+    # ── SMS de Bancolombia → borradores (etapa 09.F) ──────────────
+    # Cada vuelta (≤ POLL_TIMEOUT s de latencia): los SMS que encoló
+    # el webhook en bot_messages se convierten en borradores y se
+    # envían con botones. Un SMS malo marca SU fila; el tick nunca
+    # tumba el poller (D-09F-01: el único que habla con Telegram).
+    try:
+        from bot_sms import procesar_pendientes
+        n_sms = procesar_pendientes(send_message)
+        if n_sms:
+            print(f"📲 [TG] {n_sms} SMS convertido(s) en borrador.")
+    except Exception as e:
+        print(f"⚠️ [TG] tick SMS falló (se reintenta): {e}")
+
+    # ── Mini App de Telegram (etapa 09.I): borradores editados desde
+    # la ficha → el poller reenvía el resumen con sus botones ────────
+    try:
+        n_av = bot_driver.avisar_chat_pendientes(send_message,
+                                                 quitar_botones=_quitar_botones)
+        if n_av:
+            print(f"✏️ [TG] {n_av} borrador(es) reenviado(s) tras editarlos en la Mini App.")
+    except Exception as e:
+        print(f"⚠️ [TG] tick de avisos de la Mini App falló (se reintenta): {e}")
+
+    # ── Retención 30/60/90 (Regla 6b): una vez por hora ───────────
+    if time.monotonic() >= proximo_purga:
+        proximo_purga = time.monotonic() + 3600
+        try:
+            from bot_retencion import purgar
+            res = purgar(send_message)
+            if any(res.values()):
+                print(f"🧹 [TG] retención: {res}")
+            from bot_anomalias import purgar as purgar_bitacora
+            if purgar_bitacora():
+                print("🧹 [TG] bitácora: anomalías de más de 180 días borradas")
+        except Exception as e:
+            print(f"⚠️ [TG] purga de retención falló (se reintenta): {e}")
+    return proximo_tick, proximo_purga
+
+
 def main():
     if not TOKEN:
         print("❌ Falta TELEGRAM_BOT_TOKEN en el entorno/.env — no puedo arrancar.")
@@ -389,59 +446,17 @@ def main():
     backoff = 1
     proximo_tick = 0.0   # monotonic: throttle local del tick (la verdad vive en BD)
     proximo_purga = 0.0  # retención de borradores/mensajes (etapa 09.F): una vez por hora
+    # H5.5: con `tareas` en FINSYS_EN_COLA los ticks (SMS, Mini App, resumen,
+    # retención) los corre el worker cada pocos segundos (fin_sys_core/tareas.py)
+    # y este bucle solo atiende Telegram. La misma variable decide en los dos
+    # procesos: nunca corren a la vez.
+    from fin_sys_core.tareas import activas as tareas_en_worker
+    ticks_aqui = not tareas_en_worker()
+    print(f"🤖 [TG] tareas periódicas: {'en este poller' if ticks_aqui else 'en el worker'}")
     while True:
         try:
-            # ── Resumen analítico periódico (hito 2, B1) ─────────────────
-            # Cada 15 min se consulta a la BD si ya tocan las
-            # ANALYTICS_RESUMEN_HORAS (default 24; 0 = apagado) desde el
-            # último envío — el tick es el "scheduler" del sistema y queda
-            # listo para los recordatorios de cartera de la Fase 2.
-            if time.monotonic() >= proximo_tick:
-                proximo_tick = time.monotonic() + 900
-                try:
-                    from insight_engine import tick_resumen_telegram
-                    if tick_resumen_telegram(send_message):
-                        print("📊 [TG] Resumen analítico enviado a los chats vinculados.")
-                except Exception as e:
-                    print(f"⚠️ [TG] tick del resumen falló (se reintenta): {e}")
-
-            # ── SMS de Bancolombia → borradores (etapa 09.F) ──────────────
-            # Cada vuelta (≤ POLL_TIMEOUT s de latencia): los SMS que encoló
-            # el webhook en bot_messages se convierten en borradores y se
-            # envían con botones. Un SMS malo marca SU fila; el tick nunca
-            # tumba el poller (D-09F-01: el único que habla con Telegram).
-            try:
-                from bot_sms import procesar_pendientes
-                n_sms = procesar_pendientes(send_message)
-                if n_sms:
-                    print(f"📲 [TG] {n_sms} SMS convertido(s) en borrador.")
-            except Exception as e:
-                print(f"⚠️ [TG] tick SMS falló (se reintenta): {e}")
-
-            # ── Mini App de Telegram (etapa 09.I): borradores editados desde
-            # la ficha → el poller reenvía el resumen con sus botones ────────
-            try:
-                n_av = bot_driver.avisar_chat_pendientes(send_message,
-                                                         quitar_botones=_quitar_botones)
-                if n_av:
-                    print(f"✏️ [TG] {n_av} borrador(es) reenviado(s) tras editarlos en la Mini App.")
-            except Exception as e:
-                print(f"⚠️ [TG] tick de avisos de la Mini App falló (se reintenta): {e}")
-
-            # ── Retención 30/60/90 (Regla 6b): una vez por hora ───────────
-            if time.monotonic() >= proximo_purga:
-                proximo_purga = time.monotonic() + 3600
-                try:
-                    from bot_retencion import purgar
-                    res = purgar(send_message)
-                    if any(res.values()):
-                        print(f"🧹 [TG] retención: {res}")
-                    from bot_anomalias import purgar as purgar_bitacora
-                    if purgar_bitacora():
-                        print("🧹 [TG] bitácora: anomalías de más de 180 días borradas")
-                except Exception as e:
-                    print(f"⚠️ [TG] purga de retención falló (se reintenta): {e}")
-
+            if ticks_aqui:
+                proximo_tick, proximo_purga = _ticks(bot_driver, proximo_tick, proximo_purga)
             params = {"timeout": POLL_TIMEOUT}
             if offset is not None:
                 params["offset"] = offset

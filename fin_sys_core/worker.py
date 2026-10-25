@@ -144,6 +144,10 @@ def main() -> None:
         except (ValueError, AttributeError):
             pass
     log.info("🧰 worker en la cola '%s' con %s hilos; tipos: %s", cola, hilos, sorted(MANEJADORES))
+    # H5.5: con `tareas` en FINSYS_EN_COLA (y solo en producción), las tareas
+    # periódicas del bot viven aquí y el poller deja de correrlas.
+    from fin_sys_core import tareas
+    tareas.arrancar(parar)
     bucle(cola, hilos, parar, espera, latido)
     log.info("worker detenido")
 
