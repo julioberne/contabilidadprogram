@@ -78,9 +78,10 @@ página *Compute and Disk* de Supabase (revisarla al subir; cambian).
 | `FINSYS_DDL_ARRANQUE` | 1 | `0` cuando las migraciones cubran el esquema (evita `ALTER` en cada reciclaje) |
 | `GUNICORN_WORKERS` | 2 | Procesos de la API |
 | `FINSYS_COLA` | trabajos_prueba | Cola pgmq que usan la API y el worker; `trabajos` solo en docker-compose |
-| `FINSYS_EN_COLA` | (vacía) | Qué va por la cola: `exportacion,entrega,diario_csv` → 202 y lo arma el worker (encender tras `migrate_operaciones.py`). `FINSYS_EXPORT_EN_COLA=1` sigue valiendo como `exportacion` |
+| `FINSYS_EN_COLA` | (vacía) | Qué va por la cola: `exportacion,entrega,diario_csv,bot` (`bot` = voz, IA y /analisis del bot, H5.4; solo con el worker healthy) → 202 y lo arma el worker (encender tras `migrate_operaciones.py`). `FINSYS_EXPORT_EN_COLA=1` sigue valiendo como `exportacion` |
 | `FINSYS_WORKER_HILOS` | 2 | Trabajos a la vez en el worker. Subir si la edad del más viejo (`/api/health/profundo` → `cola`) pasa de 60 s |
 | `FINSYS_WORKER_PRODUCCION` | — | `1` solo en el worker de Dokploy: sin ella un worker se niega a tomar la cola de producción |
+| `TG_POR_CHAT_S` / `TG_GLOBAL_POR_S` | 1.25 / 15 | Ritmo de envíos a Telegram por proceso (bot y worker: entre los dos < 30/s); 429 y 5xx se reintentan |
 | `DIARIO_SIMULTANEAS` | 3 | Consultas del Diario a la vez por worker de la API (H4); la siguiente espera 2 s → 503 |
 
 **Puente de emergencia `:5432`** (modo sesión, límite ~15 clientes compartido): `DB_PORT=5432`,

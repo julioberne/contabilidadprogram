@@ -51,6 +51,27 @@ def entrega_zip(datos: Dict[str, Any], op: Dict[str, Any]) -> Dict[str, Any]:
         raise ErrorDefinitivo(str(e)) from e
 
 
+@manejador("bot_mensaje")
+def bot_mensaje(datos: Dict[str, Any], op: Dict[str, Any]) -> Dict[str, Any]:
+    """H5.4: un mensaje pesado del bot (voz, IA, /analisis) que el poller encoló
+    para seguir atendiendo a los demás chats. Se procesa EXACTAMENTE como lo haría
+    el poller (bot_driver.handle_message + entregar_respuesta): la lógica del bot
+    y la Regla 6b no cambian. Un reintento no duplica: handle_message descarta el
+    mensaje repetido por su update_id. Si falla en el último intento, el usuario
+    recibe el mismo «⚠ Error interno» de siempre."""
+    import bot_driver
+    import bot_telegram
+    bot_telegram.enviar_accion(datos["chat_id"])
+    try:
+        reply = bot_driver.handle_message(datos)
+    except Exception as e:
+        if int(op.get("intentos") or 1) < int(op.get("max_intentos") or 1):
+            raise                                   # BD caída, etc.: que reintente
+        reply = f"⚠ Error interno del bot: {e}"
+    bot_telegram.entregar_respuesta(datos, reply, bot_driver)
+    return {"respondido": bool(reply), "chat_id": datos.get("chat_id"), "tipo": datos.get("kind")}
+
+
 @manejador("diario_csv")
 def diario_csv(datos: Dict[str, Any], op: Dict[str, Any]) -> Dict[str, Any]:
     """H5.3: el CSV del Libro Diario de más de 2.000 filas, sin el tope de 5.000

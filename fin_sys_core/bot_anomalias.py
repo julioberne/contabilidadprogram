@@ -56,6 +56,7 @@ TIPOS = {
     "correccion_sms": "Corrección a mano de un borrador de SMS (tipo, monto, fecha o cuenta)",
     "confirmacion_fallida": "Una confirmación no pasó la validación",
     "error_bot": "Error interno del bot al procesar un mensaje",
+    "envio_perdido": "Un mensaje a Telegram no salió ni tras los reintentos (H5.4)",
 }
 
 

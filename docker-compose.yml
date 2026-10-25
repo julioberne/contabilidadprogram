@@ -120,6 +120,11 @@ services:
       # Etapa 09.F: purga de retención de borradores/mensajes del bot
       # (30/60/90 días, Regla 6b). 0 = apagada (kill-switch).
       - BOT_RETENCION_ACTIVA=${BOT_RETENCION_ACTIVA:-1}
+      # Estándar H5.4 (2026-10-25): con `bot` en FINSYS_EN_COLA, la voz, la IA y
+      # /analisis van al worker (cola `trabajos`) y el poller sigue con los demás
+      # chats. Encender solo con el worker healthy (si no, quedan en la cola).
+      - FINSYS_COLA=trabajos
+      - FINSYS_EN_COLA=${FINSYS_EN_COLA:-}
     volumes:
       # El MISMO volumen del backend: las notas de voz que guarda el bot
       # deben existir para la web (evidencias servidas en /uploads).
@@ -164,6 +169,9 @@ services:
       - FINSYS_COLA=trabajos
       - FINSYS_WORKER_PRODUCCION=1
       - FINSYS_WORKER_HILOS=${FINSYS_WORKER_HILOS:-2}
+      # H5.4: el worker responde en Telegram los mensajes pesados del bot. SOLO
+      # envía (sendMessage/sendChatAction/edit): getUpdates sigue solo en `bot`.
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       # Pool chico y caliente: 2 trabajos a la vez + latidos (docs/escalamiento.md)
       - DB_POOL_MIN=${WORKER_DB_POOL:-3}
       - DB_POOL_MAX=${WORKER_DB_POOL:-3}
