@@ -24,6 +24,7 @@ import TerceroForm from '../contabilidad-v2/components/TerceroForm.jsx';
 import TerceroFicha from '../contabilidad-v2/components/TerceroFicha.jsx';
 import { tgClose, tgParam } from './telegram.js';
 import BorradorEditable, { RecordarMedio, guardarMedio, describirMedio } from './BorradorEditable.jsx';
+import EtiquetasBorrador from './EtiquetasBorrador.jsx';
 import { useBusqueda, buscarUna } from '../shared/busqueda/useBusqueda.js';
 
 const GENERICO = '999999999';
@@ -209,6 +210,10 @@ export default function TelegramTerceroApp() {
       {cargaError && <div role="alert" className="border-2 border-black bg-brutalAmber p-2 text-xs">{cargaError}</div>}
       {draft && (
         <BorradorEditable draft={draft} logout={logout}
+          onGuardado={(c) => setDraft({ ...draft, ...c, status: c.status || draft.status })} />
+      )}
+      {draft && (
+        <EtiquetasBorrador draft={draft} logout={logout}
           onGuardado={(c) => setDraft({ ...draft, ...c, status: c.status || draft.status })} />
       )}
       {draft && medio && enLista && !asignadoEliminado && (
