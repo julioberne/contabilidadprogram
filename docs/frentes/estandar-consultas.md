@@ -1,7 +1,7 @@
 # Frente: estándar de consultas escalables (todo FIN-SYS)
 
 **Estado:** ACTIVO — H0-H3 (con el cierre del bot) **EN PRODUCCIÓN** (`191b340`, 16-oct-2026).
-**En producción** (20-oct): H4, Plan B, webhook SMS, H5.1-H5.3 (`341cbfe`). **H5.4 hecho, sin publicar.** **Migrado** (20-oct): pg_trgm + 3
+**En producción** (20-oct): H4, Plan B, webhook SMS, H5.1-H5.3 (`341cbfe`). **H5.4 y H5.5 hechos, sin publicar.** **Migrado** (20-oct): pg_trgm + 3
 índices trigram; pgmq 1.5.1, colas `trabajos`/`trabajos_prueba`, tabla `operaciones`. Ciclo de la cola verificado
 contra la BD (`tests.test_cola`, 3/3) y `/api/health/profundo` → `cola.activa: true`. Rama
 `claude/servidores-libro-mayor-9e4614`. Orden acordado: **H5.4** (bot) → H5.5 → H6 → H7 → H8 (H8 con permiso
@@ -43,15 +43,14 @@ Runbook de escalamiento: `docs/escalamiento.md`. Laboratorio: `scripts/laborator
   la entrega ZIP retiene una conexión mientras arma (`entrega_driver.py:141-156`).
 
 ## Próximo paso
-1. **Andrés:** publicar H5.4 (`scripts\publicar.cmd`: cambia el compose del bot y del worker). En Dokploy, con
-   `finsys-worker` healthy: `FINSYS_EN_COLA=exportacion,entrega,diario_csv` y probar; luego sumar `,bot` y
-   mandar una nota de voz y un texto libre (debe verse «escribiendo…» y responder igual que antes). Vaciar
-   la variable = todo vuelve a ser síncrono.
-2. **H5.5**: tareas periódicas al worker (SMS → borrador sin la espera de 45 s, resumen, retención, avisos de la
-   Mini App) + purga de `operaciones` (>30 días). Plan previo.
-3. Después H6 → H7 → H8 (H8 con permiso para `database_driver.py`, plan previo).
-4. Rama del bot `claude/telegram-bot-evaluation-56c2d8` (otra sesión) toca `bot_driver.py` y `_procesar_callback`:
-   H5.4 no toca esas partes; se juntan sin conflicto en cualquier orden.
+1. **Andrés:** publicar H5.4 + H5.5 (`scripts\publicar.cmd`; cambia el compose del bot y del worker). En Dokploy,
+   con `finsys-worker` healthy, encender de a poco `FINSYS_EN_COLA`: `exportacion,entrega,diario_csv` → probar;
+   `+bot` → una nota de voz y un texto libre («escribiendo…» y misma respuesta); `+tareas` → un SMS de prueba
+   debe volverse borrador en ~5 s (logs del worker: «⏱️ sms → 1»). Vaciar la variable = todo como antes.
+2. Siguen **H6** (fin de las 7 descargas completas de TX) → H7 (panel por versión + fotos de saldo) → H8
+   (escritura del libro; permiso para `database_driver.py` con plan previo). Cada uno con plan previo.
+3. Rama del bot `claude/telegram-bot-evaluation-56c2d8` (otra sesión): toca `bot_driver.py` y `_procesar_callback`;
+   H5.4/H5.5 no tocan esas partes (sí `bot_sms._procesar_uno`, que esa rama no cambió).
 
 ## Decisiones (y porqué)
 - Pruebas contra la BD compartida SOLO LECTURA y acotadas; carga de día solo con OK explícito de Andrés.
