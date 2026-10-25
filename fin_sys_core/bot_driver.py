@@ -1494,27 +1494,30 @@ _ICONOS_ENTIDAD = {"HOLDING": "🏛️", "EMPRESA": "🏢", "SUB_EMPRESA": "📍
 # ◀ ▶ y 🔎 Buscar. Antes: 10 y en silencio (con 19 creadas, Oficina, Operativo,
 # Recurrente… nunca aparecían).
 _ETIQUETAS_POR_PAGINA = 12
+# Catálogo CHICO: se trae ordenado y con tope (10 páginas) y se pagina aquí —
+# el estándar (B3) no admite OFFSET. Lo que pase del tope se alcanza con 🔎.
+_TOPE_ETIQUETAS = _ETIQUETAS_POR_PAGINA * 10
 
 
 def _tags_reales(cur, pagina=0):
     """Una página del catálogo de etiquetas (tag_definitions = fuente de la
     verdad), en orden ESTABLE para que las páginas no se corran al poner o
     quitar: las más usadas en las últimas VENTANA_USO transacciones primero,
-    luego por nombre. → ([(id, name)], total)."""
+    luego por nombre. → ([(id, name)], total visible por páginas)."""
     from fin_sys_core.consultas.busqueda import VENTANA_USO
     cur.execute("""
-        SELECT d.id, d.name, COUNT(*) OVER () AS total
+        SELECT d.id, d.name
           FROM tag_definitions d
           LEFT JOIN (SELECT t AS name, COUNT(*) AS n
                        FROM (SELECT tags FROM transactions WHERE tags IS NOT NULL
                               ORDER BY id DESC LIMIT %(ventana)s) v, unnest(v.tags) AS t
                       GROUP BY t) u ON u.name = d.name
          ORDER BY COALESCE(u.n, 0) DESC, lower(d.name), d.id
-         LIMIT %(lim)s OFFSET %(off)s
-    """, {"ventana": VENTANA_USO, "lim": _ETIQUETAS_POR_PAGINA,
-          "off": max(int(pagina), 0) * _ETIQUETAS_POR_PAGINA})
-    filas = cur.fetchall()
-    return [(r[0], str(r[1]).strip()) for r in filas], (filas[0][2] if filas else 0)
+         LIMIT %(lim)s
+    """, {"ventana": VENTANA_USO, "lim": _TOPE_ETIQUETAS})
+    todas = [(r[0], str(r[1]).strip()) for r in cur.fetchall()]
+    desde = max(int(pagina), 0) * _ETIQUETAS_POR_PAGINA
+    return todas[desde:desde + _ETIQUETAS_POR_PAGINA], len(todas)
 
 
 def _filas_de_etiquetas(draft_id, etiquetas, puestas, sufijo):

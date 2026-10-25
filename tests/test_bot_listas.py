@@ -193,9 +193,9 @@ class TestFlujoReply(unittest.TestCase):
         self.assertEqual(_datas(r["buttons"]), ["accset:9:o:5", "accset:9:o:8", "accback:9"])
 
 
-def _etiquetas(n, total=None):
-    """Filas (id, name, total) como las devuelve _tags_reales (COUNT(*) OVER ())."""
-    return [(i, f"e{i}", total if total is not None else n) for i in range(1, n + 1)]
+def _etiquetas(n):
+    """Filas (id, name) del catálogo ya ordenado, como las trae _tags_reales."""
+    return [(i, f"e{i}") for i in range(1, n + 1)]
 
 
 def _callback_con_texto(cur, data, texto):
@@ -212,22 +212,27 @@ class TestEtiquetasPorPaginas(unittest.TestCase):
     Oficina, Operativo, Recurrente… Ahora: páginas de 12 en dos columnas."""
 
     def test_primera_pagina_dos_columnas_y_siguiente(self):
-        cur = _Cur(("FROM tag_definitions", _etiquetas(12, total=19)))
+        cur = _Cur(("FROM tag_definitions", _etiquetas(19)))
         filas = bot_driver._botones_tags(cur, 9, {"tags": ["e2"]}, 0)
         self.assertEqual(filas[0], [("e1", "tagset:9:1:0"), ("✓ e2", "tagset:9:2:0")])
         self.assertEqual(len(filas), 6 + 2)                       # 6 filas de 2 + ◀▶ + acciones
         self.assertEqual(filas[6], [("1/2", "tagpg:9:0"), ("▶", "tagpg:9:1")])
         self.assertEqual(_datas([filas[-1]]), ["tagbus:9", "tagnew:9", "tagdone:9"])
-        self.assertEqual(cur.params[0]["off"], 0)
+        self.assertEqual(cur.params[0]["lim"], bot_driver._TOPE_ETIQUETAS)
+        self.assertNotIn("OFFSET", cur.sqls[0])                        # estándar B3: sin OFFSET
         self.assertIn("ORDER BY COALESCE(u.n, 0) DESC", cur.sqls[0])   # las más usadas primero
         self.assertIn("LIMIT %(ventana)s", cur.sqls[0])                # uso acotado (estándar H3)
 
     def test_ultima_pagina(self):
-        cur = _Cur(("FROM tag_definitions", _etiquetas(7, total=19)))
+        cur = _Cur(("FROM tag_definitions", _etiquetas(19)))
         filas = bot_driver._botones_tags(cur, 9, {"tags": []}, 1)
         self.assertEqual(filas[-2], [("◀", "tagpg:9:0"), ("2/2", "tagpg:9:1")])
-        self.assertEqual(filas[0][0][1], "tagset:9:1:1")           # el toggle recuerda la página
-        self.assertEqual(cur.params[0]["off"], 12)
+        self.assertEqual(filas[0][0][1], "tagset:9:13:1")          # el toggle recuerda la página
+        self.assertEqual(len(filas), 4 + 2)                         # 7 etiquetas = 4 filas
+
+    def test_pagina_que_ya_no_existe_vuelve_a_la_primera(self):
+        filas = bot_driver._botones_tags(_Cur(("FROM tag_definitions", _etiquetas(5))), 9, {"tags": []}, 3)
+        self.assertEqual(filas[0][0][1], "tagset:9:1:0")
 
     def test_si_caben_no_hay_paginas(self):
         filas = bot_driver._botones_tags(_Cur(("FROM tag_definitions", _etiquetas(5))), 9, {"tags": []})
@@ -235,9 +240,9 @@ class TestEtiquetasPorPaginas(unittest.TestCase):
 
     def test_callback_cambia_de_pagina(self):
         cur = _Cur(("SELECT payload FROM transaction_drafts", [({"tags": []},)]),
-                   ("FROM tag_definitions", _etiquetas(7, total=19)))
+                   ("FROM tag_definitions", _etiquetas(19)))
         out = _callback(cur, "tagpg:9:1")
-        self.assertIn("tagset:9:1:1", _datas(out["edit_buttons"]))
+        self.assertIn("tagset:9:13:1", _datas(out["edit_buttons"]))
         self.assertIsNone(out["alert"])
 
     def test_todos_los_datos_caben_en_64_bytes(self):
