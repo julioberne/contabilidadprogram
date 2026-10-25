@@ -1,7 +1,7 @@
 # Frente: estándar de consultas escalables (todo FIN-SYS)
 
 **Estado:** ACTIVO — H0-H3 (con el cierre del bot) **EN PRODUCCIÓN** (`191b340`, 16-oct-2026).
-**En producción** (20-oct): H4, Plan B, webhook SMS, H5.1-H5.3 (`341cbfe`). **Migrado** (20-oct): pg_trgm + 3
+**En producción** (20-oct): H4, Plan B, webhook SMS, H5.1-H5.3 (`341cbfe`). **H5.4 hecho, sin publicar.** **Migrado** (20-oct): pg_trgm + 3
 índices trigram; pgmq 1.5.1, colas `trabajos`/`trabajos_prueba`, tabla `operaciones`. Ciclo de la cola verificado
 contra la BD (`tests.test_cola`, 3/3) y `/api/health/profundo` → `cola.activa: true`. Rama
 `claude/servidores-libro-mayor-9e4614`. Orden acordado: **H5.4** (bot) → H5.5 → H6 → H7 → H8 (H8 con permiso
@@ -43,12 +43,15 @@ Runbook de escalamiento: `docs/escalamiento.md`. Laboratorio: `scripts/laborator
   la entrega ZIP retiene una conexión mientras arma (`entrega_driver.py:141-156`).
 
 ## Próximo paso
-1. **Andrés:** en Dokploy, ver que `finsys-worker` esté healthy y poner `FINSYS_EN_COLA=exportacion,entrega,diario_csv`
-   (redeploy) → probar una exportación ("EN COLA…" → descarga), un 📦 y un CSV del Diario de más de 2.000 filas.
-   Si algo se queda en cola, mirar los logs del worker; para volver atrás basta vaciar la variable.
-2. **H5.4 bot** (en conversación limpia): voz/IA/foto al worker y envíos a Telegram con límite y retry_after
-   (plan previo; `bot_telegram.py` nunca se lanza en local). **H5.5**: tareas periódicas al worker + purga de
-   `operaciones` (>30 días).
+1. **Andrés:** publicar H5.4 (`scripts\publicar.cmd`: cambia el compose del bot y del worker). En Dokploy, con
+   `finsys-worker` healthy: `FINSYS_EN_COLA=exportacion,entrega,diario_csv` y probar; luego sumar `,bot` y
+   mandar una nota de voz y un texto libre (debe verse «escribiendo…» y responder igual que antes). Vaciar
+   la variable = todo vuelve a ser síncrono.
+2. **H5.5**: tareas periódicas al worker (SMS → borrador sin la espera de 45 s, resumen, retención, avisos de la
+   Mini App) + purga de `operaciones` (>30 días). Plan previo.
+3. Después H6 → H7 → H8 (H8 con permiso para `database_driver.py`, plan previo).
+4. Rama del bot `claude/telegram-bot-evaluation-56c2d8` (otra sesión) toca `bot_driver.py` y `_procesar_callback`:
+   H5.4 no toca esas partes; se juntan sin conflicto en cualquier orden.
 
 ## Decisiones (y porqué)
 - Pruebas contra la BD compartida SOLO LECTURA y acotadas; carga de día solo con OK explícito de Andrés.
