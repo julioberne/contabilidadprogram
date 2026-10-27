@@ -68,6 +68,11 @@ export default function ReportesTab({ portfolioId, portfolios, cuentas, inicial 
   }, [sub, portfolioId, desde, hasta, cuenta]);
   useEffect(() => { cargar(); }, [cargar]);
 
+  // Al cambiar de sub-pestaña se limpian los datos EN EL MISMO render: si no, la
+  // pestaña nueva se dibujaba un instante con el JSON de la anterior (p. ej. el
+  // balance de prueba no trae `movimientos`) y el módulo entero caía (27-oct).
+  const cambiarSub = (k) => { if (k !== sub) { setData(null); setSub(k); } };
+
   // H6.3: siguiente página del mayor por cursor (se agregan los movimientos).
   const [cargandoMas, setCargandoMas] = useState(false);
   const cargarMas = useCallback(async () => {
@@ -90,7 +95,7 @@ export default function ReportesTab({ portfolioId, portfolios, cuentas, inicial 
     <div className="space-y-2">
       <div className="bg-white border-2 border-black p-2 shadow-brutal space-y-1 text-[10px]">
         <div className="flex flex-wrap gap-1 items-center">
-          {SUB.map(([k, l]) => <button key={k} className={`${btn} ${sub === k ? 'bg-black text-white' : ''}`} onClick={() => setSub(k)}>{l}</button>)}
+          {SUB.map(([k, l]) => <button key={k} className={`${btn} ${sub === k ? 'bg-black text-white' : ''}`} onClick={() => cambiarSub(k)}>{l}</button>)}
           <b className="ml-2">{nombre}</b>
           <span className="text-gray-600">· solo asientos en libros (contabilizados)</span>
         </div>

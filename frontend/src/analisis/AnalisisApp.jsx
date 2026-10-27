@@ -119,7 +119,9 @@ export default function AnalisisApp({ user }) {
       try {
         const dataset = await api.get(rutaDataset(periodo, empresaDatos));
         if (cancelado || !tablaRef.current) return;
-        await tablaRef.current.replace(dataset.filas);
+        // replace([]) no repinta la cuadrícula en Perspective: sin filas, se vacía la tabla.
+        if (dataset.filas.length) await tablaRef.current.replace(dataset.filas);
+        else await tablaRef.current.clear();
         if (!cancelado) { setMeta(metaDe(dataset)); setEstadoDatos('listo'); }
       } catch (e) {
         if (!cancelado) { setErrorDatos(e.message || 'No se pudieron cargar los datos.'); setEstadoDatos('error'); }
