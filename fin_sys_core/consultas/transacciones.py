@@ -38,7 +38,7 @@ def armar_por_ids(ids: Iterable[Any]) -> Tuple[str, Dict[str, Any]]:
 
 
 def armar_por_filtro(empresas: Optional[Iterable[str]] = None, desde: Optional[date] = None,
-                     hasta: Optional[date] = None) -> Tuple[str, Dict[str, Any]]:
+                     hasta: Optional[date] = None, limite: Optional[int] = None) -> Tuple[str, Dict[str, Any]]:
     """(sql, params) por nombre de empresa (vacío = todas) y fechas inclusivas.
     Igual que el filtro en Python de antes: la fecha se compara como día y las
     filas sin fecha quedan fuera cuando hay rango."""
@@ -54,7 +54,11 @@ def armar_por_filtro(empresas: Optional[Iterable[str]] = None, desde: Optional[d
         cond.append("t.transaction_date::date <= %(hasta)s")
         p["hasta"] = hasta
     where = f" WHERE {' AND '.join(cond)}" if cond else ""
-    return f"SELECT {TX_SELECT_LIST} {TX_FROM}{where}{_ORDEN}", p
+    tope = ""
+    if limite is not None:                    # las más recientes primero (H6.2: Análisis)
+        tope = " LIMIT %(limite)s"
+        p["limite"] = max(1, int(limite))
+    return f"SELECT {TX_SELECT_LIST} {TX_FROM}{where}{_ORDEN}{tope}", p
 
 
 def _leer(sql: str, params: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -76,6 +80,7 @@ def por_ids(ids: Iterable[Any]) -> List[Dict[str, Any]]:
 
 
 def por_filtro(empresas: Optional[Iterable[str]] = None, desde: Optional[date] = None,
-               hasta: Optional[date] = None) -> List[Dict[str, Any]]:
-    """Las de esas empresas (vacío = todas) entre `desde` y `hasta` (exportación por período)."""
-    return _leer(*armar_por_filtro(empresas, desde, hasta))
+               hasta: Optional[date] = None, limite: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Las de esas empresas (vacío = todas) entre `desde` y `hasta` (exportación por
+    período, Análisis); con `limite`, solo las más recientes."""
+    return _leer(*armar_por_filtro(empresas, desde, hasta, limite))

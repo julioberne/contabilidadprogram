@@ -46,6 +46,57 @@ class TestArmar(unittest.TestCase):
         self.assertEqual(tr.por_ids([]), [])
 
 
+class TestDatasetAnalisis(unittest.TestCase):
+    """H6.2: Análisis por defecto con los últimos 12 meses de todas las empresas."""
+
+    def test_periodo(self):
+        from routers.analytics import periodo_dataset
+        self.assertEqual(periodo_dataset(12, date(2026, 10, 27)), (date(2025, 10, 28), date(2026, 10, 27)))
+        self.assertEqual(periodo_dataset(3, date(2026, 5, 31)), (date(2026, 3, 1), date(2026, 5, 31)))
+        self.assertEqual(periodo_dataset(12, date(2028, 2, 29)), (date(2027, 3, 1), date(2028, 2, 29)))
+        self.assertEqual(periodo_dataset(0), (None, None), "0 = todo el historial")
+
+    def _get(self, url, filas):
+        from unittest import mock
+
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from routers import analytics as rt
+        from routers.auth_guard import require_auth
+        app = FastAPI()
+        app.include_router(rt.router)
+        app.dependency_overrides[require_auth] = lambda: {"uid": "u1"}
+        parches = (mock.patch("fin_sys_core.consultas.transacciones.por_filtro", return_value=filas),
+                   mock.patch.object(rt, "_nombres_de_empresa", return_value={}),
+                   mock.patch.object(rt, "TOPE_DATASET", 3))
+        with parches[0] as pf, parches[1], parches[2]:
+            r = TestClient(app).get(url)
+        return r, pf
+
+    @staticmethod
+    def _tx(i):
+        return {"id": i, "portfolio_name": "Negocio A", "transaction_date": date(2026, 9, i), "type": "GASTO",
+                "amount": 10, "net_value": 10}
+
+    def test_por_defecto_12_meses_y_tope_con_aviso(self):
+        r, pf = self._get("/api/analytics/dataset", [self._tx(i) for i in range(1, 5)])
+        d = r.json()
+        empresas, desde, hasta = pf.call_args[0]
+        self.assertIsNone(empresas)
+        self.assertEqual((hasta - desde).days, 364)
+        self.assertEqual(pf.call_args[1]["limite"], 4, "pide uno de más para saber si se cortó")
+        self.assertEqual((d["n"], d["truncado"]), (3, True))
+        self.assertIn("más recientes", d["aviso"])
+
+    def test_empresa_y_todo_el_historial(self):
+        r, pf = self._get("/api/analytics/dataset?meses=0&empresa=Negocio%20A", [self._tx(1), self._tx(1)])
+        self.assertEqual(pf.call_args[0], (["Negocio A"], None, None))
+        d = r.json()
+        self.assertEqual((d["n"], d["truncado"], d["aviso"], d["desde"]), (1, False, None, None),
+                         "la fila repetida por la unión con activos ya no se cuenta dos veces")
+
+
 @unittest.skipUnless(os.environ.get("DB_HOST"), "requiere BD")
 class TestIgualQueAntes(unittest.TestCase):
     """Solo lectura."""

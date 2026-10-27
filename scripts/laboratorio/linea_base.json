@@ -32,7 +32,6 @@
    "server.py": 1
   },
   "descarga-todas-tx": {
-   "routers/analytics.py": 2,
    "routers/dashboard_data.py": 1,
    "routers/profile_accounts.py": 1
   },

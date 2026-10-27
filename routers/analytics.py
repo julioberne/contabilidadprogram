@@ -61,7 +61,8 @@ def run_metric(req: MetricRequest, _user: dict = Depends(require_auth)):
 
 # ── GET /api/analytics/dataset ───────────────────────────────
 # Tabla plana consolidada multi-empresa para el visor Perspective (B2).
-# Reusa obtener_transacciones(None) — la MISMA verdad que contabilidad.
+# Las mismas filas que contabilidad (consultas.transacciones), acotadas por
+# período y empresa desde el estándar H6.2.
 
 _ESQUEMA_DATASET = {
     "empresa": "string", "portafolio": "string", "fecha": "date", "tipo": "string",
@@ -118,13 +119,40 @@ def _texto(x) -> str:
     return str(x)
 
 
+TOPE_DATASET = 200_000      # filas al navegador (Perspective vive en la memoria del equipo)
+MESES_DATASET = 12         # período por defecto (decisión de Andrés, 27-oct-2026)
+
+
+def periodo_dataset(meses: Optional[int], hoy: Optional[datetime.date] = None):
+    """(desde, hasta) de los últimos `meses` hasta hoy; meses=0 → todo el historial (None, None)."""
+    hoy = hoy or datetime.date.today()
+    if not meses:
+        return None, None
+    meses = max(1, min(int(meses), 240))
+    anio, mes = divmod(hoy.year * 12 + (hoy.month - 1) - meses, 12)
+    dia = min(hoy.day, [31, 29 if (anio % 4 == 0 and anio % 100) or anio % 400 == 0 else 28,
+                        31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mes])
+    return datetime.date(anio, mes + 1, dia) + datetime.timedelta(days=1), hoy
+
+
 @router.get("/api/analytics/dataset")
-def get_dataset(_user: dict = Depends(require_auth)):
-    from database_driver import obtener_transacciones
+def get_dataset(meses: Optional[int] = MESES_DATASET, empresa: Optional[str] = None,
+                _user: dict = Depends(require_auth)):
+    """Estándar H6.2: ya no manda TODO el historial de TODAS las empresas. Por
+    defecto, los últimos 12 meses de todas; `meses` (0 = todo) y `empresa`
+    (nombre del portafolio) lo cambian. Tope de TOPE_DATASET filas, las más
+    recientes, con aviso para afinar."""
+    from fin_sys_core.consultas.transacciones import por_filtro
+    from fin_sys_core.export_xlsx import _sin_duplicados
+    desde, hasta = periodo_dataset(meses)
     try:
-        txs = obtener_transacciones(None)   # consolidado multi-empresa (lista plana)
+        txs = por_filtro([empresa] if empresa else None, desde, hasta, limite=TOPE_DATASET + 1)
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"No pude leer las transacciones: {e}")
+    truncado = len(txs) > TOPE_DATASET
+    # Una TX puede venir repetida por la unión con activos/cartera: sin esto el
+    # pivote sumaba dos veces (mismo arreglo que la exportación).
+    txs = _sin_duplicados(txs[:TOPE_DATASET])
 
     alias = _nombres_de_empresa()
     filas = []
@@ -154,6 +182,12 @@ def get_dataset(_user: dict = Depends(require_auth)):
         "filas": filas,
         "n": len(filas),
         "generado": datetime.datetime.now().isoformat(timespec="seconds"),
+        "desde": desde.isoformat() if desde else None,
+        "hasta": hasta.isoformat() if hasta else None,
+        "empresa": empresa or None,
+        "truncado": truncado,
+        "aviso": (f"Se cargaron los {TOPE_DATASET:,} movimientos más recientes; acota el período "
+                  "o la empresa para ver el resto.".replace(",", ".")) if truncado else None,
     }
 
 

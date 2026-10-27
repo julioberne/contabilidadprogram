@@ -19,6 +19,20 @@ import './analisis.css';
 
 const btn = 'border-2 border-black px-2 py-0.5 text-[10px] font-bold';
 
+/** H6.2: período del explorador (meses; 0 = todo el historial, con tope). */
+const PERIODOS = [[3, 'Últimos 3 meses'], [6, 'Últimos 6 meses'], [12, 'Últimos 12 meses'],
+  [24, 'Últimos 24 meses'], [0, 'Todo el historial']];
+
+function rutaDataset(meses, empresa) {
+  const p = new URLSearchParams({ meses: String(meses) });
+  if (empresa) p.set('empresa', empresa);
+  return `/analytics/dataset?${p}`;
+}
+
+function metaDe(d) {
+  return { n: d.n, generado: d.generado, desde: d.desde, hasta: d.hasta, aviso: d.aviso };
+}
+
 export default function AnalisisApp({ user }) {
   // ── Explorador (Perspective) ──
   const viewerRef = useRef(null);
@@ -26,6 +40,10 @@ export default function AnalisisApp({ user }) {
   const [estadoDatos, setEstadoDatos] = useState('cargando'); // cargando|listo|error
   const [errorDatos, setErrorDatos] = useState('');
   const [meta, setMeta] = useState({ n: 0, generado: '' });
+  // H6.2: el explorador ya no carga TODO el historial: por defecto los últimos
+  // 12 meses de todas las empresas (0 = todo, con tope de 200.000 filas).
+  const [periodo, setPeriodo] = useState(12);
+  const [empresaDatos, setEmpresaDatos] = useState('');   // '' = todas
   const [vistaActiva, setVistaActiva] = useState(VISTAS_PREDEFINIDAS[0].nombre);
   const [vistasPropias, setVistasPropias] = useState(() => cargarVistasGuardadas());
   const [nombreNuevo, setNombreNuevo] = useState('');
@@ -55,7 +73,7 @@ export default function AnalisisApp({ user }) {
       try {
         const [{ obtenerWorker }, dataset] = await Promise.all([
           import('./perspectiveBoot.js'),
-          api.get('/analytics/dataset'),
+          api.get(rutaDataset(12, '')),
         ]);
         const worker = await obtenerWorker();
         if (cancelado) return;
@@ -66,7 +84,7 @@ export default function AnalisisApp({ user }) {
         await viewerRef.current.load(tabla);
         await viewerRef.current.restore(VISTAS_PREDEFINIDAS[0].config);
         if (!cancelado) {
-          setMeta({ n: dataset.n, generado: dataset.generado });
+          setMeta(metaDe(dataset));
           setEstadoDatos('listo');
         }
       } catch (e) {
@@ -88,6 +106,27 @@ export default function AnalisisApp({ user }) {
       tablaRef.current = null;
     };
   }, []);
+
+  // Cambio de período o empresa: se reemplazan los datos de la MISMA tabla
+  // (el visor y su vista se quedan como están).
+  const primeraCarga = useRef(true);
+  useEffect(() => {
+    if (primeraCarga.current) { primeraCarga.current = false; return undefined; }
+    let cancelado = false;
+    (async () => {
+      if (!tablaRef.current) return;
+      setEstadoDatos('cargando');
+      try {
+        const dataset = await api.get(rutaDataset(periodo, empresaDatos));
+        if (cancelado || !tablaRef.current) return;
+        await tablaRef.current.replace(dataset.filas);
+        if (!cancelado) { setMeta(metaDe(dataset)); setEstadoDatos('listo'); }
+      } catch (e) {
+        if (!cancelado) { setErrorDatos(e.message || 'No se pudieron cargar los datos.'); setEstadoDatos('error'); }
+      }
+    })();
+    return () => { cancelado = true; };
+  }, [periodo, empresaDatos]);
 
   // Empresas para amarrar la pregunta (selector del usuario, no de la IA).
   // Se muestran con el nombre del Control Tower cuando el portafolio está
@@ -175,8 +214,19 @@ export default function AnalisisApp({ user }) {
       <div className="bg-white border-2 border-black shadow-brutal p-2 flex flex-wrap items-center gap-2">
         <span className="font-bold text-[13px]">∑ ANÁLISIS</span>
         <span className="text-[10px] border border-black px-1 bg-brutalNeutral">
-          {estadoDatos === 'listo' ? `${meta.n} TXs consolidadas` : estadoDatos === 'cargando' ? 'cargando…' : 'sin datos'}
+          {estadoDatos === 'listo' ? `${meta.n} TXs ${meta.desde ? `${meta.desde} → ${meta.hasta}` : '· todo el historial'}`
+            : estadoDatos === 'cargando' ? 'cargando…' : 'sin datos'}
         </span>
+        <select value={periodo} onChange={(e) => setPeriodo(Number(e.target.value))}
+          className="text-[10px] border border-black px-1 bg-white" aria-label="Período del explorador">
+          {PERIODOS.map(([m, l]) => <option key={m} value={m}>{l}</option>)}
+        </select>
+        <select value={empresaDatos} onChange={(e) => setEmpresaDatos(e.target.value)}
+          className="text-[10px] border border-black px-1 bg-white" aria-label="Empresa del explorador">
+          <option value="">Todas las empresas</option>
+          {portfolios.map((p) => <option key={p.id} value={p.name}>{p.etiqueta}</option>)}
+        </select>
+        {meta.aviso && <span className="text-[10px] text-orange-700" role="status">⚠ {meta.aviso}</span>}
         {meta.generado && (
           <span className="text-[10px] text-gray-600">al {meta.generado.replace('T', ' ')}</span>
         )}
