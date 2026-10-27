@@ -43,17 +43,14 @@ Runbook de escalamiento: `docs/escalamiento.md`. Laboratorio: `scripts/laborator
   la entrega ZIP retiene una conexión mientras arma (`entrega_driver.py:141-156`).
 
 ## Próximo paso
-0. **H6 hecho, sin publicar** (27-oct): `99dc37b` H6.1 (compendio, exportación e IA con
-   `consultas/transacciones.py`, idénticas filas verificadas con BD), `8c7e970` H6.2 (Análisis: 12 meses de
-   todas las empresas por defecto, selector período/empresa, tope 200.000; decisión de Andrés), `ca7da4a`
-   H6.3 (fuera la ruta legacy DASHBOARD_FAST=0 —decisión de Andrés— y Libro Mayor de a 500 por cursor).
-   Deuda "descarga TODAS las TX" 7 → 0. **Falta:** ver Análisis y el Mayor en pantalla (el navegador del
-   panel perdió la sesión: Andrés inicia sesión en localhost:8003 o se prueba tras publicar) y que Andrés
-   corra `scripts/migrate_indice_mayor.py --concurrently --explain`.
-1. **Andrés:** publicar (`scripts\publicar.cmd`) y en Dokploy encender de a poco `FINSYS_EN_COLA`
-   (`exportacion,entrega,diario_csv` → `+bot` → `+tareas`) con `finsys-worker` healthy.
-2. Siguen **H7** (panel por versión + fotos de saldo; tablas nuevas → migración) y **H8** (escritura del libro;
-   permiso para `database_driver.py` con plan previo con líneas exactas). Cada uno con plan previo.
+0. **Sin publicar** (27-oct): H6 (`99dc37b`, `8c7e970`, `ca7da4a`, `b1ee19c`: verificado en pantalla) y **H7**
+   (`4383b3d`): versión del panel + fotos de saldo, con permiso de Andrés para triggers en transactions,
+   transaction_evidences, cxp_cxc_ledger y user_accounts. Equivalencia foto+posterior == todo verificada con BD.
+1. **Andrés:** `scripts\publicar.cmd`; luego `migrate_indice_mayor.py --concurrently --explain` y
+   `migrate_panel_h7.py --dry-run` → `migrate_panel_h7.py`. La primera foto la saca el worker (tarea
+   `fotos_saldo`, requiere `tareas` en FINSYS_EN_COLA); sin foto el panel calcula completo como antes.
+   `PANEL_FOTOS=0` apaga el uso de fotos. Encender `FINSYS_EN_COLA` de a poco con el worker healthy.
+2. **H8** (escritura del libro): permiso para `database_driver.py` con plan previo con líneas exactas.
 
 ## Decisiones (y porqué)
 - Pruebas contra la BD compartida SOLO LECTURA y acotadas; carga de día solo con OK explícito de Andrés.
