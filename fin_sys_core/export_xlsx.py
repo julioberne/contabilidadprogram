@@ -499,7 +499,8 @@ def _nombres_oficiales(codigos: List[str], portfolio_id: Optional[int]) -> Dict[
 
 
 def recolectar(r: Dict[str, Any]) -> Dict[str, Any]:
-    from database_driver import listar_cartera, obtener_portafolios, obtener_transacciones
+    from database_driver import listar_cartera, obtener_portafolios
+    from fin_sys_core.consultas.transacciones import por_filtro, por_ids
     from kernel import kernel_reports as kr
     from kernel.kernel_journal_workflow import obtener_asientos_agrupados
 
@@ -517,12 +518,13 @@ def recolectar(r: Dict[str, Any]) -> Dict[str, Any]:
                  "nit": ident.get(pid, {}).get("nit") or ""} for pid in r["portfolios"]]
     nombres_sel = {todas[pid] for pid in r["portfolios"]}
 
-    txs_todas = _sin_duplicados(obtener_transacciones(None))
     datos: Dict[str, Any] = {"empresas": empresas, "alias": alias, "advertencias_bd": []}
 
+    # H6: el filtro va a la BD (antes, TODAS las transacciones de TODAS las
+    # empresas y el filtro en Python). Mismas filas, mismo orden.
     if r["modo"] == "transacciones":
         sel = set(r["tx_ids"])
-        elegidas = [t for t in txs_todas if t.get("id") in sel]
+        elegidas = [t for t in _sin_duplicados(por_ids(sel)) if t.get("id") in sel]
         if nombres_sel:
             fuera = sorted(t["id"] for t in elegidas if t.get("portfolio_name") not in nombres_sel)
             if fuera:
@@ -543,7 +545,9 @@ def recolectar(r: Dict[str, Any]) -> Dict[str, Any]:
         )
         return datos
 
-    txs = [t for t in txs_todas if not nombres_sel or t.get("portfolio_name") in nombres_sel]
+    txs = _sin_duplicados(por_filtro(nombres_sel, r["desde"], r["hasta"]))
+    # El mismo filtro en Python de siempre (ya no descarta nada: la BD filtró igual).
+    txs = [t for t in txs if not nombres_sel or t.get("portfolio_name") in nombres_sel]
     txs = [t for t in txs
            if (f := _a_fecha(t.get("transaction_date"))) is not None
            and (r["desde"] is None or f >= r["desde"]) and f <= r["hasta"]]

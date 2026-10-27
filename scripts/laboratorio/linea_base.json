@@ -32,9 +32,6 @@
    "server.py": 1
   },
   "descarga-todas-tx": {
-   "fin_sys_core/ai_engine.py": 1,
-   "fin_sys_core/compendio_driver.py": 1,
-   "fin_sys_core/export_xlsx.py": 1,
    "routers/analytics.py": 2,
    "routers/dashboard_data.py": 1,
    "routers/profile_accounts.py": 1

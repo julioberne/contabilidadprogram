@@ -406,7 +406,10 @@ class TestRecolectar(unittest.TestCase):
         vacio = {"cuentas": []}
         p = [
             mock.patch("database_driver.obtener_portafolios", return_value=portafolios),
-            mock.patch("database_driver.obtener_transacciones", return_value=txs or []),
+            # H6: recolectar pide a la BD solo lo de la empresa/período o los ids;
+            # el filtro en Python sigue aplicándose, así que la lista entera sirve.
+            mock.patch("fin_sys_core.consultas.transacciones.por_filtro", return_value=list(txs or [])),
+            mock.patch("fin_sys_core.consultas.transacciones.por_ids", return_value=list(txs or [])),
             mock.patch("database_driver.listar_cartera", return_value=[]),
             mock.patch("kernel.kernel_reports.balance_prueba", side_effect=lambda *a: next(bps)),
             mock.patch("kernel.kernel_reports.estado_resultados", return_value={"ingresos": vacio, "gastos": vacio}),

@@ -292,10 +292,12 @@ def armar_snapshot(txs: List[Dict[str, Any]], empresas: Dict[str, Dict[str, str]
 # ══ Lecturas (la misma fuente que el motor 13.4) ═══════════════════════════
 
 def _leer_txs(ids: List[int]) -> Tuple[List[Dict[str, Any]], List[int], Dict[str, Dict[str, str]]]:
-    from database_driver import obtener_portafolios, obtener_transacciones
+    from database_driver import obtener_portafolios
     from fin_sys_core import export_xlsx as ex
+    from fin_sys_core.consultas.transacciones import por_ids
     sel = set(ids)
-    txs = [t for t in ex._sin_duplicados(obtener_transacciones(None)) if t.get("id") in sel]
+    # H6: solo las elegidas (antes, TODAS las transacciones y el filtro en Python)
+    txs = [t for t in ex._sin_duplicados(por_ids(sel)) if t.get("id") in sel]
     if not txs:
         raise ValueError("Ninguna de las transacciones elegidas existe.")
     faltan = sorted(sel - {t.get("id") for t in txs})

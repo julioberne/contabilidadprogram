@@ -66,7 +66,10 @@ def get_rag_context(user_voice_concept: str) -> str:
         print(f"⚠️ [AVISO RAG] PostgreSQL no activo o error, usando Simulación en Memoria. Detalle: {e}")
         # Intentamos obtener transacciones locales del simulador en memoria
         try:
-            txs = obtener_transacciones()
+            # H6: solo las 200 más recientes (antes, TODAS las transacciones de
+            # TODAS las empresas para quedarse con 3 parecidas).
+            r = obtener_transacciones(limit=200)
+            txs = r.get("items", []) if isinstance(r, dict) else list(r or [])[:200]
             # Filtrado simple por coincidencia de subcadena (concept o category)
             match_count = 0
             for tx in txs:
