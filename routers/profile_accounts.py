@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """FIN-SYS OS v2.0 — Router: Perfil & Cuentas (4 endpoints)
 Extracted from contabilidad.py — PURE refactor, zero logic changes."""
-import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -206,16 +205,10 @@ def list_accounts(portfolio: Optional[str] = None, _u: dict = Depends(require_au
     Cada cuenta viene con portfolio_name, tx_delta y expected_balance — lo que
     necesitan las tabs del Pulso de Cuentas para mostrar cualquier empresa."""
     try:
-        # Plan A2 (2026-09-15): un solo viaje a la BD (antes: 6 sentencias en
-        # 3 conexiones, cargando TODAS las TXs). DASHBOARD_FAST=0 = ruta legacy.
-        if os.environ.get("DASHBOARD_FAST", "1") != "0":
-            from fin_sys_core.dashboard_query import obtener_cuentas_con_delta
-            return _anotar_last4(obtener_cuentas_con_delta(portfolio))
-        from database_driver import obtener_cuentas, obtener_transacciones
-        from routers.dashboard_data import _agregar_tx_delta
-        accounts = anotar_portafolio_cuentas(obtener_cuentas())
-        _agregar_tx_delta(accounts, obtener_transacciones(None))
-        return _anotar_last4(filtrar_cuentas_por_portafolio(accounts, portfolio))
+        # Plan A2 (2026-09-15): un solo viaje a la BD. Desde H6.3 (27-oct) es la
+        # única ruta: la legacy (DASHBOARD_FAST=0, TODAS las TXs) se retiró.
+        from fin_sys_core.dashboard_query import obtener_cuentas_con_delta
+        return _anotar_last4(obtener_cuentas_con_delta(portfolio))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -32,7 +32,14 @@ def _pf(portfolio_id: Optional[int]):
 
 
 def libro_mayor(portfolio_id: Optional[int], cuenta_codigo: str,
-                fecha_desde: Optional[str] = None, fecha_hasta: Optional[str] = None) -> Dict[str, Any]:
+                fecha_desde: Optional[str] = None, fecha_hasta: Optional[str] = None,
+                limite: Optional[int] = None, despues: Optional[tuple] = None) -> Dict[str, Any]:
+    """Libro mayor de una cuenta. Sin `limite`, todos los movimientos (así lo usan
+    las exportaciones). Con `limite` (estándar H6.3), una página por CURSOR
+    (fecha, id): los totales y el saldo final siguen siendo de TODO el período,
+    y el saldo acumulado de la página arranca donde terminó la anterior."""
+    if limite is not None:
+        return _libro_mayor_pagina(portfolio_id, cuenta_codigo, fecha_desde, fecha_hasta, int(limite), despues)
     pf_sql, params = _pf(portfolio_id)
     params.update({"cta": cuenta_codigo, "desde": fecha_desde, "hasta": fecha_hasta})
     conn = get_conn()
@@ -74,6 +81,61 @@ def libro_mayor(portfolio_id: Optional[int], cuenta_codigo: str,
     return {"cuenta_codigo": cuenta_codigo, "cuenta_nombre": nombre, "cuenta_tipo": tipo,
             "saldo_inicial": float(ini["saldo_inicial"] or 0), "movimientos": movs,
             "total_debito": float(td), "total_credito": float(tc), "saldo_final": float(saldo)}
+
+
+def _libro_mayor_pagina(portfolio_id, cuenta_codigo, fecha_desde, fecha_hasta, limite, despues):
+    pf_sql, params = _pf(portfolio_id)
+    limite = max(1, min(limite, 5000))
+    params.update({"cta": cuenta_codigo, "desde": fecha_desde, "hasta": fecha_hasta, "lim": limite + 1,
+                   "k_fecha": despues[0] if despues else None, "k_id": int(despues[1]) if despues else None})
+    rango = f"""cuenta_codigo = %(cta)s AND {EN_LIBROS} {pf_sql}
+              AND (%(desde)s::date IS NULL OR fecha >= %(desde)s::date)
+              AND (%(hasta)s::date IS NULL OR fecha <= %(hasta)s::date)"""
+    conn = get_conn()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        # Saldo antes del período (mismo criterio que la versión completa), totales
+        # del período y lo acumulado ANTES de esta página, en una sola sentencia.
+        cur.execute(f"""
+            SELECT
+              (SELECT COALESCE(SUM(debito) - SUM(credito), 0) FROM kernel_journal_entries
+                WHERE cuenta_codigo = %(cta)s AND {EN_LIBROS} {pf_sql}
+                  AND %(desde)s::date IS NOT NULL AND fecha < %(desde)s::date) AS saldo_inicial,
+              COALESCE(SUM(debito), 0) AS td, COALESCE(SUM(credito), 0) AS tc, COUNT(*) AS n,
+              COALESCE(SUM(CASE WHEN %(k_fecha)s::date IS NOT NULL
+                                 AND (fecha, id) <= (%(k_fecha)s::date, %(k_id)s) THEN debito - credito END), 0) AS previo,
+              MAX(cuenta_nombre) AS cuenta_nombre, MAX(cuenta_tipo) AS cuenta_tipo
+            FROM kernel_journal_entries WHERE {rango}
+        """, params)
+        agg = cur.fetchone()
+        cur.execute(f"""
+            SELECT id, fecha, entry_group_id, referencia, descripcion, debito, credito, estado,
+                   cuenta_nombre, cuenta_tipo
+            FROM kernel_journal_entries
+            WHERE {rango}
+              AND (%(k_fecha)s::date IS NULL OR (fecha, id) > (%(k_fecha)s::date, %(k_id)s))
+            ORDER BY fecha, id
+            LIMIT %(lim)s
+        """, params)
+        filas = [dict(r) for r in cur.fetchall()]
+        cur.close()
+    finally:
+        put_conn(conn)
+    mas = len(filas) > limite
+    filas = filas[:limite]
+    inicial = Decimal(agg["saldo_inicial"] or 0)
+    saldo = inicial + Decimal(agg["previo"] or 0)
+    movs = []
+    for r in filas:
+        saldo += Decimal(r["debito"] or 0) - Decimal(r["credito"] or 0)
+        movs.append({**{k: _f(v) for k, v in r.items()}, "saldo_acumulado": _f(saldo)})
+    td, tc = Decimal(agg["td"] or 0), Decimal(agg["tc"] or 0)
+    ultima = filas[-1] if (filas and mas) else None
+    return {"cuenta_codigo": cuenta_codigo, "cuenta_nombre": agg["cuenta_nombre"] or "",
+            "cuenta_tipo": agg["cuenta_tipo"] or "", "saldo_inicial": _f(inicial), "movimientos": movs,
+            "total_debito": _f(td), "total_credito": _f(tc), "saldo_final": _f(inicial + td - tc),
+            "total_movimientos": int(agg["n"] or 0),
+            "siguiente": ({"fecha": _f(ultima["fecha"]), "id": ultima["id"]} if ultima else None)}
 
 
 def balance_prueba(portfolio_id: Optional[int], fecha_desde: Optional[str] = None,

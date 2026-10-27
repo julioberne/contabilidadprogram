@@ -31,10 +31,7 @@
    "kernel/kernel_periods.py": 1,
    "server.py": 1
   },
-  "descarga-todas-tx": {
-   "routers/dashboard_data.py": 1,
-   "routers/profile_accounts.py": 1
-  },
+  "descarga-todas-tx": {},
   "error-tragado-vacio": {
    "fin_sys_core/control_tower_driver.py": 2,
    "fin_sys_core/database_driver.py": 6,

@@ -68,6 +68,22 @@ export default function ReportesTab({ portfolioId, portfolios, cuentas, inicial 
   }, [sub, portfolioId, desde, hasta, cuenta]);
   useEffect(() => { cargar(); }, [cargar]);
 
+  // H6.3: siguiente página del mayor por cursor (se agregan los movimientos).
+  const [cargandoMas, setCargandoMas] = useState(false);
+  const cargarMas = useCallback(async () => {
+    if (!data?.siguiente) return;
+    setCargandoMas(true);
+    try {
+      const p = new URLSearchParams({ cuenta, despues_fecha: data.siguiente.fecha, despues_id: String(data.siguiente.id) });
+      if (portfolioId != null) p.set('portfolio_id', portfolioId);
+      if (desde) p.set('desde', desde);
+      if (hasta) p.set('hasta', hasta);
+      const mas = await api.get(`/contadores/reportes/libro-mayor?${p}`);
+      setData((d) => ({ ...d, movimientos: [...d.movimientos, ...mas.movimientos], siguiente: mas.siguiente }));
+    } catch (e) { setError(e.message); }
+    finally { setCargandoMas(false); }
+  }, [data, cuenta, portfolioId, desde, hasta]);
+
   const Grupo = GrupoReporte;
 
   return (
@@ -135,6 +151,14 @@ export default function ReportesTab({ portfolioId, portfolios, cuentas, inicial 
             </tbody>
             <tfoot><tr className="font-bold bg-brutalNeutral"><td className="px-1" colSpan={4}>TOTALES</td><td className={tr}>{fmt(data.total_debito)}</td><td className={tr}>{fmt(data.total_credito)}</td><td className={tr}>{fmt(data.saldo_final)}</td></tr></tfoot>
           </table>
+          {/* H6.3: el mayor llega de a 500 movimientos; los totales ya son de todo el período */}
+          {data.siguiente && (
+            <div className="flex items-center gap-2 p-1 text-[10px]">
+              <span>{data.movimientos.length} de {data.total_movimientos} movimientos</span>
+              <button className={btn} disabled={cargandoMas} onClick={cargarMas}>
+                {cargandoMas ? '⏳…' : '↓ CARGAR MÁS'}</button>
+            </div>
+          )}
         </div>
       )}
 

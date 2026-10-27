@@ -261,10 +261,14 @@ def reglas_eliminar(rule_id: int, _u: dict = Depends(require_contador)):
 
 @router.get("/reportes/libro-mayor")
 def rep_libro_mayor(cuenta: str, portfolio_id: Optional[int] = None, desde: Optional[str] = None,
-                    hasta: Optional[str] = None, _u: dict = Depends(require_contador)):
+                    hasta: Optional[str] = None, limite: int = 500, despues_fecha: Optional[str] = None,
+                    despues_id: Optional[int] = None, _u: dict = Depends(require_contador)):
+    """Estándar H6.3: de a `limite` movimientos (cursor despues_fecha/despues_id →
+    `siguiente`); los totales y el saldo final son siempre de todo el período."""
     try:
         from kernel.kernel_reports import libro_mayor
-        return libro_mayor(portfolio_id, cuenta, desde, hasta)
+        despues = (despues_fecha, despues_id) if (despues_fecha and despues_id is not None) else None
+        return libro_mayor(portfolio_id, cuenta, desde, hasta, limite=limite, despues=despues)
     except Exception as e:
         raise _http(e)
 

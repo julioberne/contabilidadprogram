@@ -2,7 +2,6 @@
 """FIN-SYS OS v2.0 — Router: Dashboard Data (3 endpoints)
 Dashboard aggregator, reconcile-balances, cache invalidate.
 Extracted from contabilidad.py — PURE refactor, zero logic changes."""
-import os
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional
 
@@ -111,9 +110,8 @@ def _armar_respuesta(totals, paginated_txs, total_tx_count, accounts, portfolios
 
 def _dashboard_fast(portfolio: Optional[str], limit: int, offset: int):
     """Ruta rápida (plan cimientos A2, 2026-09-15): UN viaje a la BD vía
-    fin_sys_core/dashboard_query.py. Mismo contrato de respuesta que la ruta
-    legacy; scripts/verify_dashboard_parity.py compara ambas. Se activa con
-    DASHBOARD_FAST=1 (apagarlo = rollback sin redeploy)."""
+    fin_sys_core/dashboard_query.py. Desde H6.3 es la única (la legacy se
+    retiró); scripts/verify_dashboard_parity.py --http compara dos servidores."""
     from fin_sys_core.dashboard_query import obtener_dashboard_snapshot, caja_viva_desde_agregados
     from fin_sys_core.database_driver import MOCK_USER_PROFILE
 
@@ -130,12 +128,6 @@ def _dashboard_fast(portfolio: Optional[str], limit: int, offset: int):
     result["coa"] = ({"status": "OK", "data": snap["coa"]} if snap["coa"]
                      else {"status": "EMPTY", "data": []})
     return result
-
-
-def _fast_activo() -> bool:
-    # Activa por defecto tras paridad 0 diffs en los 7 portafolios (15-sep).
-    # DASHBOARD_FAST=0 en Dokploy → vuelve a la ruta legacy sin redeploy.
-    return os.environ.get("DASHBOARD_FAST", "1") != "0"
 
 
 @router.get("/api/dashboard-data/balance")
@@ -158,88 +150,13 @@ def get_dashboard_balance(portfolio: Optional[str] = None, _u: dict = Depends(re
 
 @router.get("/api/dashboard-data")
 def get_dashboard_data(portfolio: Optional[str] = None, limit: int = 50, offset: int = 0, _u: dict = Depends(require_auth)):
-    if _fast_activo():
-        try:
-            return _dashboard_fast(portfolio, limit, offset)
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+    # Estándar H6.3 (27-oct-2026, decisión de Andrés): solo la ruta rápida. La
+    # legacy (DASHBOARD_FAST=0: TODAS las transacciones y el filtro en Python)
+    # llevaba apagada desde el 15-sep; un respaldo que nunca corre no está
+    # probado justo cuando haría falta (regla 7 del estándar).
     try:
-        from fin_sys_core.database_driver import obtener_transacciones, obtener_cuentas, obtener_portafolios, obtener_perfil_usuario
-        from fin_sys_core.ledger_math import calculate_caja_viva
-
-        portfolios = obtener_portafolios()
-
-        # Un portafolio inexistente ya NO responde 200 con ceros. Antes cualquier
-        # nombre devolvía un payload con pinta de válido (ingresos 0 + patrimonio
-        # global), así que el consolidado por empresa mostraba el mismo número
-        # fantasma en cada fila y lo sumaba N veces.
-        if portfolio and not any(p.get("name") == portfolio for p in portfolios):
-            raise HTTPException(
-                status_code=404,
-                detail=f"Portafolio no encontrado: '{portfolio}'"
-            )
-
-        from routers.profile_accounts import anotar_portafolio_cuentas, filtrar_cuentas_por_portafolio
-
-        # UNA sola consulta de transacciones (cada round-trip a Supabase cuesta
-        # ~180ms desde dev local): se trae todo y el filtro por portafolio se
-        # hace en Python con el portfolio_name que ya viene en cada fila.
-        all_txs = obtener_transacciones(None)
-        txs = all_txs if not portfolio else [
-            t for t in all_txs if t.get("portfolio_name") == portfolio]
-        accounts = anotar_portafolio_cuentas(obtener_cuentas())
-
-        # Δ real por cuenta desde las TRANSACCIONES. Se calcula sobre TODAS las
-        # cuentas (una transferencia puede cruzar portafolios) y con todas las
-        # transacciones. Misma matemática que recalcular_saldos_cuentas.
-        _agregar_tx_delta(accounts, all_txs)
-
-        # Separación por portafolio: cada empresa ve SUS cuentas + las
-        # compartidas (portfolio_id NULL). El patrimonio/balance del portafolio
-        # se calcula solo con esas — no todas las empresas tienen las mismas
-        # cuentas ni los mismos valores.
-        accounts = filtrar_cuentas_por_portafolio(accounts, portfolio)
-        totals = calculate_caja_viva(txs, accounts)
-        
-        # Paginación de transacciones
-        paginated_txs = txs[offset:offset + limit] if txs else []
-        
-        result = _armar_respuesta(totals, paginated_txs, len(txs), accounts, portfolios)
-        
-        # Perfil
-        try:
-            result["profile"] = obtener_perfil_usuario()
-        except:
-            result["profile"] = None
-        
-        # COA (2026-09-15): este bloque consultaba `coa_accounts`, una tabla
-        # que NO existe. Fallaba SIEMPRE, el `except` lo tragaba (coa=null en
-        # el frontend) y —peor— la conexión prestada nunca se devolvía: cada
-        # dashboard quemaba un slot del pool (used 2→5 tras 3 llamadas medido
-        # con pool_status). A los ~8 dashboards el pool quedaba muerto y todo
-        # caía al fallback → "Base de datos saturada". obtener_coa_tree lee la
-        # tabla real (chart_of_accounts), devuelve el mismo árbol
-        # {..., children: []} y libera la conexión en su finally.
-        try:
-            from fin_sys_core.database_driver import obtener_coa_tree
-            # Sin portafolio explícito se usa el primero de la BD (antes estaba
-            # hardcodeado "Negocio A", que dejaba de existir si lo renombraban).
-            coa_portfolio = portfolio or (portfolios[0]["name"] if portfolios else None)
-            tree = obtener_coa_tree(coa_portfolio) if coa_portfolio else []
-            if tree:
-                result["coa"] = {"status": "OK", "data": tree}
-            else:
-                result["coa"] = {"status": "EMPTY", "data": []}
-        except Exception:
-            result["coa"] = None
-        
-        return result
+        return _dashboard_fast(portfolio, limit, offset)
     except HTTPException:
-        # El 404 de arriba es intencional: sin esto el `except Exception`
-        # lo re-envolvía como 500 y el cliente no podía distinguir
-        # "no existe" de "se cayó el servidor".
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

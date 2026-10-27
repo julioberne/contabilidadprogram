@@ -7,10 +7,10 @@ legacy de GET /api/dashboard-data (9 sentencias, cálculo en Python) contra
 la ruta rápida (1 sentencia, fin_sys_core/dashboard_query.py), y lo mismo
 para GET /api/accounts.
 
-    python scripts/verify_dashboard_parity.py            # in-process
     python scripts/verify_dashboard_parity.py --http http://127.0.0.1:8000 http://127.0.0.1:8001
-        (compara dos servidores: p. ej. uno con DASHBOARD_FAST=0 y otro =1;
-         acepta --token <bearer> si los GET exigen sesión)
+        (compara dos servidores, p. ej. local contra producción; acepta
+         --token <bearer> si los GET exigen sesión). La paridad in-process
+         legacy vs rápido terminó con H6.3 (27-oct-2026): la legacy se retiró.
 
 Sale con código 1 si hay diferencias. Tolerancia numérica: 0.01.
 """
@@ -94,34 +94,6 @@ def casos():
     return [None] + nombres
 
 
-def in_process():
-    import routers.dashboard_data as dd
-    from routers.profile_accounts import list_accounts
-    from fin_sys_core.dashboard_query import obtener_cuentas_con_delta
-
-    total = 0
-    for portfolio in casos():
-        for offset in (0, 50):
-            os.environ["DASHBOARD_FAST"] = "0"
-            legacy = _norm(dd.get_dashboard_data(portfolio, 50, offset))
-            rapido = _norm(dd._dashboard_fast(portfolio, 50, offset))
-            d = diff(legacy, rapido, "dashboard")
-            etiqueta = f"dashboard portfolio={portfolio!r} offset={offset}"
-            print(f"{'✅' if not d else '❌'} {etiqueta}: {len(d)} diferencias")
-            for linea in d[:20]:
-                print("    ", linea)
-            total += len(d)
-        os.environ["DASHBOARD_FAST"] = "0"
-        legacy = _norm(list_accounts(portfolio))
-        rapido = _norm(obtener_cuentas_con_delta(portfolio))
-        d = diff(legacy, rapido, "accounts")
-        print(f"{'✅' if not d else '❌'} accounts portfolio={portfolio!r}: {len(d)} diferencias")
-        for linea in d[:20]:
-            print("    ", linea)
-        total += len(d)
-    return total
-
-
 def http(a, b, token=None):
     import urllib.request
     import urllib.parse
@@ -156,6 +128,7 @@ if __name__ == "__main__":
         i = args.index("--http")
         n = http(args[i + 1], args[i + 2], token)
     else:
-        n = in_process()
+        sys.exit("La ruta legacy del panel se retiró en H6.3 (27-oct-2026): ya no hay paridad "
+                 "in-process. Para comparar dos servidores: --http URL_A URL_B [--token …]")
     print(f"\n{'PARIDAD OK' if n == 0 else f'{n} DIFERENCIAS'}")
     sys.exit(0 if n == 0 else 1)

@@ -56,7 +56,7 @@
 | ~~DT-24~~ | ✅ CERRADA 15-sep: `_get_conn` de `hr_documents_driver` presta del pool y lo devuelve (antes abría conexiones directas y NUNCA las cerraba) | — |
 | ~~DT-25~~ | ✅ CERRADA 04-sep: el arranque ABORTA si Postgres no responde (FINSYS_ALLOW_MOCK=1 solo dev) | — |
 | ~~DT-26~~ | ✅ CERRADA 04-sep: el arranque ABORTA si DB_PORT falta o es 5432 (FINSYS_ALLOW_5432=1 override) | — |
-| ~~DT-27~~ | ✅ CERRADA 15-sep: `/api/dashboard-data` y `/api/accounts` en UN viaje (`fin_sys_core/dashboard_query.py`, paridad 0 diffs con `scripts/verify_dashboard_parity.py`); 2.1 s → 0.28 s local. `DASHBOARD_FAST=0` en Dokploy = ruta legacy sin redeploy. Además el bloque COA consultaba `coa_accounts` (inexistente) y FUGABA una conexión por request (pool muerto a los ~8 dashboards) — corregido | — |
+| ~~DT-27~~ | ✅ CERRADA 15-sep: `/api/dashboard-data` y `/api/accounts` en UN viaje (`fin_sys_core/dashboard_query.py`, paridad 0 diffs con `scripts/verify_dashboard_parity.py`); 2.1 s → 0.28 s local. La ruta legacy (`DASHBOARD_FAST=0`) se retiró el 27-oct (estándar H6.3). Además el bloque COA consultaba `coa_accounts` (inexistente) y FUGABA una conexión por request (pool muerto a los ~8 dashboards) — corregido | — |
 | DT-30 | El COA sembrado (23 cuentas de plantilla, códigos cortos) NO contiene los códigos PUC de 6 dígitos que usan las posting_rules (522005, 513520, 130505…); `scripts/seed_puc.py` se salta si el portafolio ya tiene cuentas. El contador puede crearlas en Contadores → Plan de cuentas, o adaptar el seed para insertar solo las faltantes | Media |
 | DT-31 | Recurrencia: `is_recurring/recurrence_*` se guardan pero NINGÚN proceso materializa las ocurrencias (no hay scheduler) | Media |
 | ~~DT-32~~ | ✅ CERRADA 15-sep: la Home usa `/api/dashboard-data/balance` (consolidado, misma matemática del dashboard) y `GET /api/hr/employees/summary` ya existe (daba 404 en cada carga). `/api/portfolios/balance` sigue existiendo para otros consumidores | — |
@@ -135,7 +135,7 @@ python -m unittest tests.test_etiquetas tests.test_etiquetas_db                 
 python -m unittest tests.test_analytics_catalog tests.test_analytics_qa tests.test_insight_engine tests.test_bot_analisis tests.test_export_xlsx   # Análisis: catálogo + traductor + gráfica + insights/tick + bot /analisis + libros .xlsx (36)
 python -m unittest tests.test_export_xlsx_db   # libros .xlsx contra la BD real, solo lectura (3)
 python tests/test_contadores.py                                                # 15/15 módulo Contadores (BD real, limpia sus filas)
-python scripts/verify_dashboard_parity.py                                      # 0 diffs legacy vs rápido
+python scripts/verify_dashboard_parity.py --http URL_A URL_B                 # compara dos servidores (la legacy se retiró, H6.3)
 python tests/test_e2e.py                                                       # ⚠️ crea y BORRA una TX real — FINSYS_BASE=http://127.0.0.1:8001 y FINSYS_ADMIN_PASSWORD=... para probar el borrado por API
 cd frontend; npx vitest run; npm run build                                     # 68 tests y build de producción
 # /api/health ahora expone "pool": used/free/fallback — used debe volver a 0 en reposo; log "[req] METHOD ruta status ms" por request
