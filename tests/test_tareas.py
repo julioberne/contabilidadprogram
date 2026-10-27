@@ -38,7 +38,7 @@ class TestProgramador(unittest.TestCase):
     def test_las_tareas_reales_y_sus_ritmos(self):
         ritmos = {t.nombre: t.cada_s for t in tareas.TAREAS}
         self.assertEqual(ritmos, {"sms": 5, "avisos_mini_app": 5, "resumen": 900, "retencion": 3600,
-                                  "limpieza_cola": 3600})
+                                  "limpieza_cola": 3600, "fotos_saldo": 300, "descuadres": 86400})
 
     def test_arrancar_solo_en_produccion_y_con_la_variable(self):
         parar = threading.Event()

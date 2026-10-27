@@ -65,6 +65,8 @@ export function useDashboardData(activePortfolio) {
   const [tercerosVersion, setTercerosVersion] = useState(0);   // H3: señal de cambio de terceros
 
   const intervalRef = useRef(null);
+  // H7.1: versión del panel que ya se pintó (null = el servidor no la da todavía).
+  const versionRef = useRef(null);
   // Cuántas TXs hay cargadas (para que un refresco no pierda páginas)
   const txCountRef = useRef(0);
   useEffect(() => { txCountRef.current = transactions.length; }, [transactions]);
@@ -96,6 +98,7 @@ export function useDashboardData(activePortfolio) {
 
       if (dashRes.ok) {
         const data = await dashRes.json();
+        versionRef.current = data.version ?? null;
         setPortfolios(data.portfolios || []);
         // Contrato real del backend (routers/dashboard_data.py): el objeto
         // de KPIs viaja en `balance`, no en `caja_viva`.
@@ -131,6 +134,7 @@ export function useDashboardData(activePortfolio) {
         if (Array.isArray(data.accounts)) setAccounts(data.accounts);
         if (data.total_tx_count != null) setTotalTxCount(data.total_tx_count);
         if (Array.isArray(data.portfolios)) setPortfolios(data.portfolios);
+        if (data.version != null) versionRef.current = data.version;
       }
     } catch (err) {
       console.error('[useDashboardData] refreshBalance error:', err);
@@ -220,20 +224,32 @@ export function useDashboardData(activePortfolio) {
     // Con la pestaña oculta no se golpea el backend; al volver, se refresca.
     // Si hubo una mutación local hace menos de un minuto, el estado ya es
     // fresco: se salta el ciclo.
-    const refrescoSilencioso = () => {
+    // H7.1: antes de recargar el panel completo se pregunta la versión (una
+    // fila). Si no cambió, no hay nada nuevo que traer. Sin versión (servidor
+    // sin la migración) o ante cualquier duda, se recarga como antes.
+    const cambioVersion = async () => {
+      if (versionRef.current == null) return true;
+      try {
+        const r = await fetch(`${API}/dashboard-data/version?portfolio=${portfolioQ}`);
+        if (!r.ok) return true;
+        const d = await r.json();
+        return d.version == null || d.version !== versionRef.current;
+      } catch { return true; }
+    };
+    const refrescoSilencioso = async () => {
       if (document.hidden) return;
       if (Date.now() - lastMutationRef.current < REFRESH_INTERVAL_MS) return;
-      fetchAll(true);
+      if (await cambioVersion()) fetchAll(true);
     };
     intervalRef.current = setInterval(refrescoSilencioso, REFRESH_INTERVAL_MS);
-    const alVolver = () => { if (!document.hidden) fetchAll(true); };
+    const alVolver = async () => { if (!document.hidden && await cambioVersion()) fetchAll(true); };
     document.addEventListener('visibilitychange', alVolver);
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
       document.removeEventListener('visibilitychange', alVolver);
     };
-  }, [fetchAll]);
+  }, [fetchAll, portfolioQ]);
 
   return {
     portfolios,

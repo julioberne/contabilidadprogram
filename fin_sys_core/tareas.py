@@ -74,12 +74,26 @@ def _limpieza_cola():
     return purgar(int(os.getenv("FINSYS_OPERACIONES_DIAS", "30")))
 
 
+def _fotos_saldo():
+    """H7.2: renueva la foto de saldos si está sucia, nunca se tomó o pasó un día."""
+    from fin_sys_core.saldos_foto import hay_que_tomar, tomar_foto
+    return tomar_foto() if hay_que_tomar() else None
+
+
+def _descuadres():
+    """H7.2: aviso diario en la bitácora de las cuentas descuadradas (no corrige nada)."""
+    from fin_sys_core.saldos_foto import avisar_descuadres
+    return avisar_descuadres() or None
+
+
 TAREAS: List[Tarea] = [
     Tarea("sms", 5, _sms),
     Tarea("avisos_mini_app", 5, _avisos_mini_app),
     Tarea("resumen", 900, _resumen),
     Tarea("retencion", 3600, _retencion),
     Tarea("limpieza_cola", 3600, _limpieza_cola),
+    Tarea("fotos_saldo", 300, _fotos_saldo),
+    Tarea("descuadres", 86400, _descuadres),
 ]
 
 

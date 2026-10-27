@@ -127,7 +127,20 @@ def _dashboard_fast(portfolio: Optional[str], limit: int, offset: int):
     result["profile"] = snap["profile"] or dict(MOCK_USER_PROFILE)
     result["coa"] = ({"status": "OK", "data": snap["coa"]} if snap["coa"]
                      else {"status": "EMPTY", "data": []})
+    result["version"] = snap.get("version")     # H7.1: el navegador recarga solo si cambia
     return result
+
+
+@router.get("/api/dashboard-data/version")
+def get_dashboard_version(portfolio: Optional[str] = None, _u: dict = Depends(require_auth)):
+    """Estándar H7.1: una lectura de una fila. El panel la consulta cada 60 s y
+    recarga solo si cambió. {"version": null} sin la migración (el panel sigue
+    recargando como antes)."""
+    try:
+        from fin_sys_core.saldos_foto import version
+        return {"version": version(portfolio)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/api/dashboard-data/balance")
@@ -141,7 +154,8 @@ def get_dashboard_balance(portfolio: Optional[str] = None, _u: dict = Depends(re
             raise HTTPException(status_code=404, detail=f"Portafolio no encontrado: '{portfolio}'")
         totals = caja_viva_desde_agregados(snap["kpi"], snap["accounts"])
         return {"balance": totals, "accounts": snap["accounts"],
-                "total_tx_count": snap["total_tx_count"], "portfolios": snap["portfolios"]}
+                "total_tx_count": snap["total_tx_count"], "portfolios": snap["portfolios"],
+                "version": snap.get("version")}
     except HTTPException:
         raise
     except Exception as e:

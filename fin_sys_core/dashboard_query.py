@@ -69,40 +69,101 @@ def _conv(valor: str, desde: str, hacia: str, trm: str) -> str:
             f"ELSE {valor} END")
 
 
-_SNAPSHOT_SQL = f"""
-WITH pf AS (
-    SELECT id, name FROM portfolios WHERE name = %(portfolio)s
-),
-tx AS (
-    -- Normalización idéntica al Python: trm `or 1.0`, moneda `or 'COP'`,
-    -- net_value / amount `or 0`.
+def _tx_cte(nombre: str, filtro: str) -> str:
+    # Normalización idéntica al Python: trm "or 1.0", moneda "or 'COP'",
+    # net_value / amount "or 0".
+    return f"""{nombre} AS (
     SELECT t.id, upper(t.type) AS tipo, t.account_id, t.dest_account_id,
            CASE WHEN COALESCE(t.trm, 0) = 0 THEN 1.0::float8 ELSE t.trm::float8 END AS trm,
            COALESCE(NULLIF(t.transaction_currency, ''), 'COP') AS cur,
            COALESCE(t.net_value, 0)::float8 AS net,
            COALESCE(t.amount, 0)::float8 AS amt
-    FROM transactions t
-),
-mov AS (
+    FROM transactions t{filtro}
+)"""
+
+
+def _mov_select(tx: str) -> str:
+    """Movimiento por cuenta de las filas de la CTE `tx` (origen y, en transferencias, destino)."""
+    return f"""
     -- Como cuenta ORIGEN (solo si la cuenta existe: por_id.get(account_id))
     SELECT a.id AS account_id,
-           CASE tx.tipo
-             WHEN 'INGRESO'       THEN  {_conv('tx.net', 'tx.cur', 'a.currency', 'tx.trm')}
-             WHEN 'GASTO'         THEN -({_conv('tx.net', 'tx.cur', 'a.currency', 'tx.trm')})
-             WHEN 'TRANSFERENCIA' THEN -tx.amt
+           CASE {tx}.tipo
+             WHEN 'INGRESO'       THEN  {_conv(f'{tx}.net', f'{tx}.cur', 'a.currency', f'{tx}.trm')}
+             WHEN 'GASTO'         THEN -({_conv(f'{tx}.net', f'{tx}.cur', 'a.currency', f'{tx}.trm')})
+             WHEN 'TRANSFERENCIA' THEN -{tx}.amt
              ELSE 0
            END AS delta
-    FROM tx JOIN user_accounts a ON a.id = tx.account_id
+    FROM {tx} JOIN user_accounts a ON a.id = {tx}.account_id
     UNION ALL
     -- Como cuenta DESTINO (solo si origen Y destino existen)
-    SELECT d.id, {_conv('tx.amt', 'a.currency', 'd.currency', 'tx.trm')}
-    FROM tx
-    JOIN user_accounts a ON a.id = tx.account_id
-    JOIN user_accounts d ON d.id = tx.dest_account_id
-    WHERE tx.tipo = 'TRANSFERENCIA'
+    SELECT d.id, {_conv(f'{tx}.amt', 'a.currency', 'd.currency', f'{tx}.trm')}
+    FROM {tx}
+    JOIN user_accounts a ON a.id = {tx}.account_id
+    JOIN user_accounts d ON d.id = {tx}.dest_account_id
+    WHERE {tx}.tipo = 'TRANSFERENCIA'"""
+
+
+def _kpi_select(filtro_id: str) -> str:
+    # Las 4 sumas de calculate_caja_viva sobre las TXs del portafolio
+    # (TRANSFERENCIA se ignora; moneda 'USD' exacta, todo lo demás es COP).
+    return f"""
+    SELECT
+      COALESCE(SUM(CASE WHEN upper(t.type) = 'INGRESO' AND t.transaction_currency = 'USD' THEN COALESCE(t.net_value, 0) END), 0)::float8 AS ingresos_usd,
+      COALESCE(SUM(CASE WHEN upper(t.type) = 'GASTO'   AND t.transaction_currency = 'USD' THEN COALESCE(t.net_value, 0) END), 0)::float8 AS gastos_usd,
+      COALESCE(SUM(CASE WHEN upper(t.type) = 'INGRESO' AND t.transaction_currency IS DISTINCT FROM 'USD' THEN COALESCE(t.net_value, 0) END), 0)::float8 AS ingresos_cop,
+      COALESCE(SUM(CASE WHEN upper(t.type) = 'GASTO'   AND t.transaction_currency IS DISTINCT FROM 'USD' THEN COALESCE(t.net_value, 0) END), 0)::float8 AS gastos_cop,
+      COUNT(*)::int AS total
+    FROM transactions t JOIN portfolios p ON p.id = t.portfolio_id
+    WHERE (%(portfolio)s::text IS NULL OR p.name = %(portfolio)s){filtro_id}"""
+
+
+FOTOS = ("no", "tabla", "en_linea")
+
+
+def armar_snapshot_sql(foto: str = "no") -> str:
+    """SQL del panel (un viaje).
+      foto="no"       → recorre todas las transacciones (como siempre).
+      foto="tabla"    → estándar H7.2: saldos_foto + kpi_foto hasta %(corte)s y solo
+                        las transacciones con id > %(corte)s.
+      foto="en_linea" → la misma partición, pero la "foto" se calcula en la consulta
+                        (para probar la equivalencia sin escribir nada)."""
+    if foto not in FOTOS:
+        raise ValueError(f"foto inválida: {foto}")
+    if foto == "no":
+        ctes_tx = _tx_cte("tx", "")
+        mov_extra = ""
+        deltas = "SELECT account_id, SUM(delta) AS tx_delta FROM mov GROUP BY account_id"
+        kpi = f"kpi AS ({_kpi_select('')}\n)"
+    else:
+        ctes_tx = _tx_cte("tx", "\n    WHERE t.id > %(corte)s")
+        if foto == "tabla":
+            mov_extra = ""
+            foto_deltas = "SELECT account_id, delta FROM saldos_foto"
+            foto_kpi = ("SELECT kf.ingresos_usd, kf.gastos_usd, kf.ingresos_cop, kf.gastos_cop, kf.n::int\n"
+                        "    FROM kpi_foto kf JOIN portfolios p ON p.id = kf.portfolio_id\n"
+                        "    WHERE (%(portfolio)s::text IS NULL OR p.name = %(portfolio)s)")
+        else:
+            ctes_tx += ",\n" + _tx_cte("tx0", "\n    WHERE t.id <= %(corte)s")
+            mov_extra = f",\nmov0 AS ({_mov_select('tx0')}\n)"
+            foto_deltas = "SELECT account_id, delta FROM mov0"
+            foto_kpi = _kpi_select(" AND t.id <= %(corte)s")
+        deltas = ("SELECT account_id, SUM(delta) AS tx_delta FROM (SELECT account_id, delta FROM mov\n"
+                  f"        UNION ALL {foto_deltas}) z GROUP BY account_id")
+        kpi = (f"kpi_partes AS ({_kpi_select(' AND t.id > %(corte)s')}\n    UNION ALL\n    {foto_kpi}\n),\n"
+               "kpi AS (\n    SELECT COALESCE(SUM(ingresos_usd), 0)::float8 AS ingresos_usd,\n"
+               "           COALESCE(SUM(gastos_usd), 0)::float8 AS gastos_usd,\n"
+               "           COALESCE(SUM(ingresos_cop), 0)::float8 AS ingresos_cop,\n"
+               "           COALESCE(SUM(gastos_cop), 0)::float8 AS gastos_cop,\n"
+               "           COALESCE(SUM(total), 0)::int AS total\n    FROM kpi_partes\n)")
+    return f"""
+WITH pf AS (
+    SELECT id, name FROM portfolios WHERE name = %(portfolio)s
 ),
+{ctes_tx},
+mov AS ({_mov_select('tx')}
+){mov_extra},
 deltas AS (
-    SELECT account_id, SUM(delta) AS tx_delta FROM mov GROUP BY account_id
+    {deltas}
 ),
 links AS (
     SELECT l.account_id,
@@ -132,18 +193,7 @@ tx_page AS (
     ORDER BY t.transaction_date DESC, t.id DESC
     LIMIT %(limit)s OFFSET %(offset)s
 ),
-kpi AS (
-    -- Las 4 sumas de calculate_caja_viva sobre las TXs del portafolio
-    -- (TRANSFERENCIA se ignora; moneda 'USD' exacta, todo lo demás es COP).
-    SELECT
-      COALESCE(SUM(CASE WHEN upper(t.type) = 'INGRESO' AND t.transaction_currency = 'USD' THEN COALESCE(t.net_value, 0) END), 0)::float8 AS ingresos_usd,
-      COALESCE(SUM(CASE WHEN upper(t.type) = 'GASTO'   AND t.transaction_currency = 'USD' THEN COALESCE(t.net_value, 0) END), 0)::float8 AS gastos_usd,
-      COALESCE(SUM(CASE WHEN upper(t.type) = 'INGRESO' AND t.transaction_currency IS DISTINCT FROM 'USD' THEN COALESCE(t.net_value, 0) END), 0)::float8 AS ingresos_cop,
-      COALESCE(SUM(CASE WHEN upper(t.type) = 'GASTO'   AND t.transaction_currency IS DISTINCT FROM 'USD' THEN COALESCE(t.net_value, 0) END), 0)::float8 AS gastos_cop,
-      COUNT(*)::int AS total
-    FROM transactions t JOIN portfolios p ON p.id = t.portfolio_id
-    WHERE (%(portfolio)s::text IS NULL OR p.name = %(portfolio)s)
-)
+{kpi}
 SELECT
   (SELECT COALESCE(json_agg(row_to_json(x) ORDER BY x.id), '[]'::json)
      FROM (SELECT id, name, industry_type, sub_industry_type FROM portfolios) x)     AS portfolios,
@@ -158,6 +208,9 @@ SELECT
              FROM chart_of_accounts
             WHERE portfolio_id = COALESCE((SELECT id FROM pf), (SELECT MIN(id) FROM portfolios))) ca) AS coa_rows;
 """
+
+
+_SNAPSHOT_SQL = armar_snapshot_sql("no")
 
 
 def _arbol_coa(filas: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -190,13 +243,20 @@ def obtener_dashboard_snapshot(portfolio_name: Optional[str], limit: int = 50,
       tx_delta y expected_balance), transactions (página), total_tx_count,
       kpi {ingresos_cop, gastos_cop, ingresos_usd, gastos_usd}, profile
       (dict o None), coa_rows (planas) y coa (árbol)."""
+    from fin_sys_core.saldos_foto import estado_panel, fotos_activas
     conn = get_conn()
     try:
         cur = conn.cursor()
-        cur.execute(_SNAPSHOT_SQL, {
+        # H7: la versión se lee ANTES de las cifras (si algo cambia en medio, la
+        # próxima consulta de versión ya ve el cambio y el panel recarga). Con una
+        # foto de saldos limpia, solo se recorre lo posterior a su corte.
+        version, corte = estado_panel(cur, portfolio_name)
+        modo = "tabla" if (corte is not None and fotos_activas()) else "no"
+        cur.execute(armar_snapshot_sql(modo) if modo != "no" else _SNAPSHOT_SQL, {
             "portfolio": portfolio_name or None,
             "limit": int(limit) if incluir_txs else 0,
             "offset": int(offset),
+            "corte": corte or 0,
         })
         portfolios, accounts, transactions, kpi, profile, coa_rows = cur.fetchone()
         cur.close()
@@ -214,6 +274,8 @@ def obtener_dashboard_snapshot(portfolio_name: Optional[str], limit: int = 50,
         "profile": profile,
         "coa_rows": coa_rows or [],
         "coa": _arbol_coa(coa_rows or []),
+        "version": version,          # H7.1: None sin la migración
+        "foto_corte": corte if modo != "no" else None,
     }
 
 

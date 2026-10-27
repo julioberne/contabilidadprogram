@@ -57,6 +57,7 @@ TIPOS = {
     "confirmacion_fallida": "Una confirmación no pasó la validación",
     "error_bot": "Error interno del bot al procesar un mensaje",
     "envio_perdido": "Un mensaje a Telegram no salió ni tras los reintentos (H5.4)",
+    "descuadre_cuenta": "El saldo de una cuenta no es su saldo inicial + sus movimientos (aviso diario, H7)",
 }
 
 
