@@ -43,14 +43,18 @@ Runbook de escalamiento: `docs/escalamiento.md`. Laboratorio: `scripts/laborator
   la entrega ZIP retiene una conexión mientras arma (`entrega_driver.py:141-156`).
 
 ## Próximo paso
-0. **Sin publicar** (27-oct): H6 (`99dc37b`, `8c7e970`, `ca7da4a`, `b1ee19c`: verificado en pantalla) y **H7**
-   (`4383b3d`): versión del panel + fotos de saldo, con permiso de Andrés para triggers en transactions,
-   transaction_evidences, cxp_cxc_ledger y user_accounts. Equivalencia foto+posterior == todo verificada con BD.
-1. **Andrés:** `scripts\publicar.cmd`; luego `migrate_indice_mayor.py --concurrently --explain` y
-   `migrate_panel_h7.py --dry-run` → `migrate_panel_h7.py`. La primera foto la saca el worker (tarea
-   `fotos_saldo`, requiere `tareas` en FINSYS_EN_COLA); sin foto el panel calcula completo como antes.
-   `PANEL_FOTOS=0` apaga el uso de fotos. Encender `FINSYS_EN_COLA` de a poco con el worker healthy.
-2. **H8** (escritura del libro): permiso para `database_driver.py` con plan previo con líneas exactas.
+0. **H6 y H7 en producción y migrados** (30-oct: `idx_journal_pf_cuenta_fecha` y tablas H7 existen).
+   `saldos_foto_meta` sigue sin foto y `operaciones` vacía: `tareas` no está activa en el worker.
+1. **Andrés:** agregar `tareas` a `FINSYS_EN_COLA` con el worker healthy. Baja el aviso de la Mini App de hasta
+   45 s a ≤ 5 s (hoy es tick del poller, detrás del long-poll). Verificar: `saldos_foto_meta.tomada` se llena
+   (primer `tomar_foto` real). Medido: 44 avisos, 3 medibles, mediana 8,8 s, máx. 28,8 s. No va en H9.
+2. **H8** plan propuesto el 30-oct, esperando aprobación de líneas de `database_driver.py`, migración y prueba con BD:
+   H8.0 sello y demora del aviso + lectura en el laboratorio; H8.1 saldos al final en orden de id, `Decimal`
+   a 2 decimales, genérico sin UPDATE, triggers del panel diferidos; H8.2 `idempotency_keys` y bot con una
+   conexión; H8.3 «Marcar todo» por filtro. B11 (montos como texto) se descarta: numeric(15,2) cabe exacto.
+3. **Deuda de H7 que arregla H8.1:** `panel_subir` bloquea la empresa desde el INSERT y la fila 0 desde el
+   saldo hasta el commit; crear (empresa→0) y borrar (0→empresa) pueden interbloquearse. Leído en el código,
+   no medido; hoy 120 TX y 0 deadlocks. 53 de 120 TX usan el tercero genérico.
 
 ## Decisiones (y porqué)
 - Pruebas contra la BD compartida SOLO LECTURA y acotadas; carga de día solo con OK explícito de Andrés.
