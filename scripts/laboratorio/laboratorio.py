@@ -301,6 +301,7 @@ def informe_md(d: dict, previo: Optional[dict]) -> str:
         L += ["", "## Base de datos (observatorio, solo lectura)", "",
               f"Postgres {lim.get('version')} · max_connections {lim.get('max_connections')} · "
               f"abiertas {lim.get('conexiones_abiertas')} · cache hit {obs.get('cache_hit_pct')} %", "",
+              f"Aviso Mini App → chat (meta p95 ≤ 10 s): {obs.get('avisos_mini_app')}", "",
               "| Consulta estándar | BD ms | Recorridos completos |", "|---|---|---|"]
         for p in (obs.get("estandar") or {}).get("planes", []):
             seq = ", ".join(f"{s['tabla']}({s['filas']})" for s in p.get("seq_scans", [])) if "error" not in p else p["error"]

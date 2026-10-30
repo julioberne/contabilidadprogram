@@ -121,6 +121,8 @@ class TestAvisoAlChat(_Base):
         self.assertTrue(any(d.startswith("webapp:") for d in datas))
         payload, mid = self._payload()
         self.assertNotIn("avisar_chat", payload)          # la marca se quita
+        self.assertNotIn("avisar_chat_en", payload)        # H8.0: el sello se vuelve demora
+        self.assertGreaterEqual(float(payload["aviso_demora_s"]), 0)
         self.assertEqual(str(mid), "777")                  # el resumen nuevo es el vigente
         # segunda vuelta: nada pendiente
         self.assertEqual(self.bot.avisar_chat_pendientes(send, canal="whatsapp"), 0)

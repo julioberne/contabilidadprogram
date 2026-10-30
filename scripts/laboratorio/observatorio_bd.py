@@ -104,6 +104,19 @@ def limites(conn):
     return filas[0] if isinstance(filas, list) and filas else filas
 
 
+def avisos_mini_app(conn):
+    """Demora Mini App → chat (H8.0): segundos entre guardar y salir el aviso.
+    Meta: p95 ≤ 10 s. Sin avisos medidos todavía, n = 0."""
+    filas = _seguro(conn, """
+        SELECT COUNT(*) AS n,
+               round((percentile_cont(0.5) WITHIN GROUP (ORDER BY s))::numeric, 1) AS p50_s,
+               round((percentile_cont(0.95) WITHIN GROUP (ORDER BY s))::numeric, 1) AS p95_s,
+               round(max(s)::numeric, 1) AS max_s
+        FROM (SELECT (payload->>'aviso_demora_s')::float8 AS s FROM transaction_drafts
+               WHERE payload ? 'aviso_demora_s' AND created_at > now() - interval '30 days') x""")
+    return filas[0] if isinstance(filas, list) and filas else filas
+
+
 def _recorrer_plan(nodo, salida):
     if nodo.get("Node Type") == "Seq Scan":
         salida.append({"tabla": nodo.get("Relation Name"), "filas": nodo.get("Actual Rows"),
@@ -174,7 +187,8 @@ def observar() -> dict:
     try:
         return {"limites": limites(conn), "cache_hit_pct": cache_hit(conn), "conexiones": conexiones(conn),
                 "tablas": tablas(conn), "indices_sin_uso": indices_sin_uso(conn),
-                "top_sentencias": top_sentencias(conn), "estandar": consultas_estandar(conn)}
+                "top_sentencias": top_sentencias(conn), "avisos_mini_app": avisos_mini_app(conn),
+                "estandar": consultas_estandar(conn)}
     finally:
         put_conn(conn)
 
@@ -192,6 +206,7 @@ def main(argv=None):
         print(json.dumps(d, ensure_ascii=False, default=str))
         return 0
     print("── Límites:", d["limites"], "· cache hit:", d["cache_hit_pct"], "%")
+    print("── Aviso Mini App → chat (meta p95 ≤ 10 s):", d["avisos_mini_app"])
     print("── Tablas más grandes (filas · tamaño · recorridos completos / por índice)")
     for t in (d["tablas"] if isinstance(d["tablas"], list) else []):
         print(f"   {t['tabla']:32} {t['filas']:>8} · {_mb(t['bytes']):>9} · {t['recorridos_completos']:>7} / {t['por_indice']}")

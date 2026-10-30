@@ -2625,7 +2625,8 @@ def marcar_aviso_chat(draft_id: int, hub_user_id=None) -> bool:
     """La Mini App (o la bandeja web) cambió el borrador: el poller reenvía el
     resumen al chat en su siguiente vuelta (etapa 09.I, Mini App v1: el backend
     no habla con Telegram; el único emisor sigue siendo el poller, D-09F-01).
-    Deja la marca en payload.avisar_chat. → True si el borrador era editable
+    Deja la marca en payload.avisar_chat y la hora en payload.avisar_chat_en
+    (H8.0: mide la demora del aviso). → True si el borrador era editable
     y quedó marcado."""
     from db_pool import get_conn, put_conn
     conn = get_conn()
@@ -2633,7 +2634,8 @@ def marcar_aviso_chat(draft_id: int, hub_user_id=None) -> bool:
         cur = conn.cursor()
         cur.execute("""
             UPDATE transaction_drafts
-               SET payload = payload || '{"avisar_chat": true}'::jsonb
+               SET payload = payload || jsonb_build_object('avisar_chat', true,
+                                                           'avisar_chat_en', extract(epoch FROM now()))
              WHERE id = %s AND status IN ('BORRADOR', 'ERROR')
                AND (%s::uuid IS NULL OR user_id = %s)
         """, (draft_id, str(hub_user_id) if hub_user_id else None,
@@ -2701,6 +2703,14 @@ def avisar_chat_pendientes(send_fn, conn=None, limite=20, canal="telegram",
                     quitar_botones(chat_id, previo)     # solo el último mensaje lleva botonera
                 log_outbound("telegram", chat_id, texto, chat_link_id=link_id, draft_id=did,
                              message_id=mid)
+                # H8.0: segundos entre guardar y salir el aviso (los lee el laboratorio).
+                # Si el humano ya volvió a editar, ese sello es del aviso siguiente.
+                cur.execute("""
+                    UPDATE transaction_drafts
+                       SET payload = (payload - 'avisar_chat_en') || jsonb_build_object('aviso_demora_s',
+                           round(extract(epoch FROM clock_timestamp()) - (payload->>'avisar_chat_en')::numeric, 1))
+                     WHERE id = %s AND payload ? 'avisar_chat_en' AND NOT payload ? 'avisar_chat'
+                """, (did,))
                 conn.commit()
                 n += 1
             except Exception as e:
