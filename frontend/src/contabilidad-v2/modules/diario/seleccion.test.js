@@ -1,6 +1,7 @@
 /* Casillas del Libro Diario (13.5, CA-135-08) — lógica pura. */
 import { describe, it, expect } from 'vitest';
-import { alternarId, marcarVarias, seleccionadas, estadoCabecera, resumenSeleccion } from './seleccion.js';
+import { alternarId, marcarVarias, seleccionadas, estadoCabecera, resumenSeleccion, estaMarcada,
+  resumenFiltro, porMonedaDeTotales } from './seleccion.js';
 
 const TXS = [
   { id: 1, type: 'INGRESO', net_value: 1000, transaction_currency: 'COP' },
@@ -34,5 +35,37 @@ describe('selección del Libro Diario', () => {
       porMoneda: { COP: { ingresos: 1000, gastos: 300 }, USD: { ingresos: 0, gastos: 20 } },
     });
     expect(resumenSeleccion([])).toEqual({ n: 0, porMoneda: {} });
+  });
+});
+
+describe('«Marcar todo» por filtro (H8.3)', () => {
+  const FILTRO = { query: 'portfolio=A', n: 500, porMoneda: { COP: { ingresos: 5000, gastos: 900 } } };
+
+  it('todo está marcado salvo lo desmarcado a mano', () => {
+    const sel = new Set([2]);
+    expect(estaMarcada(sel, FILTRO, 1)).toBe(true);
+    expect(estaMarcada(sel, FILTRO, 2)).toBe(false);
+    expect(estaMarcada(sel, null, 2)).toBe(true);
+    expect(estaMarcada(sel, null, 1)).toBe(false);
+  });
+
+  it('la cabecera refleja las excepciones', () => {
+    expect(estadoCabecera(new Set(), TXS, FILTRO)).toBe('todas');
+    expect(estadoCabecera(new Set([1]), TXS, FILTRO)).toBe('algunas');
+    expect(estadoCabecera(new Set([1, 2, 3, 4]), TXS, FILTRO)).toBe('ninguna');
+  });
+
+  it('el resumen es lo del servidor menos las filas desmarcadas', () => {
+    expect(resumenFiltro(FILTRO, [])).toEqual({ n: 500, porMoneda: FILTRO.porMoneda });
+    expect(resumenFiltro(FILTRO, [TXS[0], TXS[1]])).toEqual({
+      n: 498, porMoneda: { COP: { ingresos: 4000, gastos: 600 } },
+    });
+  });
+
+  it('los totales del servidor toman la misma forma; USD solo si hay', () => {
+    expect(porMonedaDeTotales({ ingresos_cop: 10, gastos_cop: 4, ingresos_usd: 0, gastos_usd: 0 }))
+      .toEqual({ COP: { ingresos: 10, gastos: 4 } });
+    expect(porMonedaDeTotales({ ingresos_cop: 10, gastos_cop: 4, ingresos_usd: 0, gastos_usd: 2 }))
+      .toEqual({ COP: { ingresos: 10, gastos: 4 }, USD: { ingresos: 0, gastos: 2 } });
   });
 });

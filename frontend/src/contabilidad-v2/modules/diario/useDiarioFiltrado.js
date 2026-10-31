@@ -25,6 +25,15 @@ async function pedir(params, signal) {
   return d;
 }
 
+/** H8.3: las filas de «Marcar todo» para ese filtro, solo con lo que piden
+    exportar y editar en lote. Se llama al actuar, no al marcar. */
+export async function traerSeleccion(query) {
+  const r = await fetch(`${API}/diario/seleccion?${query}`);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.detail || `Error ${r.status} al preparar la selección`);
+  return d.transactions || [];
+}
+
 export function useDiarioFiltrado({ portfolio, filtros, orden, agrupar, senal }) {
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -45,6 +54,9 @@ export function useDiarioFiltrado({ portfolio, filtros, orden, agrupar, senal })
     return p;
   }, [portfolio, filtros, orden, agrupar]);
   const clave = base().toString();
+  // Qué filas son: ni el orden ni la agrupación cambian eso.
+  const soloFiltro = base(); soloFiltro.delete('orden'); soloFiltro.delete('agrupar');
+  const filtroActual = soloFiltro.toString();
 
   const cargar = useCallback(async (limite) => {
     abortRef.current?.abort();
@@ -113,7 +125,7 @@ export function useDiarioFiltrado({ portfolio, filtros, orden, agrupar, senal })
     setTotal((n) => Math.max(0, n - 1));
   }, []);
 
-  return { rows, total, totales, grupos, cargando, cargandoMas, error, aviso,
+  return { rows, total, totales, grupos, cargando, cargandoMas, error, aviso, filtroActual,
     cargarMas, traerTodo, recargar: () => cargar(Math.max(PAGINA, cargadasRef.current)), parchar, quitar };
 }
 

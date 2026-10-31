@@ -7,7 +7,8 @@ import { getRenderableModules } from '../../../registry/moduleRegistry.js';
 import SeleccionExportarBar from '../../components/SeleccionExportarBar.jsx';
 import AccionesLote from './AccionesLote.jsx';
 import { codigoPuc } from './diarioFiltros.js';
-import { alternarId, marcarVarias, seleccionadas, estadoCabecera } from './seleccion.js';
+import { alternarId, marcarVarias, seleccionadas, estadoCabecera, estaMarcada, resumenSeleccion,
+  resumenFiltro, porMonedaDeTotales, MAX_SELECCION } from './seleccion.js';
 
 const fmtCOP = (v) => `$${Number(v || 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -30,7 +31,9 @@ export default function LibroDiario({
   filtrando = false,
   cargando = false,
   error = '',
-  traerTodo,            // async () => TODAS las filas filtradas
+  filtroActual,         // texto que identifica lo filtrado («Marcar todo», H8.3)
+  traerSeleccion,       // async (query) => filas mínimas de ese filtro
+  totalesTodo,          // totales de lo filtrado, con o sin filtros activos
   onEliminada,          // (txId) => quita la fila de la tabla filtrada
   onLoteHecho,          // tras editar en lote
   irAlMayor,            // (tx) => abre el Libro Mayor de su cuenta
@@ -91,21 +94,34 @@ export default function LibroDiario({
   const puedeExportar = React.useMemo(() => getRenderableModules().some((m) => m.id === 'exportacion'), []);
   const puedeVerMayor = React.useMemo(() => getRenderableModules().some((m) => m.id === 'contadores'), []);
   const [seleccion, setSeleccion] = React.useState(() => new Set());
-  // "☑ Marcar todo lo filtrado" trae filas que aún no están cargadas en la tabla.
-  const [extra, setExtra] = React.useState([]);
-  const universo = React.useMemo(() => {
-    const ids = new Set(transactions.map((t) => t.id));
-    return [...transactions, ...extra.filter((t) => !ids.has(t.id))];
-  }, [transactions, extra]);
-  const marcadas = React.useMemo(() => seleccionadas(seleccion, universo), [seleccion, universo]);
-  const marcarTodo = traerTodo ? async () => {
-    try {
-      const filas = await traerTodo();
-      setExtra(filas); setSeleccion(new Set(filas.map((t) => t.id)));
-    } catch (e) { alert(`❌ ${e.message}`); }
+  // "☑ Marcar todo lo filtrado" (H8.3): no baja filas. Con `porFiltro`, lo marcado
+  // es TODO lo que cumple el filtro y `seleccion` guarda las desmarcadas a mano.
+  const [porFiltro, setPorFiltro] = React.useState(null);
+  const marcada = (id) => estaMarcada(seleccion, porFiltro, id);
+  const enSeleccion = React.useMemo(() => seleccionadas(seleccion, transactions), [seleccion, transactions]);
+  const resumen = React.useMemo(
+    () => (porFiltro ? resumenFiltro(porFiltro, enSeleccion) : resumenSeleccion(enSeleccion)),
+    [porFiltro, enSeleccion]);
+  const traerMarcadas = async () => {
+    if (!porFiltro) return enSeleccion;
+    const filas = await traerSeleccion(porFiltro.query);
+    return filas.filter((t) => !seleccion.has(t.id));
+  };
+  const marcarTodo = traerSeleccion ? () => {
+    if (totalTxCount > MAX_SELECCION) {
+      alert(`Hay ${totalTxCount.toLocaleString('es-CO')} movimientos filtrados y se pueden marcar hasta `
+        + `${MAX_SELECCION.toLocaleString('es-CO')}. Acota los filtros; para un período completo usa ⇩ Exportación.`);
+      return;
+    }
+    setPorFiltro({ query: filtroActual, n: totalTxCount, porMoneda: porMonedaDeTotales(totalesTodo) });
+    setSeleccion(new Set());
   } : undefined;
-  const limpiarSeleccion = () => { setSeleccion(new Set()); setExtra([]); };
-  const cabecera = estadoCabecera(seleccion, transactions);
+  const limpiarSeleccion = () => { setSeleccion(new Set()); setPorFiltro(null); };
+  // Otro filtro, otras filas: «todo lo filtrado» ya no es lo que se ve.
+  React.useEffect(() => {
+    if (porFiltro && porFiltro.query !== filtroActual) limpiarSeleccion();
+  }, [filtroActual]); // eslint-disable-line react-hooks/exhaustive-deps
+  const cabecera = estadoCabecera(seleccion, transactions, porFiltro);
   const columnas = puedeExportar ? 10 : 9;
 
   return (
@@ -140,7 +156,8 @@ export default function LibroDiario({
                         <input type="checkbox" aria-label="Marcar todas las visibles" title="Marcar todas las visibles"
                           disabled={!transactions.length} checked={cabecera === 'todas'}
                           ref={(el) => { if (el) el.indeterminate = cabecera === 'algunas'; }}
-                          onChange={(e) => setSeleccion(marcarVarias(seleccion, transactions, e.target.checked))} />
+                          onChange={(e) => setSeleccion(marcarVarias(seleccion, transactions,
+                            porFiltro ? !e.target.checked : e.target.checked))} />
                       </th>
                     )}
                     <th className="p-2 border-r border-black">Tipo</th>
@@ -167,7 +184,7 @@ export default function LibroDiario({
                     transactions.map((tx) => (
                       <React.Fragment key={tx.id}>
                       <tr 
-                        className={`hover:bg-brutalBg transition-all cursor-pointer ${seleccion.has(tx.id) ? 'bg-brutalAmber/30' : expandedTxId === tx.id ? 'bg-brutalBg' : ''}`}
+                        className={`hover:bg-brutalBg transition-all cursor-pointer ${marcada(tx.id) ? 'bg-brutalAmber/30' : expandedTxId === tx.id ? 'bg-brutalBg' : ''}`}
                         title="Click para ver detalles · Doble clic en celda para editar"
                         onClick={() => setExpandedTxId(expandedTxId === tx.id ? null : tx.id)}
                       >
@@ -175,7 +192,7 @@ export default function LibroDiario({
                         {puedeExportar && (
                           <td className="p-2 border-r border-black text-center" onClick={(e) => e.stopPropagation()}
                               onDoubleClick={(e) => e.stopPropagation()}>
-                            <input type="checkbox" aria-label={`Marcar transacción ${tx.id}`} checked={seleccion.has(tx.id)}
+                            <input type="checkbox" aria-label={`Marcar transacción ${tx.id}`} checked={marcada(tx.id)}
                               onChange={() => setSeleccion(alternarId(seleccion, tx.id))} />
                           </td>
                         )}
@@ -609,9 +626,10 @@ export default function LibroDiario({
           {/* Fuera de la tarjeta: su overflow-hidden anularía el sticky */}
           {puedeExportar && (
             <>
-              <AccionesLote txs={marcadas} coaFlatAccounts={coaFlatAccounts}
+              <AccionesLote n={resumen.n} traer={traerMarcadas} coaFlatAccounts={coaFlatAccounts}
                 onHecho={() => { limpiarSeleccion(); if (onLoteHecho) onLoteHecho(); else fetchAll?.(true); }} />
-              <SeleccionExportarBar txs={marcadas} onLimpiar={limpiarSeleccion} />
+              <SeleccionExportarBar n={resumen.n} porMoneda={resumen.porMoneda} traer={traerMarcadas}
+                onLimpiar={limpiarSeleccion} />
             </>
           )}
         </div>

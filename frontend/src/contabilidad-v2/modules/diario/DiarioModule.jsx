@@ -16,7 +16,7 @@ import DiarioFiltrosBar from './DiarioFiltrosBar.jsx';
 import DiarioGrupos from './DiarioGrupos.jsx';
 import { useEmpresa } from '../../engine/EmpresaProvider.jsx';
 import { useLibroDiario } from './useLibroDiario.js';
-import { useDiarioFiltrado, MAX_TODO } from './useDiarioFiltrado.js';
+import { useDiarioFiltrado, traerSeleccion, MAX_TODO } from './useDiarioFiltrado.js';
 import { CLAVES_URL, aCsv, aParametros, codigoPuc, desdeParametros, filtrosActivos } from './diarioFiltros.js';
 import { API } from '../../../config';
 import { authHeaders } from '../../../shell/authHeaders.js';
@@ -119,7 +119,9 @@ export default function DiarioModule({ onEvidenceClick }) {
       onEvidenceClick={onEvidenceClick}
       onEliminada={fil.quitar}
       onLoteHecho={fil.recargar}
-      traerTodo={fil.traerTodo}
+      filtroActual={fil.filtroActual}
+      traerSeleccion={traerSeleccion}
+      totalesTodo={fil.totales}
       totalesFiltro={activos ? fil.totales : null}
       filtrando={activos}
       error={fil.error}

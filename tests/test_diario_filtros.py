@@ -88,6 +88,23 @@ class TestConstruirFiltros(unittest.TestCase):
                 self.assertIn("WITH", armar_sql("TRUE", o, g))
 
 
+class TestSeleccionH83(unittest.TestCase):
+    def test_solo_lo_que_piden_exportar_y_editar_y_con_tope(self):
+        from fin_sys_core.diario_query import armar_seleccion
+        sql = armar_seleccion("TRUE")
+        self.assertIn("t.id, t.type, t.transaction_currency, t.net_value, t.amount, t.category, t.tags", sql)
+        self.assertIn("LIMIT %(limit)s", sql)
+        self.assertNotIn("concept", sql)
+
+    def test_el_tope_del_navegador_es_el_del_servidor(self):
+        import re
+        from fin_sys_core.diario_query import LIMITE_SELECCION
+        ruta = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "src",
+                            "contabilidad-v2", "modules", "diario", "seleccion.js")
+        with open(ruta, encoding="utf-8") as f:
+            self.assertEqual(int(re.search(r"MAX_SELECCION = (\d+)", f.read()).group(1)), LIMITE_SELECCION)
+
+
 class TestEstandarH4(unittest.TestCase):
     """El costo sigue a lo pedido (estándar de consultas, H4)."""
 
@@ -244,6 +261,15 @@ class TestContraBD(unittest.TestCase):
                 self.assertEqual(sum(x["n"] for x in r["grupos"]), r["total"])
                 self.assertAlmostEqual(sum(x["gastos_cop"] for x in r["grupos"]),
                                        r["totales"]["gastos_cop"], places=2)
+
+    def test_seleccion_son_las_mismas_filas_que_la_tabla(self):
+        from fin_sys_core.diario_query import buscar_movimientos, seleccion_por_filtro
+        for filtros in ({"empresas": [self.empresa]}, {"empresas": [self.empresa], "tipos": "GASTO"}, {"empresas": []}):
+            with self.subTest(filtros=filtros):
+                tabla = buscar_movimientos(filtros, limit=5000)
+                filas = seleccion_por_filtro(filtros)
+                self.assertCountEqual([t["id"] for t in filas], [t["id"] for t in tabla["transactions"]])
+                self.assertEqual(len(filas), tabla["total"])
 
     def test_opciones(self):
         from fin_sys_core.diario_query import TOPE_OPCIONES, opciones_filtros

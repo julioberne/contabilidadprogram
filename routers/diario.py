@@ -97,6 +97,22 @@ def diario_movimientos(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/api/diario/seleccion")
+def diario_seleccion(filtros: dict = Depends(_filtros), _u: dict = Depends(require_auth)):
+    """H8.3: las filas de «Marcar todo», solo con lo que piden exportar y editar en lote."""
+    from fin_sys_core.diario_query import DiarioOcupado, seleccion_por_filtro
+    try:
+        return {"transactions": seleccion_por_filtro(filtros)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except DiarioOcupado as e:
+        raise _ocupado(e)
+    except pg_errors.QueryCanceled:
+        raise _demasiado_lenta()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/api/diario/csv", status_code=202)
 def diario_csv(response: Response, filtros: dict = Depends(_filtros), orden: str = "fecha_desc",
                folder_id: Optional[int] = None, user: dict = Depends(require_contador)):

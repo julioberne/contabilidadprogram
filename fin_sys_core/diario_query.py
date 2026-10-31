@@ -101,6 +101,7 @@ BANDERAS = {
 }
 
 LIMITE_MAX = 5000      # tope por petición (exportar "todo lo filtrado")
+LIMITE_SELECCION = 20000   # H8.3: «Marcar todo» (filas mínimas, pedidas al actuar)
 OFFSET_MAX = 2000      # B3: más allá, afinar el filtro u ordenar por fecha (cursor)
 TOPE_OPCIONES = 50     # B10: valores por lista en los selectores
 
@@ -515,6 +516,33 @@ def buscar_movimientos(filtros: Dict[str, Any], orden: str = "fecha_desc",
         "siguiente": siguiente,
         "aviso": aviso_busqueda(filtros.get("q")),
     }
+
+
+def armar_seleccion(where: str) -> str:
+    """SQL de seleccion_por_filtro: solo lo que piden exportar y editar en lote."""
+    return f"""
+SELECT t.id, t.type, t.transaction_currency, t.net_value, t.amount, t.category, t.tags
+{_FROM_FILTRO}
+WHERE {where}
+ORDER BY t.transaction_date DESC, t.id DESC
+LIMIT %(limit)s;
+"""
+
+
+def seleccion_por_filtro(filtros: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """H8.3: las filas de «Marcar todo». Marcar no baja nada; esto se pide al
+    exportar o editar en lote, y solo trae lo que esas acciones usan."""
+    where, params = construir_filtros(filtros)
+    params["limit"] = LIMITE_SELECCION
+    with _con_cupo():
+        conn = get_conn()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                _con_timeout(cur, TIMEOUT_MOVIMIENTOS_MS)
+                cur.execute(armar_seleccion(where), params)
+                return [dict(f) for f in cur.fetchall()]
+        finally:
+            put_conn(conn)
 
 
 # Listas de los selectores: (agregado sobre `tx`, unión, objeto JSON, texto

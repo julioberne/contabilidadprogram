@@ -9,17 +9,24 @@
    ============================================================ */
 import { lazy, Suspense, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { resumenSeleccion } from '../modules/diario/seleccion.js';
 
 const ExportarSeleccion = lazy(() => import('../../exportacion/ExportarSeleccion.jsx'));
 
 const monto = (v, moneda) => `${moneda === 'COP' ? '$' : `${moneda} `}${Number(v || 0).toLocaleString('es-CO', { maximumFractionDigits: 2 })}`;
 const boton = 'border-2 border-white px-2 py-0.5 uppercase font-bold';
 
-export default function SeleccionExportarBar({ txs, onLimpiar, onGenerado }) {
-  const [abierto, setAbierto] = useState(false);
-  const { n, porMoneda } = resumenSeleccion(txs);
+export default function SeleccionExportarBar({ n, porMoneda, traer, onLimpiar, onGenerado }) {
+  const [ids, setIds] = useState(null);         // null = modal cerrado
+  const [preparando, setPreparando] = useState(false);
   if (!n) return null;
+
+  const exportar = async () => {
+    setPreparando(true);
+    try {
+      setIds((await traer()).map((t) => t.id));
+    } catch (e) { alert(`❌ ${e.message}`); }
+    finally { setPreparando(false); }
+  };
 
   return (
     <>
@@ -34,14 +41,15 @@ export default function SeleccionExportarBar({ txs, onLimpiar, onGenerado }) {
         ))}
         <span className="ml-auto inline-flex gap-1">
           <button type="button" onClick={onLimpiar} className={`${boton} bg-black hover:bg-white hover:text-black`}>✕ Limpiar</button>
-          <button type="button" onClick={() => setAbierto(true)}
+          <button type="button" onClick={exportar} disabled={preparando}
             title="Relación de transacciones con folio: carátula, relación, asientos, resumen y soportes"
-            className={`${boton} bg-brutalAmber text-black hover:bg-white`}>📥 Exportar selección</button>
+            className={`${boton} bg-brutalAmber text-black hover:bg-white`}>
+            {preparando ? '⏳ Preparando…' : '📥 Exportar selección'}</button>
         </span>
       </div>
-      {abierto && createPortal(
+      {ids && createPortal(
         <Suspense fallback={null}>
-          <ExportarSeleccion txIds={txs.map((t) => t.id)} onCerrar={() => setAbierto(false)} onGenerado={onGenerado} />
+          <ExportarSeleccion txIds={ids} onCerrar={() => setIds(null)} onGenerado={onGenerado} />
         </Suspense>,
         document.body,
       )}
