@@ -8,161 +8,156 @@ atómicas que solo modifican las cuentas afectadas por la transacción.
 ANTES: Leer TODAS las transacciones → recalcular en Python → UPDATE todas las cuentas
 AHORA: Calcular delta → UPDATE solo la(s) cuenta(s) afectada(s)
 
+Estándar H8 (30-oct-2026): el delta es Decimal al centavo (lo que se suma es
+exactamente lo que se revierte) y las cuentas se bloquean en orden ascendente
+de id, para que A→B y B→A simultáneos nunca se interbloqueen. El llamador deja
+los saldos para el final de su transacción: lo que dura el UPDATE hasta el
+commit es lo que la cuenta queda bloqueada.
+
 La función `recalcular_saldos_cuentas()` original se mantiene en database_driver.py
 como herramienta de reconciliación manual (no se llama automáticamente).
 """
 
-from typing import Dict, Any, Optional
+from decimal import Decimal, ROUND_HALF_UP
+from typing import Dict, Any
+
+CENTAVO = Decimal("0.01")
 
 
-def calcular_delta_cuenta(tx_data: Dict[str, Any], account_currency: str) -> float:
+def _decimal(valor) -> Decimal:
+    """NUMERIC o float → Decimal (vía str: no arrastra el binario del float)."""
+    return Decimal(str(valor))
+
+
+def _al_centavo(valor: Decimal) -> Decimal:
+    """Como numeric(15,2): la mitad se aleja de cero."""
+    return valor.quantize(CENTAVO, rounding=ROUND_HALF_UP)
+
+
+def calcular_delta_cuenta(tx_data: Dict[str, Any], account_currency: str) -> Decimal:
     """
     Calcula cuánto debe cambiar el saldo de la cuenta ORIGEN para esta transacción.
-    
+
     Retorna:
-        float positivo = saldo sube (INGRESO)
-        float negativo = saldo baja (GASTO / TRANSFERENCIA salida)
+        Decimal positivo = saldo sube (INGRESO)
+        Decimal negativo = saldo baja (GASTO / TRANSFERENCIA salida)
     """
     tx_type = tx_data.get("type", "").upper()
-    net_val = float(tx_data.get("net_value") or 0.0)
-    amount = float(tx_data.get("amount") or 0.0)
-    trm = float(tx_data.get("trm") or 1.0)
+    net_val = _decimal(tx_data.get("net_value") or 0)
+    amount = _decimal(tx_data.get("amount") or 0)
+    trm = _decimal(tx_data.get("trm") or 1)
     tx_curr = tx_data.get("transaction_currency", "COP")
-    
+
     # Valor en la moneda de la cuenta
     val_in_acc = net_val
     if tx_curr != account_currency:
         if tx_curr == "USD" and account_currency == "COP":
             val_in_acc = net_val * trm
         elif tx_curr == "COP" and account_currency == "USD":
-            val_in_acc = net_val / trm if trm > 0 else 0.0
-    
+            val_in_acc = net_val / trm if trm > 0 else Decimal(0)
+
     if tx_type == "INGRESO":
-        return val_in_acc
+        return _al_centavo(val_in_acc)
     elif tx_type == "GASTO":
-        return -val_in_acc
+        return -_al_centavo(val_in_acc)
     elif tx_type == "TRANSFERENCIA":
-        return -amount  # Transferencia usa amount, no net_value
-    
-    return 0.0
+        return -_al_centavo(amount)  # Transferencia usa amount, no net_value
+
+    return Decimal(0)
 
 
-def calcular_delta_destino(tx_data: Dict[str, Any], 
+def calcular_delta_destino(tx_data: Dict[str, Any],
                            source_account_currency: str,
-                           dest_account_currency: str) -> float:
+                           dest_account_currency: str) -> Decimal:
     """
     Calcula cuánto debe cambiar el saldo de la cuenta DESTINO en una TRANSFERENCIA.
     Solo aplica para TRANSFERENCIA con dest_account_id.
-    
+
     Retorna:
-        float positivo (la cuenta destino siempre recibe)
+        Decimal positivo (la cuenta destino siempre recibe)
     """
     tx_type = tx_data.get("type", "").upper()
     if tx_type != "TRANSFERENCIA":
-        return 0.0
-    
-    amount = float(tx_data.get("amount") or 0.0)
-    trm = float(tx_data.get("trm") or 1.0)
-    
+        return Decimal(0)
+
+    amount = _decimal(tx_data.get("amount") or 0)
+    trm = _decimal(tx_data.get("trm") or 1)
+
     val_in_dest = amount
     if source_account_currency != dest_account_currency:
         if source_account_currency == "USD" and dest_account_currency == "COP":
             val_in_dest = amount * trm
         elif source_account_currency == "COP" and dest_account_currency == "USD":
-            val_in_dest = amount / trm if trm > 0 else 0.0
-    
-    return val_in_dest
+            val_in_dest = amount / trm if trm > 0 else Decimal(0)
+
+    return _al_centavo(val_in_dest)
+
+
+def _deltas_de(cur, tx_data: Dict[str, Any]) -> Dict[int, Decimal]:
+    """{cuenta: delta} de una transacción: el origen y, en traslados, el destino."""
+    acc_id = tx_data.get("account_id")
+    dest_id = tx_data.get("dest_account_id")
+    if not acc_id:
+        return {}  # Sin cuenta asignada, no hay saldo que actualizar
+
+    es_traslado = bool(dest_id) and tx_data.get("type", "").upper() == "TRANSFERENCIA"
+    ids = [int(acc_id), int(dest_id)] if es_traslado else [int(acc_id)]
+    cur.execute("SELECT id, currency FROM user_accounts WHERE id = ANY(%s);", (ids,))
+    monedas = dict(cur.fetchall())
+    if int(acc_id) not in monedas:
+        return {}
+
+    deltas = {int(acc_id): calcular_delta_cuenta(tx_data, monedas[int(acc_id)])}
+    if es_traslado and int(dest_id) in monedas:
+        delta_dest = calcular_delta_destino(tx_data, monedas[int(acc_id)], monedas[int(dest_id)])
+        deltas[int(dest_id)] = deltas.get(int(dest_id), Decimal(0)) + delta_dest
+    return deltas
+
+
+def _mover_saldos(cur, deltas: Dict[int, Decimal]) -> None:
+    """Aplica los deltas en orden ascendente de id (sin interbloqueo A↔B)."""
+    for cuenta_id in sorted(deltas):
+        if deltas[cuenta_id] != 0:
+            cur.execute("""
+                UPDATE user_accounts
+                SET current_balance = current_balance + %s
+                WHERE id = %s;
+            """, (deltas[cuenta_id], cuenta_id))
 
 
 def aplicar_delta_incremental(conn, tx_data: Dict[str, Any]):
     """
     Aplica la actualización incremental de saldos directamente en la BD.
     Solo toca las cuentas involucradas en la transacción (1 o 2 UPDATEs max).
-    
+
     Args:
         conn: conexión psycopg2 activa (dentro de una transacción)
         tx_data: datos de la transacción recién registrada
     """
     cur = conn.cursor()
-    acc_id = tx_data.get("account_id")
-    dest_id = tx_data.get("dest_account_id")
-    
-    if not acc_id:
-        return  # Sin cuenta asignada, no hay saldo que actualizar
-    
-    # 1. Obtener la moneda de la cuenta origen
-    cur.execute("SELECT currency FROM user_accounts WHERE id = %s;", (acc_id,))
-    row = cur.fetchone()
-    if not row:
-        return
-    acc_currency = row[0]
-    
-    # 2. Calcular y aplicar delta a cuenta origen
-    delta = calcular_delta_cuenta(tx_data, acc_currency)
-    if delta != 0.0:
-        cur.execute("""
-            UPDATE user_accounts 
-            SET current_balance = current_balance + %s 
-            WHERE id = %s;
-        """, (delta, acc_id))
-    
-    # 3. Si es TRANSFERENCIA con destino, actualizar cuenta destino
-    if dest_id and tx_data.get("type", "").upper() == "TRANSFERENCIA":
-        cur.execute("SELECT currency FROM user_accounts WHERE id = %s;", (dest_id,))
-        dest_row = cur.fetchone()
-        if dest_row:
-            dest_currency = dest_row[0]
-            delta_dest = calcular_delta_destino(tx_data, acc_currency, dest_currency)
-            if delta_dest != 0.0:
-                cur.execute("""
-                    UPDATE user_accounts 
-                    SET current_balance = current_balance + %s 
-                    WHERE id = %s;
-                """, (delta_dest, dest_id))
-    
+    _mover_saldos(cur, _deltas_de(cur, tx_data))
     cur.close()
 
 
 def revertir_delta_incremental(conn, tx_data: Dict[str, Any]):
     """
     Revierte el efecto de una transacción sobre los saldos.
-    Útil para eliminar o editar transacciones.
+    Útil para eliminar transacciones.
     Funciona aplicando el delta inverso.
     """
     cur = conn.cursor()
-    acc_id = tx_data.get("account_id")
-    dest_id = tx_data.get("dest_account_id")
-    
-    if not acc_id:
-        return
-    
-    cur.execute("SELECT currency FROM user_accounts WHERE id = %s;", (acc_id,))
-    row = cur.fetchone()
-    if not row:
-        return
-    acc_currency = row[0]
-    
-    # Delta inverso en cuenta origen
-    delta = calcular_delta_cuenta(tx_data, acc_currency)
-    if delta != 0.0:
-        cur.execute("""
-            UPDATE user_accounts 
-            SET current_balance = current_balance - %s 
-            WHERE id = %s;
-        """, (delta, acc_id))
-    
-    # Delta inverso en cuenta destino (transferencia)
-    if dest_id and tx_data.get("type", "").upper() == "TRANSFERENCIA":
-        cur.execute("SELECT currency FROM user_accounts WHERE id = %s;", (dest_id,))
-        dest_row = cur.fetchone()
-        if dest_row:
-            dest_currency = dest_row[0]
-            delta_dest = calcular_delta_destino(tx_data, acc_currency, dest_currency)
-            if delta_dest != 0.0:
-                cur.execute("""
-                    UPDATE user_accounts 
-                    SET current_balance = current_balance - %s 
-                    WHERE id = %s;
-                """, (delta_dest, dest_id))
-    
+    _mover_saldos(cur, {cuenta: -delta for cuenta, delta in _deltas_de(cur, tx_data).items()})
+    cur.close()
+
+
+def reemplazar_delta_incremental(conn, viejo: Dict[str, Any], nuevo: Dict[str, Any]):
+    """
+    Edición: quita el efecto de `viejo` y pone el de `nuevo` en un solo paso,
+    cuenta por cuenta y en orden de id (dos pasos separados bloquean en desorden).
+    """
+    cur = conn.cursor()
+    deltas = {cuenta: -delta for cuenta, delta in _deltas_de(cur, viejo).items()}
+    for cuenta, delta in _deltas_de(cur, nuevo).items():
+        deltas[cuenta] = deltas.get(cuenta, Decimal(0)) + delta
+    _mover_saldos(cur, deltas)
     cur.close()

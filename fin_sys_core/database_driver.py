@@ -12,6 +12,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from typing import List, Dict, Any, Optional
 import json
+import uuid
 
 # SOL-02: Pool centralizado — reemplaza conexiones directas
 from fin_sys_core.db_pool import get_conn as _pool_get_conn, put_conn as _pool_put_conn
@@ -20,7 +21,8 @@ from fin_sys_core.db_pool import get_conn as _pool_get_conn, put_conn as _pool_p
 # política: ese lo activa el operador a propósito.
 from fin_sys_core.mock_policy import mock_permitido
 # SOL-01: Cálculo incremental O(1) — reemplaza recalculación completa
-from fin_sys_core.incremental_balance import aplicar_delta_incremental, revertir_delta_incremental
+from fin_sys_core.incremental_balance import (aplicar_delta_incremental, revertir_delta_incremental,
+                                              reemplazar_delta_incremental)
 
 # Cargar variables de entorno por defecto (también soportado vía .env en FastAPI)
 DB_HOST = os.getenv("DB_HOST", "localhost")
@@ -468,7 +470,6 @@ def _asegurar_tercero(cur, third_party: Dict[str, Any]) -> int:
       3) Sin nombre y sin número → el genérico, siempre con su nombre
          canónico "Sin especificar" y sin datos de contacto.
     """
-    import time as _time
     numero = str(third_party.get("identification_number") or "").strip() or TERCERO_GENERICO_NUM
     nombre = str(third_party.get("name") or "").strip()
     anonimo = not nombre or nombre.lower() == "sin especificar"
@@ -493,9 +494,15 @@ def _asegurar_tercero(cur, third_party: Dict[str, Any]) -> int:
                  WHERE id = %s;
             """, (email, phone, website, address, fila[0]))
             return fila[0]
-        numero = f"SN-{int(_time.time() * 1000):x}"
+        numero = f"SN-{uuid.uuid4().hex[:12]}"   # H8: dos altas en el mismo ms ya no se mezclan
 
     if numero == TERCERO_GENERICO_NUM:
+        # H8: el genérico no cambia, solo se lee. Con el upsert de abajo toda TX
+        # sin tercero bloqueaba esta misma fila hasta su commit.
+        cur.execute("SELECT id FROM third_parties WHERE identification_number = %s;", (numero,))
+        fila = cur.fetchone()
+        if fila:
+            return fila[0]
         nombre = "Sin especificar"
         email = phone = website = address = None
 
@@ -639,15 +646,16 @@ def registrar_transaccion(tx_data: Dict[str, Any], on_before_commit=None) -> int
                 asset.get("recurrence_amount", 0.0) if asset.get("is_passive_income_generator", False) else None
             ))
         
-        # SOL-01: Actualización incremental O(1) — solo toca las cuentas afectadas
-        aplicar_delta_incremental(conn, tx_data)
-
         # Plan cimientos A3 (2026-09-15): el asiento Zero-COA se registra en
         # ESTA misma transacción (transaction_service pasa el hook). Si el
         # hook lanza, el finally hace rollback de todo: nunca más una TX
         # guardada sin su asiento por un error de BD.
         if on_before_commit is not None:
             on_before_commit(conn, transaction_id)
+
+        # SOL-01: Actualización incremental O(1) — solo toca las cuentas afectadas
+        # H8: lo último antes del commit, la cuenta queda bloqueada lo mínimo.
+        aplicar_delta_incremental(conn, tx_data)
 
         conn.commit()
         cur.close()
@@ -915,11 +923,9 @@ def actualizar_transaccion(tx_id: int, update_data: Dict[str, Any]) -> bool:
                 "dest_account_id": updated_row[4], "trm": updated_row[5],
                 "transaction_currency": updated_row[6],
             }
-            # Revertir el delta antiguo (datos antes del UPDATE)
-            revertir_delta_incremental(conn, old_tx_snapshot)
-            # Aplicar el delta nuevo (datos después del UPDATE)
-            aplicar_delta_incremental(conn, new_tx_data)
-        
+            # Quitar el delta antiguo y poner el nuevo, en orden de id (H8)
+            reemplazar_delta_incremental(conn, old_tx_snapshot, new_tx_data)
+
         conn.commit()
         cur.close()
         release_db_connection(conn)
@@ -988,9 +994,10 @@ def eliminar_transaccion(tx_id: int, on_before_delete=None) -> Dict[str, Any]:
         # antes de los DELETE (el hook aún puede leer cartera/cxp que caen).
         if on_before_delete is not None:
             on_before_delete(conn, tx_id, snapshot)
-        revertir_delta_incremental(conn, snapshot)
         cur.execute("DELETE FROM cxp_cxc_ledger WHERE transaction_id = %s;", (tx_id,))
         cur.execute("DELETE FROM transactions WHERE id = %s;", (tx_id,))
+        # H8: el saldo al final, igual que al crear: mismo orden de bloqueos.
+        revertir_delta_incremental(conn, snapshot)
         conn.commit()
         cur.close()
         release_db_connection(conn)

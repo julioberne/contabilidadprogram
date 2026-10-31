@@ -80,12 +80,21 @@ class TestAsegurarTercero(unittest.TestCase):
                     "name": "Sin especificar", "phone": "555"}):
             cur = FakeCursor([(1,)])
             self.assertEqual(_asegurar_tercero(cur, tp), 1)
+            # H8: solo se lee; ni se renombra ni bloquea la fila, y el contacto
+            # dictado JAMÁS se pega al genérico compartido.
             self.assertEqual(len(cur.ejecutadas), 1)
-            _, params = cur.ejecutadas[0]
-            self.assertEqual(params[1], TERCERO_GENERICO_NUM)
-            self.assertEqual(params[2], "Sin especificar")   # nunca se renombra
-            # y el contacto dictado JAMÁS se pega al genérico compartido
-            self.assertEqual(params[3:], (None, None, None, None))
+            sql, params = cur.ejecutadas[0]
+            self.assertTrue(sql.strip().startswith("SELECT id FROM third_parties"))
+            self.assertEqual(params, (TERCERO_GENERICO_NUM,))
+
+    def test_generico_se_crea_una_sola_vez_con_nombre_canonico(self):
+        cur = FakeCursor([None, (1,)])   # BD sin genérico todavía → INSERT
+        tp = {"identification_type": "NIT", "identification_number": "", "name": "", "phone": "555"}
+        self.assertEqual(_asegurar_tercero(cur, tp), 1)
+        _, params = cur.ejecutadas[1]
+        self.assertEqual(params[1], TERCERO_GENERICO_NUM)
+        self.assertEqual(params[2], "Sin especificar")
+        self.assertEqual(params[3:], (None, None, None, None))
 
     def test_generico_explicito_con_nombre_real_no_lo_renombra(self):
         """Caso bot (draft_builder manda 999999999 + nombre del LLM): debe
