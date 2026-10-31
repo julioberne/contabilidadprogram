@@ -31,6 +31,10 @@ Solo GET · máximo 20 usuarios virtuales y 60 s por escalón · se detiene sola
 el p95 pasa de 1,5 s, si los errores pasan del 2 % o si el pool pasa del 70 % ·
 por defecto solo de 21:00 a 07:00 (`--ahora` lo salta).
 
+## Demora del aviso Mini App → chat
+No pasa por HTTP, así que no sale de la carga: el observatorio la lee de los borradores
+(`aviso_demora_s`, últimos 30 días). Meta: p95 ≤ 10 s. Con n = 0 no hay avisos medidos todavía.
+
 ## Volumen grande (500.000+ filas)
 No se prueba en producción (habría que escribir datos sintéticos). Sin Docker:
 un proyecto de Supabase aparte ("finsys-lab"), con sus datos en `scratch/lab.env`
