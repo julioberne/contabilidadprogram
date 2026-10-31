@@ -2,7 +2,7 @@
 """FIN-SYS OS v2.0 — Router: Transacciones (10 endpoints)
 CRUD, evidence upload, voice/transcribe/structure, seed, reset.
 Extracted from contabilidad.py — PURE refactor, zero logic changes."""
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, Header, HTTPException, UploadFile, File, Form
 from typing import Optional
 import os, re, shutil, uuid
 
@@ -61,23 +61,34 @@ def list_transactions(portfolio: Optional[str] = None, _u: dict = Depends(requir
 
 
 @router.post("/api/transactions", status_code=201)
-def create_manual_transaction(tx_input: TransactionInput, _admin: dict = Depends(require_admin)):
+def create_manual_transaction(tx_input: TransactionInput, _admin: dict = Depends(require_admin),
+                              idempotency_key: Optional[str] = Header(None, max_length=128)):
     """
     Registra manualmente una transacción aplicando impuestos y validación de pockets.
     La lógica vive en fin_sys_core/transaction_service.py (compartida con el Bot IA);
     este endpoint solo traduce excepciones de dominio a HTTP.
+
+    H8.2: con la cabecera Idempotency-Key, un doble clic o un reintento devuelve
+    la misma transacción. La misma clave con otros datos es 422.
     """
     try:
         from transaction_service import create_transaction
         from ledger_math import ExcedeLimitePocketError
         from kernel.kernel_periods import PeriodoCerradoError
+        from fin_sys_core.idempotencia import ClaveReusada, huella_de
 
-        return create_transaction(tx_input)
+        if not idempotency_key:
+            return create_transaction(tx_input)
+        return create_transaction(tx_input, idempotency_key=f"web:{idempotency_key}",
+                                  huella=huella_de(tx_input.model_dump()))
     except ExcedeLimitePocketError as e:
         # Error controlado de sobregasto de bolsillo
         raise HTTPException(status_code=400, detail=str(e))
     except PeriodoCerradoError as e:
         raise HTTPException(status_code=409, detail=str(e))
+    except ClaveReusada:
+        raise HTTPException(status_code=422, detail="Ese envío ya quedó registrado con otros datos. "
+                                                    "Revisa el Libro Diario antes de repetirlo.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -23,6 +23,7 @@ from fin_sys_core.mock_policy import mock_permitido
 # SOL-01: Cálculo incremental O(1) — reemplaza recalculación completa
 from fin_sys_core.incremental_balance import (aplicar_delta_incremental, revertir_delta_incremental,
                                               reemplazar_delta_incremental)
+from fin_sys_core import idempotencia
 
 # Cargar variables de entorno por defecto (también soportado vía .env en FastAPI)
 DB_HOST = os.getenv("DB_HOST", "localhost")
@@ -535,11 +536,18 @@ def registrar_transaccion(tx_data: Dict[str, Any], on_before_commit=None) -> int
 
     on_before_commit(conn, transaction_id): opcional; se ejecuta con la misma
     conexión ANTES del commit (asiento contable atómico, plan A3).
+
+    tx_data["idempotency_key"] (H8.2): si ese envío ya quedó guardado, lanza
+    idempotencia.TransaccionRepetida en lugar de registrar otra.
     """
     conn = None  # SOL: liberar SIEMPRE en finally (antes el except fugaba la conexión)
     try:
         conn = get_db_connection()
         cur = conn.cursor()
+
+        # H8.2: la clave del envío entra primero y en ESTA transacción.
+        clave = tx_data.get("idempotency_key")
+        con_clave = bool(clave) and idempotencia.reservar(cur, clave, tx_data.get("idempotency_huella"))
 
         # 1. Asegurar la existencia del tercero (NIT/CC) sin duplicar
         third_party_id = _asegurar_tercero(cur, tx_data["third_party"])
@@ -653,6 +661,9 @@ def registrar_transaccion(tx_data: Dict[str, Any], on_before_commit=None) -> int
         if on_before_commit is not None:
             on_before_commit(conn, transaction_id)
 
+        if con_clave:
+            idempotencia.guardar(cur, clave, transaction_id)
+
         # SOL-01: Actualización incremental O(1) — solo toca las cuentas afectadas
         # H8: lo último antes del commit, la cuenta queda bloqueada lo mínimo.
         aplicar_delta_incremental(conn, tx_data)
@@ -669,6 +680,8 @@ def registrar_transaccion(tx_data: Dict[str, Any], on_before_commit=None) -> int
         # (4120 no existe en el seed) — eliminado.
 
         return transaction_id
+    except (idempotencia.TransaccionRepetida, idempotencia.ClaveReusada):
+        raise   # no es un fallo de BD: jamás cae a la simulación
     except Exception as e:
         import traceback
         print("❌ ERROR REGISTRANDO TRANSACCIÓN EN BD:")

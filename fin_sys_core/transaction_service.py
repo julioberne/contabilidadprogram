@@ -33,7 +33,7 @@ def ensure_journal_listener():
         return False
 
 
-def create_transaction(tx_input) -> dict:
+def create_transaction(tx_input, idempotency_key=None, huella=None) -> dict:
     """Registra una transacción oficial y emite su asiento contable.
 
     tx_input: instancia de routers.schemas.TransactionInput (ya validada por
@@ -43,8 +43,13 @@ def create_transaction(tx_input) -> dict:
     Devuelve el dict de resultado {status, transaction_id, net_value, concept,
     journal}. Lanza ExcedeLimitePocketError (límite de pocket) o cualquier
     error de persistencia hacia el llamador.
+
+    idempotency_key (H8.2): si ese envío ya quedó guardado devuelve esa misma
+    transacción con "repetida": True, sin crear otra. Con `huella`, la misma
+    clave con otros datos lanza idempotencia.ClaveReusada.
     """
     from database_driver import registrar_transaccion
+    from fin_sys_core.idempotencia import TransaccionRepetida
     from tax_motor import process_transaction_taxes
 
     # 1. Ejecutar las matemáticas del motor de impuestos (IVA, GMF, Tasas)
@@ -149,7 +154,32 @@ def create_transaction(tx_input) -> dict:
     from kernel.kernel_periods import assert_periodo_abierto_por_nombre
     assert_periodo_abierto_por_nombre(tx_input.portfolio_name, tx_input.transaction_date)
 
-    transaction_id = registrar_transaccion(tx_data, on_before_commit=_asiento)
+    def _resultado(tx_id, estado_asiento):
+        # Plan A5: la fila creada con la MISMA forma que dashboard-data.transactions,
+        # para que el frontend la inserte sin recargar el dashboard entero.
+        fila = None
+        try:
+            from fin_sys_core.dashboard_query import obtener_transaccion
+            fila = obtener_transaccion(tx_id)
+        except Exception as e:
+            print(f"⚠️ no se pudo leer la TX {tx_id} recién creada: {e}")
+
+        return {
+            "status": "EXITOSO",
+            "transaction_id": tx_id,
+            "net_value": tax_results["net_value"],
+            "concept": tx_input.concept,
+            "journal": estado_asiento,
+            "transaction": fila,
+        }
+
+    if idempotency_key:
+        tx_data.update(idempotency_key=idempotency_key, idempotency_huella=huella)
+
+    try:
+        transaction_id = registrar_transaccion(tx_data, on_before_commit=_asiento)
+    except TransaccionRepetida as repetida:
+        return {**_resultado(repetida.transaction_id, "skipped_duplicate"), "repetida": True}
 
     if journal.get("status") not in ("ok", "skipped_duplicate"):
         print(f"❌ [ZERO-COA] TX-{transaction_id} SIN asiento contable: {journal}")
@@ -169,20 +199,4 @@ def create_transaction(tx_input) -> dict:
     except Exception:
         pass
 
-    # Plan A5: la fila creada con la MISMA forma que dashboard-data.transactions,
-    # para que el frontend la inserte sin recargar el dashboard entero.
-    fila = None
-    try:
-        from fin_sys_core.dashboard_query import obtener_transaccion
-        fila = obtener_transaccion(transaction_id)
-    except Exception as e:
-        print(f"⚠️ no se pudo leer la TX {transaction_id} recién creada: {e}")
-
-    return {
-        "status": "EXITOSO",
-        "transaction_id": transaction_id,
-        "net_value": tax_results["net_value"],
-        "concept": tx_input.concept,
-        "journal": journal.get("status"),
-        "transaction": fila,
-    }
+    return _resultado(transaction_id, journal.get("status"))

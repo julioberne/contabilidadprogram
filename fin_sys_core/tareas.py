@@ -70,8 +70,9 @@ def _retencion():
 
 
 def _limpieza_cola():
+    from fin_sys_core import idempotencia
     from fin_sys_core.cola import purgar
-    return purgar(int(os.getenv("FINSYS_OPERACIONES_DIAS", "30")))
+    return {**purgar(int(os.getenv("FINSYS_OPERACIONES_DIAS", "30"))), "claves": idempotencia.purgar()}
 
 
 def _fotos_saldo():

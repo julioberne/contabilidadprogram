@@ -14,13 +14,17 @@
    Debe montarse DENTRO de <EmpresaProvider> (consume accounts,
    activePortfolio y fetchAll de ahí).
    ============================================================ */
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { API } from '../../config';
 import { useEmpresa } from './EmpresaProvider.jsx';
 import { buildTransactionPayload, deriveAccountState } from './buildTransactionPayload.js';
 import { checkFunds, mensajeSobregiro } from './checkFunds.js';
 
 const API_BASE_URL = API;
+
+// randomUUID solo existe en contexto seguro (HTTPS o localhost).
+const nuevaClaveEnvio = () =>
+  crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 const TransactionDraftContext = createContext(null);
 
@@ -98,6 +102,7 @@ export function TransactionDraftProvider({ children }) {
   const [drafts, setDrafts] = useState([]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const claveEnvioRef = useRef(null);
 
   // --- Sincronizar valor del activo con importe ---
   useEffect(() => {
@@ -242,12 +247,16 @@ export function TransactionDraftProvider({ children }) {
 
     setIsSubmitting(true);
     try {
+      // H8.2: la misma clave mientras sea el mismo envío. Si la respuesta se
+      // pierde y el usuario reintenta, el servidor devuelve la misma transacción.
+      if (!claveEnvioRef.current) claveEnvioRef.current = nuevaClaveEnvio();
       const res = await fetch(`${API_BASE_URL}/transactions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": claveEnvioRef.current },
         body: JSON.stringify(payload)
       });
       const data = await res.json();
+      if (res.status < 500) claveEnvioRef.current = null;   // respuesta definitiva del servidor
       if (res.ok) {
         const savedConcept = concept;
         resetForm();

@@ -317,7 +317,7 @@ class TestConfirmarPorId(_ConChatDePrueba):
         did = self._draft_directo(self._payload(acc_id, "nombre que ya no existe"))
         capturado = {}
 
-        def _fake(tx_input):
+        def _fake(tx_input, **_):
             capturado["account_id"] = tx_input.account_id
             return {"transaction_id": None, "journal": "fake"}   # → ERROR, sin transacción
         with mock.patch.object(transaction_service, "create_transaction", side_effect=_fake):

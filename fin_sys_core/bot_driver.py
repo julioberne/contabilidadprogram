@@ -2321,9 +2321,27 @@ def confirmar_draft(draft_id: int, chat_link_id=None, hub_user_id=None) -> str:
             media_paths = [media_path]
 
         try:
-            return _ejecutar_confirmacion(conn, cur, draft_id, payload, media_path,
-                                          media_paths)
+            tx_input, aviso = _preparar_confirmacion(conn, cur, draft_id, payload, media_path,
+                                                     media_paths)
+            if aviso:
+                return aviso
+            # H8.2: la conexión se suelta antes de registrar, que toma la suya: con
+            # dos por confirmación, varias a la vez agotan el pool esperándose. La
+            # clave impide una segunda TX si este proceso muere antes de cerrar el
+            # borrador y otro lo retoma a los 5 minutos.
+            conn.commit()
+            put_conn(conn)
+            conn = None
+            from transaction_service import create_transaction
+            resp = create_transaction(tx_input, idempotency_key=f"draft:{draft_id}")
+            conn = get_conn()
+            cur = conn.cursor()
+            return _cerrar_confirmacion(conn, cur, draft_id, resp)
         except Exception as e:
+            if conn is None:
+                conn = get_conn()
+                cur = conn.cursor()
+            conn.rollback()
             cur.execute("""
                 UPDATE transaction_drafts SET status = 'ERROR', error = %s, updated_at = NOW()
                 WHERE id = %s
@@ -2332,31 +2350,33 @@ def confirmar_draft(draft_id: int, chat_link_id=None, hub_user_id=None) -> str:
             return (f"⚠ El borrador #{draft_id} quedó en estado ERROR: {e}\n"
                     "Revísalo en la Bandeja de la web.")
     finally:
-        put_conn(conn)
+        if conn is not None:
+            put_conn(conn)
 
 
-def _ejecutar_confirmacion(conn, cur, draft_id, payload, media_path,
-                           media_paths=None):
+def _preparar_confirmacion(conn, cur, draft_id, payload, media_path, media_paths=None):
+    """Valida el borrador y arma el contrato oficial, sin escribir en el libro.
+    → (tx_input, None), o (None, aviso) si el borrador volvió a BORRADOR."""
     # 1. Campos mínimos
     missing = compute_missing(payload)
     if missing:
-        return _revertir(conn, cur, draft_id,
-                         f"Faltan campos: {', '.join(missing)}. Complétalo respondiendo al "
-                         "mensaje del borrador (ej. 50000 para el monto), en 📝 Completar o "
-                         "en la Bandeja web, y confirma de nuevo.")
+        return None, _revertir(conn, cur, draft_id,
+                               f"Faltan campos: {', '.join(missing)}. Complétalo respondiendo al "
+                               "mensaje del borrador (ej. 50000 para el monto), en 📝 Completar o "
+                               "en la Bandeja web, y confirma de nuevo.")
 
     # 2. Portafolio REAL (mata el portafolio-fantasma: registrar_transaccion
     #    crea silenciosamente cualquier nombre que no exista)
     cur.execute("SELECT name FROM portfolios ORDER BY name")
     portafolios = [r[0] for r in cur.fetchall()]
     if payload.get("portfolio_name") not in portafolios:
-        return _revertir(conn, cur, draft_id,
-                         f"El portafolio '{payload.get('portfolio_name')}' no existe. "
-                         f"Disponibles: {', '.join(portafolios) or '(ninguno)'}")
+        return None, _revertir(conn, cur, draft_id,
+                               f"El portafolio '{payload.get('portfolio_name')}' no existe. "
+                               f"Disponibles: {', '.join(portafolios) or '(ninguno)'}")
 
     # 3. Fecha válida
     if not re.match(r"^\d{4}-\d{2}-\d{2}$", str(payload.get("transaction_date") or "")):
-        return _revertir(conn, cur, draft_id, "Fecha inválida en el borrador (se espera YYYY-MM-DD).")
+        return None, _revertir(conn, cur, draft_id, "Fecha inválida en el borrador (se espera YYYY-MM-DD).")
 
     # 4. Cuenta (nunca confirmar sin cuenta → deuda DT-01).
     #    Primero POR ID si el borrador la trae resuelta (etapa 09.F, D-09-03:
@@ -2368,19 +2388,18 @@ def _ejecutar_confirmacion(conn, cur, draft_id, payload, media_path,
     if account_id is None:
         account_id, err = _resolver_cuenta(cur, payload.get("payment_method"))
         if err:
-            return _revertir(conn, cur, draft_id,
-                             err + " Elige la cuenta con 💳 Cuenta (o en la Bandeja web) "
-                                   "y confirma de nuevo.")
+            return None, _revertir(conn, cur, draft_id,
+                                   err + " Elige la cuenta con 💳 Cuenta (o en la Bandeja web) "
+                                         "y confirma de nuevo.")
     # 4b. Un traslado SIN cuenta destino descontaría del origen sin abonar en
     #     ninguna parte (database_driver solo abona si hay destino): se frena.
     if payload.get("type") == "TRANSFERENCIA" and _cuenta_existente(cur, payload.get("dest_account_id")) is None:
-        return _revertir(conn, cur, draft_id,
-                         "Falta la cuenta destino del traslado: elígela con 💳 Cuenta y "
-                         "confirma de nuevo.")
+        return None, _revertir(conn, cur, draft_id,
+                               "Falta la cuenta destino del traslado: elígela con 💳 Cuenta y "
+                               "confirma de nuevo.")
 
-    # 5. Contrato oficial + pipeline oficial (el mismo de la web)
+    # 5. Contrato oficial (el mismo de la web)
     from routers.schemas import TransactionInput
-    from transaction_service import create_transaction
     tx_input = TransactionInput(
         portfolio_name=payload["portfolio_name"],
         type=payload["type"],
@@ -2405,8 +2424,11 @@ def _ejecutar_confirmacion(conn, cur, draft_id, payload, media_path,
         geo_latitude=payload.get("geo_latitude"),
         geo_longitude=payload.get("geo_longitude"),
     )
-    resp = create_transaction(tx_input)
+    return tx_input, None
 
+
+def _cerrar_confirmacion(conn, cur, draft_id, resp):
+    """Deja el borrador según lo que respondió el pipeline oficial."""
     tx_id = resp.get("transaction_id")
     journal = resp.get("journal")
     if journal in ("ok", "skipped_duplicate"):
