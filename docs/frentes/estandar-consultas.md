@@ -1,14 +1,14 @@
 # Frente: estándar de consultas escalables (todo FIN-SYS)
 
-**Estado:** ACTIVO — H0-H7 en producción y migrados (master `cda9e19`, 30-oct-2026). **H8 hecho, sin publicar**
-(30-oct). Rama `claude/servidores-libro-mayor-9e4614`. Sigue H9.
+**Estado:** ACTIVO — H0-H8 en producción y migrados (master `0f41849`, 3-nov-2026; `migrate_h8.py` aplicado).
+Sin publicar: `91ef4ef` (solo tests). Rama `claude/servidores-libro-mayor-9e4614`. Sigue H9.
 
 ## Objetivo
 Que ninguna pantalla cueste según el tamaño del holding sino según lo que pide el usuario, y que
 nada espere sin tope. Plan H0–H9 y 41 reglas (B/F/P): `docs/estandar-consultas-escalables.md` (§6 hitos).
 Runbook de escalamiento: `docs/escalamiento.md`. Laboratorio: `scripts/laboratorio/README.md`.
 
-## H8, sin publicar
+## H8 (en producción)
 - **H8.0 `7dee08f`** La marca de la Mini App guarda la hora y queda `aviso_demora_s` en el borrador;
   `observatorio_bd.py` reporta n, p50, p95 y máximo (meta p95 ≤ 10 s). Sin datos hasta publicar.
 - **H8.1 `97126aa`** `incremental_balance`: `Decimal` al centavo, cuentas en orden de id,
@@ -21,14 +21,16 @@ Runbook de escalamiento: `docs/escalamiento.md`. Laboratorio: `scripts/laborator
   tope 20.000) se pide al exportar o editar en lote. Más de 20.000: avisa y no marca a medias.
 
 ## Próximo paso
-1. **Andrés inicia sesión en `localhost:8003`** (backend `finsys-wt`): falta ver «Marcar todo» en pantalla. Flujo en
-   el brief: marcar sin petición de filas, desmarcar una, exportar (solo abrir el modal), Limpiar, cambiar filtro.
-2. **Andrés:** `scripts\publicar.cmd`; luego `migrate_h8.py --dry-run` → `migrate_h8.py`.
-3. **Yo, tras migrar:** `tests.test_idempotencia.TestCarreraReal` (se salta sin la tabla) y otra vez los 200 pares;
-   revisar que `panel_version` suba al confirmar una TX, ahora al hacer commit.
-4. **Andrés:** agregar `tareas` a `FINSYS_EN_COLA` con el worker healthy. Baja el aviso de la Mini App de hasta 45 s a
-   ≤ 5 s y arranca las fotos. Verificar `saldos_foto_meta.tomada` (primer `tomar_foto` real) y el p95 del observatorio.
-5. **H9** roles, alcance por empresa y cuotas.
+1. **Ver «Marcar todo» en pantalla** (único pendiente de H8): Andrés inicia sesión en el navegador integrado (en prod
+   ya está desplegado). Flujo: marcar sin petición de filas, desmarcar una, Exportar (solo abrir el modal), Limpiar,
+   cambiar filtro. Solo lectura.
+2. **Hecho 3-nov tras migrar:** `TestCarreraReal`, `TestTriggersAlCommit` y los 200 pares pasan contra la BD; huella
+   igual. La primera TX real con clave debe dejar `idempotency_keys.transaction_id` lleno: revisar.
+3. **Andrés:** agregar `tareas` a `FINSYS_EN_COLA` con el worker healthy (sigue apagado al 3-nov: foto nunca tomada,
+   0 avisos medidos). Luego: `saldos_foto_meta.tomada` y el p95 del observatorio.
+4. **Bitácora:** 7 `envio_perdido` falsos (ids 62-96, «sendPhoto: RuntimeError: sin red») venían de
+   `tests/test_bot_analisis` (corregido en `91ef4ef`). Los borra Andrés con SQL; siguen saliendo hasta publicar.
+5. **H9** roles, alcance por empresa y cuotas: arrancar con plan previo en sesión limpia (doc §6, fila H9).
 
 ## Decisiones (y porqué)
 - Pruebas contra la BD compartida SOLO LECTURA y acotadas; escrituras solo en filas `test-` que se limpian.
