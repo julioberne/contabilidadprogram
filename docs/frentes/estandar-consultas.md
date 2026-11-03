@@ -1,8 +1,14 @@
 # Frente: estándar de consultas escalables (todo FIN-SYS)
 
-**Estado:** ACTIVO — H0-H8 en producción y migrados (master `0f41849`, 3-nov-2026). H8 verificado contra la BD y en
-pantalla. Sin publicar: `91ef4ef`, `20a298f` y el commit de este frente (solo tests y docs: `publicar.cmd --sin-deploy`).
+**Estado:** ACTIVO — H0-H8 en producción y migrados (master `0f41849`, 3-nov-2026). Sin publicar: `91ef4ef`,
+`20a298f`, `59ff5a1` y el arreglo del trigger (solo script de migración, tests y docs: `publicar.cmd --sin-deploy`).
 Rama `claude/servidores-libro-mayor-9e4614`. **Sigue H9.**
+
+**Incidente 30-oct → 3-nov:** `migrate_panel_h7.py` llamaba `panel_subir(NEW.portfolio_id)` con un bigint y la función
+recibe integer: desde la migración de H7 fallaba TODA escritura en `transactions` (última TX buena: id 143, 30-oct
+01:57). Andrés lo arregló en producción el 3-nov con `arreglo_panel_bigint.sql` (sesión del bot); en el repo,
+`::integer` en las dos llamadas + `TestTriggerDeTransacciones` (escribe en `transactions` y deshace). Los tests de
+H7/H8 solo escribían en `user_accounts`: por eso no se vio.
 
 ## Objetivo
 Que ninguna pantalla cueste según el tamaño del holding sino según lo que pide el usuario, y que nada espere sin
@@ -23,6 +29,9 @@ tope. Plan H0–H9 y 41 reglas (B/F/P): `docs/estandar-consultas-escalables.md` 
   `GET /api/diario/seleccion` (7 columnas, tope 20.000).
 
 ## Próximo paso
+0. **Andrés:** recuperar los 17 borradores en ERROR por `panel_subir(bigint)` (897, 932-942, 945-949): editarlo (reply
+   en Telegram o Bandeja web) lo vuelve a BORRADOR, luego ✅. Y repasar si algo registrado en la web entre el 30-oct y
+   el 3-nov no quedó.
 1. **H9** (roles, alcance por empresa, cuotas activas), con plan previo para aprobación de Andrés. Leer: doc §6 fila H9
    y fila S1 de la tabla de riesgos; `routers/auth_guard.py` (≈49-102), `shared/admision.py`, `fin_sys_core/db_pool.py`.
    Toca BD (roles Postgres + tabla nueva de membresía usuario↔empresa): migración la corre Andrés. Criterio del doc:

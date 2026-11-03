@@ -7,7 +7,8 @@
 - Contra la BD (se saltan sin DB_HOST): los triggers del panel corren al commit
   (tras migrate_h8.py); 200 pares A→B y B→A simultáneos sobre
   dos cuentas `test-h8-*` que se crean y se borran aquí, sin interbloqueo y sin
-  perder un centavo.
+  perder un centavo; crear y borrar una TX real pasa por el trigger del panel
+  (dentro de una transacción que se deshace).
 
     python -m unittest tests.test_escritura_h8
 """
@@ -278,6 +279,43 @@ class TestTriggersAlCommit(unittest.TestCase):
             otro.rollback()
             self.put_conn(escritor)
             self.put_conn(otro)
+
+
+@unittest.skipUnless(_triggers_al_commit(), "requiere BD con migrate_h8.py")
+class TestTriggerDeTransacciones(unittest.TestCase):
+    """Escribe en `transactions`, no solo en cuentas: ahí `portfolio_id` es bigint y
+    `panel_subir` recibe integer; sin el `::integer` toda TX fallaba al commit
+    (30-oct a 3-nov). Todo va dentro de una transacción que se deshace:
+    SET CONSTRAINTS ALL IMMEDIATE corre ahí mismo los triggers diferidos, sin
+    dejar filas ni subir la versión de verdad."""
+
+    def test_crear_y_borrar_una_transaccion_pasa_por_el_trigger(self):
+        from fin_sys_core.db_pool import get_conn, put_conn
+        conn = get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("""INSERT INTO transactions (portfolio_id, third_party_id, type, amount, concept,
+                               transaction_date, payment_method, category, net_value)
+                           SELECT p.id, t.id, 'GASTO', 1, %s, CURRENT_DATE, 'Efectivo', 'Otros Gastos', 1
+                             FROM (SELECT id FROM portfolios ORDER BY id LIMIT 1) p,
+                                  (SELECT id FROM third_parties ORDER BY id LIMIT 1) t
+                           RETURNING id, portfolio_id""", (f"test-h8-tx-{uuid.uuid4().hex[:8]}",))
+            tx, pid = cur.fetchone()
+
+            def version():
+                cur.execute("SELECT version FROM panel_version WHERE portfolio_id = %s", (pid,))
+                fila = cur.fetchone()
+                return fila[0] if fila else 0
+
+            antes = version()
+            cur.execute("SET CONSTRAINTS ALL IMMEDIATE")   # el trigger del INSERT corre aquí, como al commit
+            creada = version()
+            self.assertGreater(creada, antes, "al crear sube la versión de la empresa (NEW.portfolio_id)")
+            cur.execute("DELETE FROM transactions WHERE id = %s", (tx,))
+            self.assertGreater(version(), creada, "al borrar también (OLD.portfolio_id)")
+        finally:
+            conn.rollback()
+            put_conn(conn)
 
 
 if __name__ == "__main__":

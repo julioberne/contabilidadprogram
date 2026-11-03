@@ -95,10 +95,10 @@ CREATE OR REPLACE FUNCTION panel_tx_cambio() RETURNS trigger LANGUAGE plpgsql AS
 DECLARE corte bigint;
 BEGIN
     IF TG_OP IN ('INSERT', 'UPDATE') THEN
-        PERFORM panel_subir(NEW.portfolio_id);
+        PERFORM panel_subir(NEW.portfolio_id::integer);   -- portfolio_id es bigint en producción
     END IF;
     IF TG_OP = 'DELETE' OR (TG_OP = 'UPDATE' AND NEW.portfolio_id IS DISTINCT FROM OLD.portfolio_id) THEN
-        PERFORM panel_subir(OLD.portfolio_id);
+        PERFORM panel_subir(OLD.portfolio_id::integer);
     END IF;
     SELECT corte_id INTO corte FROM saldos_foto_meta WHERE id = 1;
     IF corte IS NOT NULL AND ((TG_OP IN ('UPDATE', 'DELETE') AND OLD.id <= corte)
