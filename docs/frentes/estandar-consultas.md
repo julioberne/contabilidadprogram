@@ -1,8 +1,7 @@
 # Frente: estándar de consultas escalables (todo FIN-SYS)
 
-**Estado:** ACTIVO — H0-H8 en producción y migrados (master `0f41849`, 3-nov-2026). Sin publicar: `91ef4ef`,
-`20a298f`, `59ff5a1` y el arreglo del trigger (solo script de migración, tests y docs: `publicar.cmd --sin-deploy`).
-Rama `claude/servidores-libro-mayor-9e4614`. **Sigue H9.**
+**Estado:** ACTIVO — H0-H8 en producción y migrados; arreglo del trigger publicado (master `fb5d0ce`, CI verde,
+3-nov-2026). Rama `claude/servidores-libro-mayor-9e4614`. **Sigue H9.**
 
 **Incidente 30-oct → 3-nov:** `migrate_panel_h7.py` llamaba `panel_subir(NEW.portfolio_id)` con un bigint y la función
 recibe integer: desde la migración de H7 fallaba TODA escritura en `transactions` (última TX buena: id 143, 30-oct
