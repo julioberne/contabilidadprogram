@@ -137,9 +137,15 @@ class TestSendPhoto(unittest.TestCase):
         self.assertEqual((nombre, contenido, mime), ("grafica.png", png, "image/png"))
 
     def test_fallo_devuelve_none_sin_lanzar(self):
-        with mock.patch.object(bot_telegram, "_client") as cli:
+        # La suite carga el .env: sin este parche el fallo simulado quedaba como
+        # envio_perdido en la bitácora REAL (7 avisos falsos, 26-oct a 3-nov).
+        import telegram_envio
+        with mock.patch.object(telegram_envio, "_anotar_perdido") as anotar, \
+             mock.patch.object(telegram_envio, "_ESPERAS_RED", (0, 0, 0)), \
+             mock.patch.object(bot_telegram, "_client") as cli:
             cli.post.side_effect = RuntimeError("sin red")
             self.assertIsNone(bot_telegram.send_photo("123", b"x"))
+        anotar.assert_called_once()
         with mock.patch.object(bot_telegram, "_client") as cli:
             cli.post.return_value = FakeRespuestaTG(status_code=413)
             self.assertIsNone(bot_telegram.send_photo("123", b"x"))

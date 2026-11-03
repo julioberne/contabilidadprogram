@@ -4,7 +4,8 @@
 - Puros (CI sin BD): delta en Decimal al centavo, lo que se suma es lo que se
   revierte; cuentas en orden ascendente de id; el saldo es lo último antes del
   commit, al crear y al borrar.
-- Contra la BD (se saltan sin DB_HOST): 200 pares A→B y B→A simultáneos sobre
+- Contra la BD (se saltan sin DB_HOST): los triggers del panel corren al commit
+  (tras migrate_h8.py); 200 pares A→B y B→A simultáneos sobre
   dos cuentas `test-h8-*` que se crean y se borran aquí, sin interbloqueo y sin
   perder un centavo.
 
@@ -212,6 +213,71 @@ class TestConcurrenciaReal(unittest.TestCase):
             conn.rollback()
             self.put_conn(conn)
         self.assertEqual(saldos, [Decimal("1000.00"), Decimal("1000.00")], "cada par se cancela exacto")
+
+
+def _triggers_al_commit():
+    if not os.environ.get("DB_HOST"):
+        return False
+    from fin_sys_core.db_pool import get_conn, put_conn
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT bool_and(tgdeferrable) FROM pg_trigger "
+                    "WHERE tgname IN ('panel_tx_cambio', 'panel_cuenta_cambio') AND NOT tgisinternal")
+        return bool(cur.fetchone()[0])
+    finally:
+        conn.rollback()
+        put_conn(conn)
+
+
+@unittest.skipUnless(_triggers_al_commit(), "requiere BD con migrate_h8.py")
+class TestTriggersAlCommit(unittest.TestCase):
+    """La versión del panel sube al hacer commit y no queda bloqueada mientras se
+    escribe. Solo toca una cuenta `test-h8-*` propia, que se borra al terminar."""
+
+    def setUp(self):
+        from fin_sys_core.db_pool import get_conn, put_conn
+        self.get_conn, self.put_conn = get_conn, put_conn
+        conn = get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("""INSERT INTO user_accounts (name, type, currency, initial_balance, current_balance)
+                           VALUES (%s, 'Efectivo', 'COP', 0, 0) RETURNING id""", (f"test-h8-v-{uuid.uuid4().hex[:8]}",))
+            self.cuenta = cur.fetchone()[0]
+            conn.commit()
+        finally:
+            put_conn(conn)
+
+    def tearDown(self):
+        conn = self.get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM user_accounts WHERE id = %s AND name LIKE 'test-h8-%%'", (self.cuenta,))
+            conn.commit()
+        finally:
+            self.put_conn(conn)
+
+    def test_la_version_sube_al_commit_sin_bloquear_antes(self):
+        escritor, otro = self.get_conn(), self.get_conn()
+        try:
+            co = otro.cursor()
+            co.execute("SELECT version FROM panel_version WHERE portfolio_id = 0")
+            antes = co.fetchone()[0]
+            otro.rollback()
+            escritor.cursor().execute("UPDATE user_accounts SET current_balance = current_balance + 1 WHERE id = %s",
+                                      (self.cuenta,))
+            # Con los triggers de H7 la fila 0 ya estaría tomada aquí y NOWAIT fallaría.
+            co.execute("SELECT version FROM panel_version WHERE portfolio_id = 0 FOR UPDATE NOWAIT")
+            self.assertEqual(co.fetchone()[0], antes, "antes del commit la versión no cambia")
+            otro.rollback()
+            escritor.commit()
+            co.execute("SELECT version FROM panel_version WHERE portfolio_id = 0")
+            self.assertGreater(co.fetchone()[0], antes, "al hacer commit sube")
+        finally:
+            escritor.rollback()
+            otro.rollback()
+            self.put_conn(escritor)
+            self.put_conn(otro)
 
 
 if __name__ == "__main__":
