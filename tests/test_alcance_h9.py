@@ -246,8 +246,12 @@ class TestTrinquete(unittest.TestCase):
                 for m in r.methods:
                     cls.rutas[(m, r.path)] = r
 
+    # Solo existe si hay frontend/dist (server.py); el CI no construye la web.
+    CONDICIONALES = {("GET", "/{full_path:path}")}
+
     def test_toda_ruta_clasificada_existe(self):
-        sobran = sorted(f"{m} {p}" for m, p in alcance.RUTAS if (m, p) not in self.rutas)
+        sobran = sorted(f"{m} {p}" for m, p in alcance.RUTAS
+                        if (m, p) not in self.rutas and (m, p) not in self.CONDICIONALES)
         self.assertEqual(sobran, [], "clasificadas en shared/alcance.py pero ya no existen")
 
     def test_la_dependencia_esta_en_todas_las_rutas(self):
