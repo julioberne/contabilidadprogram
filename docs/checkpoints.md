@@ -1329,3 +1329,54 @@ rebasada sobre `origin/master` (`aa99293`). Push: Andrés (`git push origin <ram
 ### Siguiente
 Push (Andrés) → deploy → sonda (`GET /api/analytics/export.xlsx` sin token: `401` = código nuevo, `404` =
 viejo) → Andrés abre un libro en Excel (CA-134-01) → 13.5-a: backend del organizador.
+
+## Checkpoint 2026-11-03 — Incidente: el trigger del panel (H7) frenaba toda escritura en `transactions`
+
+**Síntoma.** En Telegram, al confirmar: «El borrador #939 quedó en estado ERROR: function
+panel_subir(bigint) does not exist … PL/pgSQL function panel_tx_cambio() line 5 at PERFORM».
+
+**Causa.** `scripts/migrate_panel_h7.py` (aplicada el 30-oct) creó `panel_subir(pid integer)` y el trigger
+`panel_tx_cambio`, que la llama con `NEW.portfolio_id`. En producción `transactions.portfolio_id` es
+**bigint** (el código y `docs/full_schema_export.sql` dicen INTEGER) y Postgres no convierte bigint → integer
+al elegir una función. Toda escritura en `transactions` (confirmar en el bot; registrar, editar o borrar en la
+web) fallaba y se deshacía entera: nada quedó a medias.
+
+**Por qué no se vio.** Las pruebas de H7 y H8 contra la BD solo escribieron en `user_accounts`
+(`panel_subir(0)`, que es integer). Ninguna guardó una transacción.
+
+**Impacto.** Del 30-oct al 3-nov. 17 borradores en ERROR con ese mensaje: 897, 932-942 y 945-949; ninguno
+creó transacción (`confirmed_transaction_id` vacío). La bitácora del bot en la web no los muestra: la salida a
+ERROR de `confirmar_draft` (`fin_sys_core/bot_driver.py`, rama `except` tras `create_transaction`) marca el
+borrador sin `registrar(...)`; a la bitácora solo llega `confirmacion_fallida` (validación, `_revertir`).
+
+**Arreglo.**
+- BD (Andrés, Supabase → SQL Editor, 3-nov): `CREATE OR REPLACE FUNCTION panel_tx_cambio()` con
+  `NEW.portfolio_id::integer` y `OLD.portfolio_id::integer`, probado disparando el trigger sobre la última TX
+  dentro de un savepoint que se deshizo. Verificado: `pg_get_functiondef` contiene `::integer`; tipo = bigint.
+- Repo `fb5d0ce` (en master): el mismo cambio en `scripts/migrate_panel_h7.py` y `TestTriggerDeTransacciones`
+  en `tests/test_escritura_h8.py` (crea y borra una TX real dentro de una transacción que se deshace).
+
+**Pendiente.**
+1. Andrés: recuperar los 17. Paso 1 revisar repetidos (solo lectura); paso 2 volver a BORRADOR (no confirma
+   nada); después ✅ en la Bandeja a los buenos y descartar los repetidos.
+   ```sql
+   SELECT d.id, d.created_at::date, d.portfolio_name, d.payload->>'type', d.payload->>'amount',
+          d.payload->>'concept', d.payload->'third_party'->>'name', d.confirmed_transaction_id
+     FROM transaction_drafts d
+    WHERE d.status = 'ERROR' AND d.error LIKE '%panel_subir(bigint)%'
+    ORDER BY d.payload->>'amount', d.created_at;
+
+   UPDATE transaction_drafts SET status = 'BORRADOR', error = NULL, updated_at = NOW()
+    WHERE status = 'ERROR' AND confirmed_transaction_id IS NULL AND error LIKE '%panel_subir(bigint)%'
+   RETURNING id;
+   ```
+2. Propuesta SIN aprobar (frente del bot): tipo `confirmacion_error` en `fin_sys_core/bot_anomalias.py`;
+   `registrar(...)` en las dos salidas a ERROR de `confirmar_draft` (BD rechazó el guardado; TX sin asiento);
+   etiqueta corta en `frontend/src/bot/BotBitacoraPanel.jsx`; test sin BD; regla en SPEC 09 §5 «un error al
+   guardar nunca queda solo en el borrador: va a la bitácora»; opcional, SQL para cargar los 17 en la bitácora.
+
+**Lecciones.**
+- `docs/full_schema_export.sql` y los `CREATE TABLE` del código no reflejan los tipos reales de producción:
+  antes de escribir una función o trigger, leer `information_schema.columns` de la BD real.
+- En funciones de trigger, castear al tipo del parámetro (`::integer`) o declarar el parámetro como `bigint`.
+- Toda prueba de un trigger sobre una tabla debe escribir en ESA tabla (dentro de una transacción que se deshace).

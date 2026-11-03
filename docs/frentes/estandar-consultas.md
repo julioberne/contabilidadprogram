@@ -30,7 +30,8 @@ tope. Plan H0–H9 y 41 reglas (B/F/P): `docs/estandar-consultas-escalables.md` 
 ## Próximo paso
 0. **Andrés:** recuperar los 17 borradores en ERROR por `panel_subir(bigint)` (897, 932-942, 945-949): editarlo (reply
    en Telegram o Bandeja web) lo vuelve a BORRADOR, luego ✅. Y repasar si algo registrado en la web entre el 30-oct y
-   el 3-nov no quedó.
+   el 3-nov no quedó. Detalle, SQL para revisar repetidos y volver a BORRADOR, y lecciones: `docs/checkpoints.md` →
+   «Checkpoint 2026-11-03 — Incidente: el trigger del panel».
 1. **H9** (roles, alcance por empresa, cuotas activas), con plan previo para aprobación de Andrés. Leer: doc §6 fila H9
    y fila S1 de la tabla de riesgos; `routers/auth_guard.py` (≈49-102), `shared/admision.py`, `fin_sys_core/db_pool.py`.
    Toca BD (roles Postgres + tabla nueva de membresía usuario↔empresa): migración la corre Andrés. Criterio del doc:
