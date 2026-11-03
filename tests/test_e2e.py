@@ -28,7 +28,7 @@ BASE = os.environ.get("FINSYS_BASE", "http://127.0.0.1:8000")
 
 from routers.auth_guard import create_session_token  # noqa: E402
 
-TOKEN = create_session_token({"id": "e2e", "name": "Test E2E", "role": "admin"})
+TOKEN = create_session_token({"id": "e2e", "name": "Test E2E", "role": "admin", "is_superuser": True})  # ve todas (H9.1)
 HDRS = {"Content-Type": "application/json", "Authorization": f"Bearer {TOKEN}"}
 
 

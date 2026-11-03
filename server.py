@@ -19,7 +19,7 @@ if os.path.exists(".env"):
                 key, val = line_strip.split("=", 1)
                 os.environ[key.strip()] = val.strip()
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -64,11 +64,16 @@ async def lifespan(app):
     except Exception:
         pass
 
+from shared.alcance import verificar as verificar_alcance
+
 app = FastAPI(
     lifespan=lifespan,
     title="FIN-SYS OS v2.0 API Server",
     description="Backend modular e inteligente para el MVP de contabilidad retro-brutalista.",
-    version="2.0"
+    version="2.0",
+    # H9.1: cada usuario ve solo sus empresas. El dueño pasa sin consultas; para
+    # los demás, toda ruta no clasificada en shared/alcance.py responde 403.
+    dependencies=[Depends(verificar_alcance)],
 )
 
 # CORS dinámico: lee CORS_ORIGINS del entorno, fallback a * en desarrollo
@@ -154,6 +159,8 @@ app.include_router(third_party_accounts_router)  # Bot IA 09.G: medios de pago d
 app.include_router(bot_anomalias_router)  # Bot IA: 📓 bitácora de anomalías
 app.include_router(accounting_files_router)  # Análisis 13.5: organizador contable 📦
 app.include_router(compendios_router)  # Exportación 13.6: 🤝 compendio para el cliente (/c/<código>)
+from routers.alcance import router as alcance_router
+app.include_router(alcance_router)     # H9.1: qué empresas ve cada usuario
 
 
 # ==============================================================================

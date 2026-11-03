@@ -62,7 +62,9 @@ def _token_sesion():
     try:
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         from routers.auth_guard import create_session_token
-        return create_session_token({"id": "health", "name": "health_check", "role": "admin"})
+        # su: un script interno ve todas las empresas (alcance H9.1, shared/alcance.py)
+        return create_session_token({"id": "health", "name": "health_check", "role": "admin",
+                                     "is_superuser": True})
     except Exception:
         return None
 

@@ -72,7 +72,9 @@ def _token_sesion():
         if ROOT not in sys.path:
             sys.path.insert(0, ROOT)
         from routers.auth_guard import create_session_token
-        return create_session_token({"id": "maint", "name": "session_maintenance", "role": "admin"})
+        # su: un script interno ve todas las empresas (alcance H9.1, shared/alcance.py)
+        return create_session_token({"id": "maint", "name": "session_maintenance", "role": "admin",
+                                     "is_superuser": True})
     except Exception:
         return ""
 

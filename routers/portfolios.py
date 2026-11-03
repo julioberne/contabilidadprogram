@@ -26,7 +26,8 @@ def get_portfolios(_u: dict = Depends(require_auth)):
                 {"id": 2, "name": "Negocio B", "industry_type": "ESTANDAR"},
                 {"id": 3, "name": "Finanzas Personales", "industry_type": "ESTANDAR"}
             ]
-        return ports
+        from shared.alcance import filtrar_portafolios
+        return filtrar_portafolios(_u, ports)   # H9.1: cada usuario ve solo sus empresas
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
